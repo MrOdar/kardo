@@ -1,0 +1,29 @@
+# .gitignore para SmartKardex AI
+
+# Archivos de compilación Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Archivos de configuración local y secretos (NUNCA subir a Git)
+application-local.properties
+.env
+*.env.local
+
+# Archivos temporales de Tomcat
+/tmp/
+*.tmp
