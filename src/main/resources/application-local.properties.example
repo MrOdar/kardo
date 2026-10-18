@@ -1,0 +1,11 @@
+# Copia este archivo como application-local.properties (ignorado por Git)
+# y ejecuta con: -Dspring.profiles.active=local
+spring.datasource.url=jdbc:postgresql://localhost:5432/kardo
+spring.datasource.username=postgres
+spring.datasource.password=postgres
+
+kardo.security.jwt.secret=cambia-esta-clave-por-al-menos-32-bytes-aleatorios
+kardo.security.cors.allowed-origins=http://localhost:5173
+kardo.keepalive.enabled=false
+
+logging.level.com.kardo=DEBUG

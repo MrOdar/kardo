@@ -27,3 +27,6 @@ application-local.properties
 # Archivos temporales de Tomcat
 /tmp/
 *.tmp
+
+# Maven wrapper (se usa la instalacion local de Maven)
+.mvn/wrapper/maven-wrapper.jar
