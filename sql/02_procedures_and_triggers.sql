@@ -1,7 +1,7 @@
-# ==============================================================================
-# SmartKardex AI — 02_procedures_and_triggers.sql
-# Procedimientos Transaccionales FEFO, Control de Mermas y Escenario Demo
-# ==============================================================================
+-- ==============================================================================
+-- SmartKardex AI — 02_procedures_and_triggers.sql
+-- Procedimientos Transaccionales FEFO, Control de Mermas y Escenario Demo
+-- ==============================================================================
 
 -- 1. Procedimiento de Salida FEFO Atómica
 CREATE OR REPLACE PROCEDURE sp_process_fefo_sale(

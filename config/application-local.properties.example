@@ -1,0 +1,17 @@
+# Plantilla de configuracion local.
+#
+# Copiala como config/application-local.properties (ignorado por Git) y arranca
+# con --spring.profiles.active=local. Spring Boot lee ./config/ en tiempo de
+# ejecucion, de modo que estas credenciales NUNCA entran en el jar desplegable.
+#
+# Supabase > Project Settings > Database > Connection string > JDBC
+spring.datasource.url=jdbc:postgresql://aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+spring.datasource.username=postgres.<project-ref>
+spring.datasource.password=<password>
+
+# Minimo 32 bytes: HS256 exige una clave de 256 bits (RFC 7518).
+kardo.security.jwt.secret=<minimo-32-caracteres-aleatorios>
+
+kardo.security.cors.allowed-origins=http://localhost:5173
+kardo.keepalive.enabled=false
+logging.level.com.kardo=DEBUG

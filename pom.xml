@@ -118,6 +118,16 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <!-- Guarda extra: la configuracion local vive en ./config y jamas
+                     debe viajar dentro del jar desplegado en Render. -->
+                <excludes>
+                    <exclude>application-local.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -30,9 +30,32 @@ public class JwtService {
     private final SecretKey signingKey;
     private final SecurityProperties.Jwt properties;
 
+    /** HS256 exige una clave de 256 bits (RFC 7518, seccion 3.2). */
+    private static final int MIN_SECRET_BYTES = 32;
+
     public JwtService(SecurityProperties securityProperties) {
         this.properties = securityProperties.jwt();
-        this.signingKey = Keys.hmacShaKeyFor(this.properties.secret().getBytes(StandardCharsets.UTF_8));
+        byte[] secret = resolveSecret(this.properties.secret()).getBytes(StandardCharsets.UTF_8);
+        this.signingKey = Keys.hmacShaKeyFor(secret);
+    }
+
+    /**
+     * Valida el secreto antes de derivar la clave.
+     *
+     * <p>Un {@code JWT_SECRET} ausente llega aqui como el literal
+     * {@code "${JWT_SECRET}"}, y jjwt lo rechaza con un error sobre bits que no
+     * dice nada del despliegue. Este mensaje nombra la variable que falta.
+     */
+    private static String resolveSecret(String secret) {
+        if (secret == null || secret.isBlank() || secret.startsWith("${")) {
+            throw new IllegalStateException(
+                    "Falta la variable de entorno JWT_SECRET (o kardo.security.jwt.secret).");
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "JWT_SECRET debe tener al menos " + MIN_SECRET_BYTES + " bytes para firmar con HS256.");
+        }
+        return secret;
     }
 
     public String issueToken(String subject, Long storeId, List<String> roles) {

@@ -1,7 +1,7 @@
-# ==============================================================================
-# SmartKardex AI — 01_schema_ddl_3nf.sql
-# PostgreSQL 15 Relational DDL (3NF) con Extensiones, Invariantes y RLS
-# ==============================================================================
+-- ==============================================================================
+-- SmartKardex AI — 01_schema_ddl_3nf.sql
+-- PostgreSQL 15 Relational DDL (3NF) con Extensiones, Invariantes y RLS
+-- ==============================================================================
 
 -- 1. Extensiones requeridas para Entity Matching
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
