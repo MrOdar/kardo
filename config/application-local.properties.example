@@ -15,3 +15,6 @@ kardo.security.jwt.secret=<minimo-32-caracteres-aleatorios>
 kardo.security.cors.allowed-origins=http://localhost:5173
 kardo.keepalive.enabled=false
 logging.level.com.kardo=DEBUG
+
+# Google AI Studio > Get API key. Necesaria para /api/v1/receipts/scan.
+kardo.gemini.api-key=<api-key>

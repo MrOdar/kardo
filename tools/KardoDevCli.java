@@ -46,7 +46,9 @@ public class KardoDevCli {
         switch (args[0]) {
             case "sql" -> execute(Files.readString(Path.of(args[1]), StandardCharsets.UTF_8));
             case "exec" -> execute(args[1]);
-            case "query" -> query(args[1]);
+            // query <sql> [setupSql]: el setup corre antes, en la MISMA conexion,
+            // para poder reproducir ajustes de sesion como set_config.
+            case "query" -> query(args[1], args.length > 2 ? args[2] : null);
             case "excel" -> writeSampleWorkbook(args[1]);
             case "excel-dirty" -> writeDirtyWorkbook(args[1], Integer.parseInt(args[2]));
             case "token" -> System.out.println(issueToken(Long.parseLong(args[1])));
@@ -112,11 +114,15 @@ public class KardoDevCli {
         }
     }
 
-    private static void query(String sql) throws Exception {
+    private static void query(String sql, String setupSql) throws Exception {
         try (Connection connection = open();
-             Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery(sql)) {
+             Statement statement = connection.createStatement()) {
 
+            if (setupSql != null && !setupSql.isBlank()) {
+                statement.execute(setupSql);
+            }
+
+            ResultSet rs = statement.executeQuery(sql);
             ResultSetMetaData meta = rs.getMetaData();
             StringBuilder header = new StringBuilder();
             for (int i = 1; i <= meta.getColumnCount(); i++) {

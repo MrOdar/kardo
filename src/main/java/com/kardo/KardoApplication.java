@@ -3,7 +3,9 @@ package com.kardo;
 import com.kardo.config.GeminiProperties;
 import com.kardo.config.IngestProperties;
 import com.kardo.config.KeepAliveProperties;
+import com.kardo.config.MatchingProperties;
 import com.kardo.config.SecurityProperties;
+import com.kardo.config.VisionProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -19,6 +21,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @EnableConfigurationProperties({
         SecurityProperties.class,
+        VisionProperties.class,
+        MatchingProperties.class,
         KeepAliveProperties.class,
         IngestProperties.class,
         GeminiProperties.class

@@ -1,7 +1,6 @@
 package com.kardo.repository;
 
 import com.kardo.dto.SpreadsheetRowDto;
-import com.kardo.exception.StoreNotFoundException;
 import java.sql.Array;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -9,7 +8,6 @@ import java.sql.Types;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -56,23 +54,16 @@ public class InventoryIngestRepository {
             """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final StoreRepository storeRepository;
 
-    public InventoryIngestRepository(JdbcTemplate jdbcTemplate) {
+    public InventoryIngestRepository(JdbcTemplate jdbcTemplate, StoreRepository storeRepository) {
         this.jdbcTemplate = jdbcTemplate;
+        this.storeRepository = storeRepository;
     }
 
     /** La tienda determina la compania duena del catalogo (products es 3NF por company_id). */
     public long findCompanyIdByStore(long storeId) {
-        try {
-            Long companyId = jdbcTemplate.queryForObject(
-                    "SELECT company_id FROM stores WHERE store_id = ?", Long.class, storeId);
-            if (companyId == null) {
-                throw new StoreNotFoundException(storeId);
-            }
-            return companyId;
-        } catch (EmptyResultDataAccessException ex) {
-            throw new StoreNotFoundException(storeId);
-        }
+        return storeRepository.findCompanyIdByStore(storeId);
     }
 
     /**

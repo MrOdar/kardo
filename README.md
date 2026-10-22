@@ -152,3 +152,93 @@ Resultados verificados en una base Supabase real (tienda 999):
 
 > ⚠️ `sql/01_schema_ddl_3nf.sql` comienza con `DROP TABLE ... CASCADE`: aplicarlo
 > sobre una base con datos los borra. Úsalo solo para inicializar.
+
+---
+
+## 👁️ Visión multimodal y conciliación documental (Sprint 3)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/v1/receipts/scan?store_id={id}` | `multipart/form-data` con la foto de la guía (parte `file`) |
+| `POST` | `/api/v1/receipts/confirm` | JSON con la conciliación validada por el operario |
+
+`scan` **solo lee**: imagen → Gemini → matching. `confirm` es el único que escribe,
+y lo hace en una sola transacción sobre `goods_receipt_headers`,
+`goods_receipt_items` e `inventory_batches`. Entre ambas peticiones no hay estado
+en el servidor.
+
+**Preprocesado (`ImageProcessingService`):** lado mayor a 1800 px con
+`VALUE_INTERPOLATION_BICUBIC` y JPEG al 85%. Nunca amplía una imagen que ya cabe,
+y aplana la transparencia sobre blanco (un fondo negro arruinaría el OCR).
+
+**Resiliencia (`GeminiVisionClient`):** la clave viaja en la cabecera
+`x-goog-api-key`, nunca en la URL. Ante `429` (cuota) o `503` (sobrecarga) conmuta
+al siguiente modelo de `kardo.gemini.fallback-models`; un `4xx` de configuración
+no se reintenta. Sin cadena disponible devuelve `503`; si la respuesta no es el
+JSON pactado, `502`.
+
+### El detalle que decide si el índice GIN se usa
+
+El operador debe llevar la columna indexada a la izquierda. Medido en la base real:
+
+```
+name %> 'CERV PILSEN 650'   ->  Bitmap Index Scan on idx_products_name_trgm
+'CERV PILSEN 650' %> name   ->  Seq Scan  (ni siquiera con enable_seqscan=off)
+```
+
+**Y un segundo detalle, menos evidente:** `%>` no compara contra el umbral de la
+aplicación sino contra el GUC `pg_trgm.word_similarity_threshold`, que vale **0.6**
+por defecto. El caso insignia del spec, `"CERV PILSEN 650"` frente a
+`"Cerveza Pilsen Callao Botella 650ml"`, tiene similitud **0.550**: con el umbral
+de fábrica la línea se descartaba en el `WHERE` y llegaba como producto nuevo
+aunque el catálogo sí lo tuviera. `SkuMatchingRepository` alinea ese GUC con
+`kardo.matching.min-score` mediante `set_config(..., is_local => true)` dentro de
+la transacción, de modo que no contamina otras sesiones del pool.
+
+Verificado contra la base real (tienda 999):
+
+| Caso | Resultado |
+|---|---|
+| `CERV PILSEN 650` | `product_id` 4 — score **0.550** |
+| `LECHE GLORIA 400` | `product_id` 5 — score 0.765 |
+| `TORNILLO INOXIDABLE M8` | `product_id` **null** — lo asigna el operario |
+| `confirm` con 3 líneas (24/24, 40/48, 0/10) | `200` — 3 líneas, 2 lotes, discrepancias `-8` y `-10` |
+| `confirm` del mismo documento | `409` por `uq_grn_store` |
+| `scan` con un archivo que no es imagen | `400` |
+| `scan` sin `GEMINI_API_KEY` válida | `502` (Google responde 403, no se reintenta) |
+| `scan` sin token | `401` |
+
+El matching se hace con `word_similarity`, que es sensible al orden de los
+argumentos: `word_similarity(aguja, pajar)`. La aguja es el texto del documento y
+el pajar el nombre del catálogo.
+
+### Prueba con Gemini real (ciclo completo)
+
+Con una API key real y un documento de prueba, el flujo completo
+foto → extracción → matching → confirmación → inventario quedó verificado:
+
+```json
+{"supplierTaxId":"20548796321","supplierName":"DISTRIBUIDORA ANDINA S.A.C.",
+ "documentNumber":"T003-0004871","issueDate":"2026-10-12","modelUsed":"gemini-3.8-flash",
+ "unmatchedLines":0,"lines":[
+  {"descriptionRaw":"CERV PILSEN 650","productId":4,"matchScore":0.55,"batchCode":"L-2611A","expirationDate":"2027-08-15"},
+  {"descriptionRaw":"LECHE GLORIA 400G","productId":5,"matchScore":0.72},
+  {"descriptionRaw":"YOGURT FRESA 1L","productId":2,"matchScore":0.81},
+  {"descriptionRaw":"GALLETA RELL CHOC X6","productId":3,"matchScore":0.67},
+  {"descriptionRaw":"ATUN FLORIDA LATA","productId":9,"matchScore":1.0}]}
+```
+
+`confirm` sobre esa conciliación (una línea recibida incompleta, 40 de 48) devolvió
+`5 líneas, 5 lotes, discrepancia en la línea 2`, y los lotes entraron en el orden
+FEFO correcto por fecha de vencimiento.
+
+Con una foto que **no** es un documento (una imagen de productos), el modelo
+devolvió todos los campos nulos y cero ítems en lugar de inventarlos: es el
+comportamiento que exige el prompt y protege el inventario de datos alucinados.
+
+> ⚠️ **Modelos de Gemini:** `gemini-2.0-flash` fue retirado por Google y responde
+> `404 "This model is no longer available"`. La configuración apunta ahora a
+> `gemini-3.8-flash` con respaldos `gemini-3.5-flash` y `gemini-2.5-flash`.
+> Por eso el cliente trata el `404` como motivo para pasar al siguiente modelo:
+> un modelo retirado dejaría la recepción caída hasta un redespliegue.
+> Conviene actualizar también `docs/ARCHITECTURE_SPEC.md`, que aún nombra 2.0.

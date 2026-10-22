@@ -30,3 +30,6 @@ application-local.properties
 
 # Maven wrapper (se usa la instalacion local de Maven)
 .mvn/wrapper/maven-wrapper.jar
+
+# Fotos de guias de remision reales: son datos de negocio del cliente
+samples/

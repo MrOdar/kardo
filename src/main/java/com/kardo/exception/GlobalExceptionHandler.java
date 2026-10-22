@@ -3,6 +3,7 @@ package com.kardo.exception;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -31,6 +32,34 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleCorruptSpreadsheet(CorruptSpreadsheetException ex) {
         log.warn("Ingesta abortada tras {} filas corruptas", ex.getCorruptRows());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+    }
+
+    @ExceptionHandler({UnreadableImageException.class, InvalidReceiptLineException.class})
+    public ResponseEntity<ApiError> handleBadRequest(RuntimeException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    /** Toda la cadena de modelos de vision esta saturada: reintentar mas tarde. */
+    @ExceptionHandler(GeminiUnavailableException.class)
+    public ResponseEntity<ApiError> handleGeminiUnavailable(GeminiUnavailableException ex) {
+        log.warn("Vision IA no disponible: {}", ex.getMessage());
+        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
+    }
+
+    /** La IA respondio algo que no es la guia pactada: fallo aguas arriba. */
+    @ExceptionHandler(GeminiExtractionException.class)
+    public ResponseEntity<ApiError> handleGeminiExtraction(GeminiExtractionException ex) {
+        log.warn("Extraccion documental fallida: {}", ex.getMessage());
+        return build(HttpStatus.BAD_GATEWAY,
+                "No se pudo interpretar el documento. Reintenta con una foto mas nitida.");
+    }
+
+    /** Guia ya registrada: uq_grn_store impide duplicar la misma guia en la tienda. */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ApiError> handleDuplicateKey(DuplicateKeyException ex) {
+        log.warn("Violacion de unicidad: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT,
+                "El documento ya fue registrado para esta tienda.");
     }
 
     @ExceptionHandler(StoreNotFoundException.class)
