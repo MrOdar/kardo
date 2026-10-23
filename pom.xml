@@ -23,7 +23,7 @@
         <fastexcel.version>0.18.4</fastexcel.version>
         <jjwt.version>0.12.6</jjwt.version>
         <pdfbox.version>3.0.3</pdfbox.version>
-        <springdoc.version>2.6.0</springdoc.version>
+        <springdoc.version>3.1.1</springdoc.version>
         <!-- Spring Boot 4 saco Testcontainers de su BOM: lo que antes venia de
              balde ahora es una decision explicita del proyecto. -->
         <testcontainers.version>1.21.4</testcontainers.version>
