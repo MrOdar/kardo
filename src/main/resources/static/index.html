@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kardo — Smart Inventory &amp; FEFO Engine</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+          mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace']
+        },
+        colors: {
+          ink:   { DEFAULT: '#0E2A26', soft: '#2C4B46', faint: '#7C918D' },
+          shell: { DEFAULT: '#F2F4F3', line: '#D9E0DE' },
+          risk:  { red: '#C03028', amber: '#B57514', green: '#2F7A4F' }
+        }
+      }
+    }
+  };
+</script>
+<style>
+  :root { color-scheme: light; }
+  body { background: #F2F4F3; }
+  .num { font-variant-numeric: tabular-nums; }
+  /* El filete de la izquierda codifica el estado del lote: el color solo
+     aparece donde hay riesgo que comunicar. */
+  .state-red    { border-left-color: #C03028; }
+  .state-amber  { border-left-color: #B57514; }
+  .state-green  { border-left-color: #2F7A4F; }
+  .state-expired{ border-left-color: #0E2A26; }
+  [contenteditable]:focus { outline: 2px solid #0E2A26; outline-offset: -2px; background: #fff; }
+  .dropzone-active { background: #E7EDEB; border-color: #0E2A26; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body class="font-sans text-ink antialiased">
+
+<header class="sticky top-0 z-30 bg-ink text-shell">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
+    <div class="flex items-baseline gap-3">
+      <span class="text-xl font-bold tracking-tight">Kardo</span>
+      <span class="hidden text-sm text-shell/70 sm:inline">Smart Inventory &amp; FEFO Engine</span>
+    </div>
+
+    <div class="ml-auto flex items-center gap-4">
+      <p id="connection" class="flex items-center gap-2 text-sm text-shell/80">
+        <span id="connection-dot" class="h-2 w-2 rounded-full bg-shell/40"></span>
+        <span id="connection-text">Conectando…</span>
+      </p>
+      <button id="btn-demo"
+              class="inline-flex items-center gap-2 rounded bg-shell px-4 py-2 text-sm font-semibold text-ink
+                     hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-shell disabled:cursor-not-allowed disabled:opacity-60">
+        <svg id="demo-spinner" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/>
+          <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span id="demo-label">Restaurar tienda demo</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="mx-auto max-w-6xl px-4 pb-24 sm:px-6">
+
+  <!-- ───────────── Panel 1: lo que vence primero ───────────── -->
+  <section aria-labelledby="fefo-title" class="pt-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h1 id="fefo-title" class="text-2xl font-bold tracking-tight">Lo que vence primero</h1>
+        <p class="mt-1 max-w-prose text-sm text-ink-soft">
+          Orden exacto en que el motor FEFO entregará la mercadería de la tienda demo.
+        </p>
+      </div>
+      <dl class="flex flex-wrap gap-x-8 gap-y-3">
+        <div>
+          <dt class="text-sm text-ink-faint">Vence en 48 h</dt>
+          <dd id="m-red" class="num text-2xl font-bold text-risk-red">—</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-ink-faint">Vence en 5 días</dt>
+          <dd id="m-amber" class="num text-2xl font-bold text-risk-amber">—</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-ink-faint">Valor en riesgo</dt>
+          <dd id="m-value" class="num text-2xl font-bold">—</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-ink-faint">Líneas descuadradas</dt>
+          <dd id="m-discrepancy" class="num text-2xl font-bold">—</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="mt-6 border-t border-shell-line">
+      <ul id="fefo-queue" class="divide-y divide-shell-line">
+        <li class="py-10 text-center text-sm text-ink-faint">
+          Pulsa <strong class="font-semibold text-ink">Restaurar tienda demo</strong> para sembrar el escenario.
+        </li>
+      </ul>
+      <p id="fefo-footer" class="hidden border-t border-shell-line pt-3 text-sm text-ink-faint">
+        <span id="m-active">0</span> lotes activos · <span id="m-inventory">S/ 0.00</span> en inventario
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────── Panel 2: ingesta de Excel ───────────── -->
+  <section aria-labelledby="ingest-title" class="mt-16 border-t border-shell-line pt-10">
+    <h2 id="ingest-title" class="text-xl font-bold tracking-tight">Cargar inventario desde Excel</h2>
+    <p class="mt-1 max-w-prose text-sm text-ink-soft">
+      El archivo se procesa en streaming. Las filas que no pasan la compuerta de calidad vuelven aquí
+      para corregirlas sin volver a subir nada.
+    </p>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div id="dropzone"
+           class="flex min-h-[132px] cursor-pointer flex-col items-center justify-center gap-2 rounded
+                  border-2 border-dashed border-shell-line bg-white px-6 py-8 text-center transition-colors
+                  hover:border-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
+           tabindex="0" role="button" aria-describedby="ingest-title">
+        <p class="font-semibold">Arrastra tu archivo .xlsx</p>
+        <p class="text-sm text-ink-faint">o haz clic para elegirlo · máximo 10 MB</p>
+        <input id="file-excel" type="file" accept=".xlsx" class="sr-only">
+      </div>
+
+      <dl id="ingest-summary" class="hidden content-start gap-3 rounded border border-shell-line bg-white p-4 text-sm">
+        <div class="flex justify-between gap-4">
+          <dt class="text-ink-faint">Filas leídas</dt><dd id="s-read" class="num font-semibold">0</dd>
+        </div>
+        <div class="flex justify-between gap-4">
+          <dt class="text-ink-faint">Lotes creados</dt><dd id="s-inserted" class="num font-semibold text-risk-green">0</dd>
+        </div>
+        <div class="flex justify-between gap-4">
+          <dt class="text-ink-faint">En cuarentena</dt><dd id="s-quarantined" class="num font-semibold text-risk-red">0</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div id="quarantine" class="mt-8 hidden">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h3 class="text-lg font-semibold">Filas en cuarentena</h3>
+          <p class="mt-1 text-sm text-ink-soft">Edita las celdas marcadas y vuelve a enviarlas.</p>
+        </div>
+        <button id="btn-bulkfix"
+                class="rounded bg-ink px-4 py-2 text-sm font-semibold text-shell hover:bg-ink-soft
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                       focus-visible:outline-ink disabled:opacity-60">
+          Guardar correcciones
+        </button>
+      </div>
+      <div class="mt-4 overflow-x-auto border border-shell-line bg-white">
+        <table class="w-full border-collapse text-sm">
+          <thead class="bg-shell text-left">
+            <tr class="text-ink-soft">
+              <th class="px-3 py-2 font-semibold">Fila</th>
+              <th class="px-3 py-2 font-semibold">SKU</th>
+              <th class="px-3 py-2 font-semibold">Nombre</th>
+              <th class="px-3 py-2 font-semibold">Categoría</th>
+              <th class="px-3 py-2 font-semibold">Costo</th>
+              <th class="px-3 py-2 font-semibold">Precio</th>
+              <th class="px-3 py-2 font-semibold">Lote</th>
+              <th class="px-3 py-2 font-semibold">Vence</th>
+              <th class="px-3 py-2 font-semibold">Cantidad</th>
+              <th class="px-3 py-2 font-semibold">Qué corregir</th>
+            </tr>
+          </thead>
+          <tbody id="quarantine-rows" class="divide-y divide-shell-line"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── Panel 3: recepción documental ───────────── -->
+  <section aria-labelledby="scan-title" class="mt-16 border-t border-shell-line pt-10">
+    <h2 id="scan-title" class="text-xl font-bold tracking-tight">Recibir una guía de remisión</h2>
+    <p class="mt-1 max-w-prose text-sm text-ink-soft">
+      Toma la foto del documento. La visión multimodal extrae las líneas y las cruza contra el catálogo;
+      tú confirmas lo que realmente llegó.
+    </p>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div>
+        <div id="scan-dropzone"
+             class="flex min-h-[132px] cursor-pointer flex-col items-center justify-center gap-2 rounded
+                    border-2 border-dashed border-shell-line bg-white px-6 py-8 text-center transition-colors
+                    hover:border-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
+             tabindex="0" role="button">
+          <p class="font-semibold">Foto de la guía</p>
+          <p class="text-sm text-ink-faint">JPEG o PNG</p>
+          <input id="file-scan" type="file" accept="image/jpeg,image/png" class="sr-only">
+        </div>
+        <img id="scan-preview" alt="Vista previa de la guía cargada"
+             class="mt-4 hidden w-full border border-shell-line bg-white object-contain">
+      </div>
+
+      <div>
+        <div id="scan-head" class="hidden border border-shell-line bg-white p-4">
+          <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <div class="flex gap-2"><dt class="text-ink-faint">Proveedor</dt><dd id="h-supplier" class="font-semibold">—</dd></div>
+            <div class="flex gap-2"><dt class="text-ink-faint">RUC</dt><dd id="h-ruc" class="num font-semibold">—</dd></div>
+            <div class="flex gap-2"><dt class="text-ink-faint">Documento</dt><dd id="h-doc" class="num font-semibold">—</dd></div>
+            <div class="flex gap-2"><dt class="text-ink-faint">Emisión</dt><dd id="h-date" class="num font-semibold">—</dd></div>
+            <div class="flex gap-2 sm:col-span-2">
+              <dt class="text-ink-faint">Leída con</dt><dd id="h-model" class="font-semibold">—</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div id="scan-table" class="mt-4 hidden overflow-x-auto border border-shell-line bg-white">
+          <table class="w-full border-collapse text-sm">
+            <thead class="bg-shell text-left">
+              <tr class="text-ink-soft">
+                <th class="px-3 py-2 font-semibold">En el documento</th>
+                <th class="px-3 py-2 font-semibold">Producto del catálogo</th>
+                <th class="px-3 py-2 font-semibold">Confianza</th>
+                <th class="px-3 py-2 font-semibold">Facturado</th>
+                <th class="px-3 py-2 font-semibold">Recibido</th>
+                <th class="px-3 py-2 font-semibold">Lote</th>
+                <th class="px-3 py-2 font-semibold">Vence</th>
+              </tr>
+            </thead>
+            <tbody id="scan-rows" class="divide-y divide-shell-line"></tbody>
+          </table>
+        </div>
+
+        <div id="scan-actions" class="mt-4 hidden items-center justify-between gap-4">
+          <p id="scan-note" class="text-sm text-ink-soft"></p>
+          <button id="btn-confirm"
+                  class="rounded bg-ink px-4 py-2 text-sm font-semibold text-shell hover:bg-ink-soft
+                         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                         focus-visible:outline-ink disabled:opacity-60">
+            Confirmar recepción y crear lotes
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Avisos: una sola región viva para todo el estado de la aplicación. -->
+<div id="toast" class="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4"
+     role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

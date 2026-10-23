@@ -50,6 +50,14 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         // Emision de tokens
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/**").permitAll()
+                        // La SPA se sirve desde el mismo contenedor y debe cargar
+                        // antes de que exista ningun token.
+                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/favicon.ico",
+                                "/assets/**", "/css/**", "/js/**").permitAll()
+                        // Puerta de entrada del evaluador: no tiene credenciales
+                        // todavia, y esta llamada es justamente la que se las da.
+                        // Solo puede tocar la tienda demo (999), nunca datos reales.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/demo/reset").permitAll()
                         // El preflight de CORS nunca lleva cabecera Authorization
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

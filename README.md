@@ -242,3 +242,45 @@ comportamiento que exige el prompt y protege el inventario de datos alucinados.
 > Por eso el cliente trata el `404` como motivo para pasar al siguiente modelo:
 > un modelo retirado dejaría la recepción caída hasta un redespliegue.
 > Conviene actualizar también `docs/ARCHITECTURE_SPEC.md`, que aún nombra 2.0.
+
+---
+
+## 🖥️ Interfaz web y modo demo (Sprint 4)
+
+La SPA se sirve desde el propio contenedor en `/` (`src/main/resources/static/`),
+con Tailwind por CDN y JavaScript sin framework. Arranca la app y abre
+`http://localhost:8080/`.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/v1/demo/reset` | **Público.** Ejecuta `CALL sp_reset_demo_environment()` y devuelve el token JWT de la tienda 999 más el tablero |
+| `GET` | `/api/v1/demo/dashboard` | Métricas del semáforo FEFO |
+| `GET` | `/api/v1/demo/fefo-queue?limit=n` | Lotes activos en el orden exacto en que FEFO los entregará |
+| `GET` | `/api/v1/products?store_id={id}` | Catálogo para el selector de SKU |
+
+`/demo/reset` es el único endpoint público que escribe: es la puerta de entrada
+del evaluador, que todavía no tiene credenciales, y solo puede tocar la tienda 999.
+
+> ⚠️ `sp_reset_demo_environment()` **borra** los lotes, guías y ventas de la
+> tienda 999 antes de resembrar. Es su función, pero conviene saberlo antes de
+> pulsar el botón sobre datos que quieras conservar.
+
+### Decisiones de interfaz
+- **El héroe es la cola FEFO**, no una fila de tarjetas KPI: lo primero que ve el
+  operario es qué vence antes y cuánto dinero hay en juego.
+- **El color solo aparece donde codifica riesgo.** El filete izquierdo de cada
+  lote es rojo (≤48 h), ámbar (≤5 días) o verde; el resto de la pantalla es tinta
+  fría sobre papel. Nada decorativo compite con la alerta.
+- **La cuarentena resalta la celda culpable**, no la fila entera, para que el
+  operario sepa exactamente qué corregir.
+- **El botón de confirmar permanece deshabilitado** mientras alguna línea de la
+  guía no tenga SKU asignado: impide imputar mercadería al producto equivocado.
+
+### Verificado en el navegador contra Supabase y Gemini reales
+| Paso | Resultado |
+|---|---|
+| Restaurar tienda demo | 3 lotes sembrados: 2 d (rojo), 5 d (ámbar), 30 d · S/ 143.50 en riesgo |
+| Cuarentena: editar costo y guardar | 1 fila guardada, 1 revalidada y rechazada en servidor |
+| Foto de guía → extracción | RUC, documento, fecha y 3 líneas mapeadas (scores 0.67–0.81) |
+| Ajustar recibido (36→30) y confirmar | 3 lotes creados, tablero actualizado solo, descuadre registrado |
+| Archivo que no es Excel | HTTP 422 con mensaje legible en pantalla |
