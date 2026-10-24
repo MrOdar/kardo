@@ -1,10 +1,9 @@
 package com.kardo.web;
 
-import com.kardo.config.SecurityProperties;
 import com.kardo.dto.DemoDashboardDto;
 import com.kardo.dto.DemoResetResponseDto;
 import com.kardo.repository.DemoRepository;
-import com.kardo.security.JwtService;
+import com.kardo.security.AuthenticationService;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -30,19 +29,15 @@ public class DemoController {
 
     private static final Logger log = LoggerFactory.getLogger(DemoController.class);
 
-    private static final String DEMO_SUBJECT = "demo@kardo.pe";
-    private static final List<String> DEMO_ROLES = List.of("ROLE_OPERATOR", "ROLE_MANAGER");
+    /** Gerente sembrado por {@code sql/03_users_and_auth.sql} en la tienda demo. */
+    private static final String DEMO_USER_EMAIL = "demo@kardo.pe";
 
     private final DemoRepository demoRepository;
-    private final JwtService jwtService;
-    private final SecurityProperties securityProperties;
+    private final AuthenticationService authenticationService;
 
-    public DemoController(DemoRepository demoRepository,
-                          JwtService jwtService,
-                          SecurityProperties securityProperties) {
+    public DemoController(DemoRepository demoRepository, AuthenticationService authenticationService) {
         this.demoRepository = demoRepository;
-        this.jwtService = jwtService;
-        this.securityProperties = securityProperties;
+        this.authenticationService = authenticationService;
     }
 
     /**
@@ -56,7 +51,10 @@ public class DemoController {
     public ResponseEntity<DemoResetResponseDto> reset() {
         demoRepository.resetDemoEnvironment();
 
-        String token = jwtService.issueToken(DEMO_SUBJECT, DemoRepository.DEMO_STORE_ID, DEMO_ROLES);
+        // La sesion sale del usuario demo real de la tabla users, no de una
+        // identidad inventada: lo que la auditoria registre sera una persona
+        // que existe en la base.
+        var session = authenticationService.openDemoSession(DEMO_USER_EMAIL, DemoRepository.DEMO_STORE_ID);
         DemoDashboardDto dashboard = demoRepository.loadDashboard();
 
         log.info("Escenario demo reiniciado: {} lotes activos, {} en alerta roja",
@@ -65,12 +63,11 @@ public class DemoController {
         return ResponseEntity.ok(new DemoResetResponseDto(
                 "Tienda demo restaurada correctamente.",
                 DemoRepository.DEMO_STORE_ID,
-                token,
-                securityProperties.jwt().expiration().toSeconds(),
+                session,
                 dashboard));
     }
 
-    /** Metricas del semaforo FEFO para el tablero. */
+    /** Metricas del semaforo FEFO para el tablero de la tienda demo. */
     @GetMapping("/dashboard")
     public ResponseEntity<DemoDashboardDto> dashboard() {
         return ResponseEntity.ok(demoRepository.loadDashboard());

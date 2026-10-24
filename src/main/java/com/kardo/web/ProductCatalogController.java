@@ -6,7 +6,6 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -26,7 +25,8 @@ public class ProductCatalogController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list(@RequestParam("store_id") long storeId) {
-        return ResponseEntity.ok(repository.listByStore(storeId));
+    public ResponseEntity<List<Map<String, Object>>> list() {
+        // Cada usuario ve el catalogo de su propia compania, nunca el de otra.
+        return ResponseEntity.ok(repository.listByStore(StoreScope.current()));
     }
 }

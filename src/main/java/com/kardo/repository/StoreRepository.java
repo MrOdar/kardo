@@ -22,6 +22,16 @@ public class StoreRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** Nombre de la tienda para mostrarlo en la sesion. */
+    public String findNameById(long storeId) {
+        try {
+            return jdbcTemplate.queryForObject(
+                    "SELECT name FROM stores WHERE store_id = ?", String.class, storeId);
+        } catch (EmptyResultDataAccessException ex) {
+            throw new StoreNotFoundException(storeId);
+        }
+    }
+
     public long findCompanyIdByStore(long storeId) {
         try {
             Long companyId = jdbcTemplate.queryForObject(

@@ -52,6 +52,10 @@
     </div>
 
     <div class="ml-auto flex items-center gap-4">
+      <p id="session" class="hidden text-right text-sm leading-tight">
+        <span id="session-user" class="block font-semibold">—</span>
+        <span id="session-role" class="block text-shell/70">—</span>
+      </p>
       <p id="connection" class="flex items-center gap-2 text-sm text-shell/80">
         <span id="connection-dot" class="h-2 w-2 rounded-full bg-shell/40"></span>
         <span id="connection-text">Conectando…</span>
@@ -100,6 +104,28 @@
         </div>
       </dl>
     </div>
+
+    <!-- Salida rápida: el modo más directo de ver el motor FEFO trabajando -->
+    <form id="sale-form" class="mt-6 flex flex-wrap items-end gap-3 border-t border-shell-line pt-5">
+      <div>
+        <label for="sale-sku" class="block text-sm text-ink-faint">Producto</label>
+        <select id="sale-sku" class="mt-1 w-64 rounded border border-shell-line bg-white px-2 py-1.5">
+          <option value="">Restaura la demo para cargar el catálogo</option>
+        </select>
+      </div>
+      <div>
+        <label for="sale-qty" class="block text-sm text-ink-faint">Unidades</label>
+        <input id="sale-qty" type="number" min="1" step="1" value="25"
+               class="num mt-1 w-24 rounded border border-shell-line px-2 py-1.5 text-right">
+      </div>
+      <button type="submit"
+              class="rounded bg-ink px-4 py-2 text-sm font-semibold text-shell hover:bg-ink-soft
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-ink disabled:opacity-60">
+        Registrar salida
+      </button>
+      <p id="sale-result" class="text-sm text-ink-soft"></p>
+    </form>
 
     <div class="mt-6 border-t border-shell-line">
       <ul id="fefo-queue" class="divide-y divide-shell-line">

@@ -9,10 +9,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,16 +36,17 @@ public class InventoryIngestController {
      * bytes en el heap.
      */
     @PostMapping(value = "/excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<IngestSummaryResponseDto> ingestExcel(
-            @RequestPart("file") MultipartFile file,
-            @RequestParam("store_id") long storeId) {
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<IngestSummaryResponseDto> ingestExcel(@RequestPart("file") MultipartFile file) {
 
         if (file.isEmpty()) {
             throw new CorruptSpreadsheetException("El archivo esta vacio.", 0);
         }
 
+        // La tienda sale del token, no de la peticion: nadie carga inventario
+        // en una tienda que no es la suya.
         try (InputStream inputStream = file.getInputStream()) {
-            return ResponseEntity.ok(ingestService.ingest(inputStream, storeId));
+            return ResponseEntity.ok(ingestService.ingest(inputStream, StoreScope.current()));
         } catch (IOException ex) {
             throw new CorruptSpreadsheetException("No se pudo leer el archivo: " + ex.getMessage(), 0);
         }
@@ -58,7 +59,9 @@ public class InventoryIngestController {
      * peticion es autosuficiente y puede llegar incluso minutos despues.
      */
     @PostMapping(value = "/bulk-fix", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
     public ResponseEntity<IngestSummaryResponseDto> ingestFixedRows(@Valid @RequestBody BulkFixRequestDto request) {
-        return ResponseEntity.ok(ingestService.ingestFixedRows(request.storeId(), request.rows()));
+        long storeId = StoreScope.requireMatching(request.storeId());
+        return ResponseEntity.ok(ingestService.ingestFixedRows(storeId, request.rows()));
     }
 }

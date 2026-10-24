@@ -1,8 +1,8 @@
 package com.kardo.web;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,12 +10,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.kardo.config.SecurityProperties;
 import com.kardo.dto.DemoDashboardDto;
+import com.kardo.dto.SessionDto;
 import com.kardo.repository.DemoRepository;
-import com.kardo.security.JwtService;
+import com.kardo.security.AuthenticationService;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,51 +32,40 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class DemoControllerTest {
 
-    private static final String SECRET = "kardo-secreto-de-pruebas-con-mas-de-32-bytes";
-
     @Mock
     private DemoRepository demoRepository;
 
+    @Mock
+    private AuthenticationService authenticationService;
+
     private MockMvc mockMvc;
-    private JwtService jwtService;
 
     @BeforeEach
     void setUp() {
-        SecurityProperties properties = new SecurityProperties(
-                new SecurityProperties.Jwt(SECRET, "kardo", Duration.ofHours(8)),
-                new SecurityProperties.Cors(List.of("http://localhost:5173")));
-        jwtService = new JwtService(properties);
-
         when(demoRepository.loadDashboard()).thenReturn(dashboard());
+        when(authenticationService.openDemoSession(eq("demo@kardo.pe"), anyLong())).thenReturn(session());
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DemoController(demoRepository, jwtService, properties))
+                .standaloneSetup(new DemoController(demoRepository, authenticationService))
                 .build();
     }
 
     @Test
-    @DisplayName("El reset ejecuta el procedimiento y devuelve un token usable de la tienda demo")
-    void resetSiembraYEntregaToken() throws Exception {
-        String token = mockMvc.perform(post("/api/v1/demo/reset"))
+    @DisplayName("El reset ejecuta el procedimiento y devuelve la sesion del usuario demo real")
+    void resetSiembraYEntregaSesion() throws Exception {
+        mockMvc.perform(post("/api/v1/demo/reset"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.storeId").value(999))
                 .andExpect(jsonPath("$.message").value("Tienda demo restaurada correctamente."))
-                .andExpect(jsonPath("$.expiresInSeconds").value(28800))
-                .andExpect(jsonPath("$.dashboard.redAlertBatches").value(2))
-                .andReturn()
-                .getResponse()
-                .getContentAsString()
-                .replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
+                .andExpect(jsonPath("$.session.email").value("demo@kardo.pe"))
+                .andExpect(jsonPath("$.session.role").value("MANAGER"))
+                .andExpect(jsonPath("$.session.storeId").value(999))
+                .andExpect(jsonPath("$.session.storeName").value("Tienda Demo Miraflores"))
+                .andExpect(jsonPath("$.dashboard.redAlertBatches").value(2));
 
         verify(demoRepository).resetDemoEnvironment();
-
-        // El token debe servir de verdad para las demas llamadas de la SPA
-        var claims = jwtService.parseToken(token);
-        org.assertj.core.api.Assertions.assertThat(claims.getSubject()).isEqualTo("demo@kardo.pe");
-        org.assertj.core.api.Assertions.assertThat(
-                claims.get(JwtService.CLAIM_STORE_ID, Number.class).longValue()).isEqualTo(999L);
-        org.assertj.core.api.Assertions.assertThat(
-                claims.get(JwtService.CLAIM_ROLES, List.class)).contains("ROLE_OPERATOR");
+        // La sesion solo puede abrirse contra la tienda demo
+        verify(authenticationService).openDemoSession("demo@kardo.pe", 999L);
     }
 
     @Test
@@ -112,5 +100,10 @@ class DemoControllerTest {
     private static DemoDashboardDto dashboard() {
         return new DemoDashboardDto(999L, 7, 2, 1, 0,
                 new BigDecimal("184.60"), new BigDecimal("912.40"), 1);
+    }
+
+    private static SessionDto session() {
+        return new SessionDto("token-de-prueba", 28800, "demo@kardo.pe", "Gerente Demo",
+                "MANAGER", 999L, "Tienda Demo Miraflores");
     }
 }

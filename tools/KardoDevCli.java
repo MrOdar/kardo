@@ -52,6 +52,9 @@ public class KardoDevCli {
             case "excel" -> writeSampleWorkbook(args[1]);
             case "excel-dirty" -> writeDirtyWorkbook(args[1], Integer.parseInt(args[2]));
             case "token" -> System.out.println(issueToken(Long.parseLong(args[1])));
+            // Genera el hash BCrypt que se siembra en sql/03_users_and_auth.sql.
+            case "bcrypt" -> System.out.println(
+                    new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(args[1]));
             default -> {
                 System.err.println("Subcomando desconocido: " + args[0]);
                 System.exit(2);

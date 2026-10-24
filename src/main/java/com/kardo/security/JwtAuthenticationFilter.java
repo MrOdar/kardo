@@ -51,7 +51,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Claims claims = jwtService.parseToken(token);
                 var authentication = new UsernamePasswordAuthenticationToken(
-                        claims.getSubject(), null, extractAuthorities(claims));
+                        toPrincipal(claims), null, extractAuthorities(claims));
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } catch (JwtException | IllegalArgumentException ex) {
@@ -72,14 +72,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private static Collection<GrantedAuthority> extractAuthorities(Claims claims) {
+    /**
+     * Construye la identidad a partir del token firmado.
+     *
+     * <p>Un token sin {@code storeId} no identifica sobre que tienda puede
+     * operar su portador, asi que se rechaza aqui en lugar de dejar que un
+     * endpoint decida por su cuenta.
+     */
+    private static KardoPrincipal toPrincipal(Claims claims) {
+        Object storeId = claims.get(JwtService.CLAIM_STORE_ID);
+        if (!(storeId instanceof Number store)) {
+            throw new IllegalArgumentException("El token no declara la tienda del usuario.");
+        }
+        return new KardoPrincipal(claims.getSubject(), store.longValue(), extractRoles(claims));
+    }
+
+    private static List<String> extractRoles(Claims claims) {
         Object rawRoles = claims.get(JwtService.CLAIM_ROLES);
         if (!(rawRoles instanceof Collection<?> roles)) {
             return List.of();
         }
-        return roles.stream()
-                .filter(Objects::nonNull)
-                .map(String::valueOf)
+        return roles.stream().filter(Objects::nonNull).map(String::valueOf).toList();
+    }
+
+    private static Collection<GrantedAuthority> extractAuthorities(Claims claims) {
+        return extractRoles(claims).stream()
                 .map(SimpleGrantedAuthority::new)
                 .map(GrantedAuthority.class::cast)
                 .toList();

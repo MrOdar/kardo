@@ -10,10 +10,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,16 +36,15 @@ public class ReceiptScanController {
      * que el operario la corrija antes de confirmar.
      */
     @PostMapping(value = "/scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ReceiptScanResponseDto> scan(
-            @RequestPart("file") MultipartFile file,
-            @RequestParam("store_id") long storeId) {
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<ReceiptScanResponseDto> scan(@RequestPart("file") MultipartFile file) {
 
         if (file.isEmpty()) {
             throw new UnreadableImageException("La imagen esta vacia.");
         }
 
         try (InputStream imageStream = file.getInputStream()) {
-            return ResponseEntity.ok(conciliationService.scan(imageStream, storeId));
+            return ResponseEntity.ok(conciliationService.scan(imageStream, StoreScope.current()));
         } catch (IOException ex) {
             throw new UnreadableImageException("No se pudo leer la imagen: " + ex.getMessage(), ex);
         }
@@ -53,8 +52,10 @@ public class ReceiptScanController {
 
     /** Persiste la conciliacion confirmada por el operario de forma atomica. */
     @PostMapping(value = "/confirm", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
     public ResponseEntity<ReceiptConfirmationResponseDto> confirm(
             @Valid @RequestBody ReceiptConfirmationRequestDto request) {
+        StoreScope.requireMatching(request.storeId());
         return ResponseEntity.ok(conciliationService.confirm(request));
     }
 }

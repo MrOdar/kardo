@@ -151,8 +151,7 @@ async function resetDemo() {
 
   try {
     const result = await request('/demo/reset', { method: 'POST' });
-    state.token = result.token;
-    state.storeId = result.storeId;
+    applySession(result.session);
     renderDashboard(result.dashboard);
     renderFefoQueue(await request('/demo/fefo-queue?limit=12'));
     await loadCatalog();
@@ -166,11 +165,81 @@ async function resetDemo() {
   }
 }
 
+/**
+ * Guarda la sesion y la muestra en la cabecera.
+ *
+ * `storeId` se conserva solo para rellenar los cuerpos que lo incluyen por
+ * contrato; el backend lo verifica contra el token y rechaza cualquier otro.
+ */
+function applySession(session) {
+  state.token = session.token;
+  state.storeId = session.storeId;
+  state.session = session;
+
+  const roles = { MANAGER: 'Gerente de tienda', OPERATOR: 'Operario' };
+  $('session').classList.remove('hidden');
+  $('session-user').textContent = session.email;
+  $('session-role').textContent = `${roles[session.role] ?? session.role} · ${session.storeName}`;
+}
+
 async function loadCatalog() {
   try {
-    state.catalog = await request(`/products?store_id=${state.storeId}`);
+    state.catalog = await request('/products');
   } catch {
     state.catalog = [];
+  }
+  renderSaleOptions();
+}
+
+function renderSaleOptions() {
+  const select = $('sale-sku');
+  if (!state.catalog.length) {
+    select.innerHTML = '<option value="">Restaura la demo para cargar el catálogo</option>';
+    return;
+  }
+  select.innerHTML = state.catalog
+    .map((product) => `<option value="${escapeHtml(product.sku)}">${escapeHtml(product.name)}</option>`)
+    .join('');
+}
+
+/**
+ * Registra una salida real por el motor FEFO y cuenta de que lotes salio.
+ *
+ * <p>Es el modo mas corto de demostrar la rotacion: el stock se descuenta del
+ * lote que vence antes, no del que entro ultimo.
+ */
+async function registerSale(event) {
+  event.preventDefault();
+  const sku = $('sale-sku').value;
+  const quantity = Number($('sale-qty').value);
+  if (!sku) {
+    toast('Restaura la tienda demo para cargar el catálogo.', 'error');
+    return;
+  }
+
+  const button = event.submitter ?? $('sale-form').querySelector('button[type="submit"]');
+  button.disabled = true;
+  $('sale-result').textContent = '';
+
+  try {
+    const sale = await request('/inventory/sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku, quantity })
+    });
+
+    const desglose = sale.consumedBatches
+      .map((line) => `${line.batchCode} (vence en ${plural(line.daysToExpiry, 'día', 'días')}): ${line.quantity} u`)
+      .join(' · ');
+    $('sale-result').textContent = `${desglose} — margen ${money(sale.margin)}`;
+
+    await refreshDashboard();
+    toast(`Salida registrada: ${plural(quantity, 'unidad', 'unidades')} de ${sale.productName}.`, 'ok');
+  } catch (error) {
+    $('sale-result').textContent = '';
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -214,9 +283,8 @@ async function uploadExcel(file) {
 
   toast(`Procesando ${file.name}…`);
   try {
-    const summary = await request(`/inventory/ingest/excel?store_id=${state.storeId}`, {
-      method: 'POST', body: form
-    });
+    // Sin store_id: la tienda la decide el token, no el navegador.
+    const summary = await request('/inventory/ingest/excel', { method: 'POST', body: form });
     $('s-read').textContent = summary.totalRowsProcessed;
     $('s-inserted').textContent = summary.totalInserted;
     $('s-quarantined').textContent = summary.totalQuarantined;
@@ -362,7 +430,7 @@ async function uploadReceipt(file) {
 
   toast('Leyendo el documento con visión multimodal…');
   try {
-    const scan = await request(`/receipts/scan?store_id=${state.storeId}`, { method: 'POST', body: form });
+    const scan = await request('/receipts/scan', { method: 'POST', body: form });
     state.scan = scan;
     renderScan(scan);
     toast(scan.unmatchedLines
@@ -501,6 +569,7 @@ async function confirmReceipt() {
 /* ──────────────────────────── arranque ──────────────────────────── */
 
 $('btn-demo').addEventListener('click', resetDemo);
+$('sale-form').addEventListener('submit', registerSale);
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 

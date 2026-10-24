@@ -3,13 +3,12 @@ package com.kardo.dto;
 /**
  * Respuesta del reinicio de la demo.
  *
- * @param token token JWT de la tienda demo, listo para las demas llamadas
- * @param expiresInSeconds vigencia del token
+ * @param session   sesion del usuario demo, ya lista para el resto de llamadas
+ * @param dashboard estado del semaforo FEFO justo despues de resembrar
  */
 public record DemoResetResponseDto(
         String message,
         long storeId,
-        String token,
-        long expiresInSeconds,
+        SessionDto session,
         DemoDashboardDto dashboard) {
 }

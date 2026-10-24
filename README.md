@@ -284,3 +284,115 @@ del evaluador, que todavía no tiene credenciales, y solo puede tocar la tienda 
 | Foto de guía → extracción | RUC, documento, fecha y 3 líneas mapeadas (scores 0.67–0.81) |
 | Ajustar recibido (36→30) y confirmar | 3 lotes creados, tablero actualizado solo, descuadre registrado |
 | Archivo que no es Excel | HTTP 422 con mensaje legible en pantalla |
+
+---
+
+## 🔐 Identidad y aislamiento entre tiendas
+
+Antes de esto, la tienda sobre la que se escribía llegaba como parámetro del
+cliente (`?store_id=999`) y nadie la contrastaba con el token: un operario
+autenticado podía cargar inventario en una tienda ajena cambiando un número en
+la URL. Ahora **la tienda es un atributo del usuario**, viaja firmada dentro del
+JWT y el backend la toma de ahí.
+
+Aplica `sql/03_users_and_auth.sql` (aditivo, idempotente) para crear la tabla
+`users` y los dos usuarios de la tienda demo.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/v1/auth/login` | **Público.** Correo y contraseña → sesión con token, rol y tienda |
+| `GET` | `/api/v1/auth/me` | Quién es el portador del token actual |
+
+**Credenciales de la demo** (públicas y deliberadas; el escenario se borra con un
+botón): `demo@kardo.pe` / `kardo-demo-2026` (gerente) y `operario@kardo.pe` con
+la misma contraseña (operario).
+
+### Cómo se aplica
+- `KardoPrincipal` lleva correo, tienda y roles; `StoreScope.current()` es el
+  único origen del `store_id` en los controladores.
+- Cuando el cuerpo de la petición trae `storeId` (contrato de la SPA), se
+  compara con el del token y se rechaza con **403** si no coinciden: callarlo
+  convertiría un intento de salto entre tiendas en una escritura silenciosa.
+- `@EnableMethodSecurity` + `@PreAuthorize` en las escrituras: los roles del
+  token dejan de ser decorativos.
+- Un token sin `storeId` no autentica: nadie opera sin tienda asignada.
+- El login responde lo mismo ante contraseña incorrecta y correo inexistente,
+  para no permitir enumerar los correos dados de alta.
+
+### Un efecto secundario que apareció al probarlo
+Con la cadena de seguridad endurecida, **cualquier error dentro de un endpoint
+protegido se respondía como 401** en lugar de su código real: el reenvío interno
+a `/error` volvía a pasar por la cadena y, al exigir autenticación, tapaba el
+error original. Se permite explícitamente el despacho `ERROR`, y una carga sin
+archivo vuelve a responder `415` en vez de un `401` desconcertante.
+
+| Comprobación contra Supabase | Resultado |
+|---|---|
+| Login correcto | `200` con rol MANAGER y tienda 999 |
+| Contraseña incorrecta / correo inexistente | `401`, mensaje idéntico |
+| `bulk-fix` con `storeId` ajeno | `403` y el intento queda en el log con el correo |
+| `confirm` con `storeId` ajeno | `403` |
+| `?store_id=1234` en el catálogo | Ignorado: devuelve el catálogo de la tienda del token |
+| Token firmado con otra clave | `401` |
+| Sin token | `401` |
+| Operario cargando Excel | `200`, tienda tomada del token |
+
+---
+
+## 🧾 Salida FEFO (venta real)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/v1/inventory/sales` | `{"sku":"...","quantity":25}` — tienda y operario salen del token |
+
+Registra **ventas reales**, no simulaciones: descuenta stock e inserta en
+`daily_sales`. La respuesta detalla de qué lotes salió cada unidad, que es lo que
+hace visible la rotación:
+
+```json
+{"sku":"SKU-LECHE-UHT-1L","quantity":25,"revenue":130.00,"cogs":95.00,"margin":35.00,
+ "consumedBatches":[
+   {"batchCode":"LOT-LCH-EXP-48H","daysToExpiry":2,"quantity":20,"lotUnitCogs":3.80},
+   {"batchCode":"LOT-LCH-FRESCO-30D","daysToExpiry":30,"quantity":5,"lotUnitCogs":3.80}]}
+```
+
+La SPA lo expone como **Registrar salida** bajo el semáforo; tras la venta la
+alerta roja baja a 0 y el valor en riesgo se recalcula solo.
+
+### Tres bugs corregidos en `sp_process_fefo_sale` (`sql/04_fefo_sale_hardening.sql`)
+
+**1. Aislamiento entre compañías.** El procedimiento resolvía el producto así:
+
+```sql
+SELECT product_id, retail_price INTO ... FROM products WHERE sku = p_sku;
+```
+
+El DDL permite el mismo SKU en compañías distintas (`UNIQUE (company_id, sku)`),
+así que con dos clientes en la misma base ese `SELECT INTO` toma una fila
+arbitraria: descuenta stock del producto equivocado. Verificado creando una
+segunda compañía con el SKU `SKU-LECHE-UHT-1L`: la consulta devolvía **2 filas**.
+Ahora el producto se busca dentro de la compañía dueña de la tienda, y la venta
+de 25 unidades en la tienda 999 dejó intacto el lote de la otra compañía.
+
+**2. Tienda inexistente.** El `PERFORM ... FOR SHARE` no encontraba nada y la
+ejecución seguía hasta reventar con una violación de clave foránea al insertar
+la venta. Ahora se detecta al inicio.
+
+**3. Cantidad no positiva.** Vender 0 o −5 unidades no entraba en el bucle y el
+procedimiento terminaba **sin error y sin registrar nada**: una venta fantasma
+silenciosa. Ahora se rechaza.
+
+Cada error lleva su `ERRCODE` y `FefoSaleErrorTranslator` lo convierte en el HTTP
+correcto en lugar de un 500 opaco:
+
+| Caso | ERRCODE | HTTP | Verificado |
+|---|---|---|---|
+| Stock insuficiente | `P0002` | `409` | "Faltaron 9954 unidades", stock intacto |
+| SKU fuera del catálogo | `P0001` | `404` | ✓ |
+| Tienda inexistente | `P0003` | `404` | ✓ |
+| Cantidad no positiva | `P0004` | `400` | Bean Validation lo corta antes |
+| Sin token | — | `401` | ✓ |
+
+> La llamada va con casts explícitos (`?::int`): en Java la tienda es `long`, el
+> driver la envía como `BIGINT` y PostgreSQL no encuentra el procedimiento, que
+> declara sus parámetros `INT`.

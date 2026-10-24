@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -34,6 +35,24 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException ex) {
+        return build(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
+    /**
+     * Intento de operar sobre otra tienda, o sin el rol necesario.
+     *
+     * <p>El detalle del intento queda en el log, no en la respuesta: decirle al
+     * cliente que tienda existe o que rol le falta le da material para seguir
+     * probando.
+     */
+    @ExceptionHandler({ForbiddenStoreException.class, AccessDeniedException.class})
+    public ResponseEntity<ApiError> handleForbidden(RuntimeException ex) {
+        log.warn("Acceso denegado: {}", ex.getMessage());
+        return build(HttpStatus.FORBIDDEN, "No tienes permiso para realizar esta operacion.");
+    }
+
     @ExceptionHandler({UnreadableImageException.class, InvalidReceiptLineException.class})
     public ResponseEntity<ApiError> handleBadRequest(RuntimeException ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage());
@@ -60,6 +79,16 @@ public class GlobalExceptionHandler {
         log.warn("Violacion de unicidad: {}", ex.getMessage());
         return build(HttpStatus.CONFLICT,
                 "El documento ya fue registrado para esta tienda.");
+    }
+
+    @ExceptionHandler(InvalidSaleException.class)
+    public ResponseEntity<ApiError> handleInvalidSale(InvalidSaleException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ApiError> handleProductNotFound(ProductNotFoundException ex) {
+        return build(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     @ExceptionHandler(StoreNotFoundException.class)

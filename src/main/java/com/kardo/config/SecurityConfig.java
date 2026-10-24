@@ -4,11 +4,13 @@ import com.kardo.security.JwtAuthenticationFilter;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import jakarta.servlet.DispatcherType;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -28,6 +30,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  */
 @Configuration
 @EnableWebSecurity
+// Habilita @PreAuthorize: los roles del token dejan de ser decorativos.
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final SecurityProperties securityProperties;
@@ -45,11 +49,16 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // El reenvio interno a /error vuelve a pasar por la cadena.
+                        // Sin esto, un fallo dentro de un endpoint protegido (falta
+                        // el archivo, el multipart excede el limite) se responde como
+                        // 401 y oculta el error real al operario.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
                         // Keep-Alive y sondas: publicos y sin acceso a BD
                         .requestMatchers(HttpMethod.GET, "/api/v1/ping").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         // Emision de tokens
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         // La SPA se sirve desde el mismo contenedor y debe cargar
                         // antes de que exista ningun token.
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/favicon.ico",
@@ -96,3 +105,4 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 }
+
