@@ -139,6 +139,7 @@ async function refreshDashboard() {
   ]);
   renderDashboard(dashboard);
   renderFefoQueue(queue);
+  renderWasteBatchOptions(queue);
 }
 
 /* ───────────────────────── restaurar la demo ───────────────────────── */
@@ -153,8 +154,12 @@ async function resetDemo() {
     const result = await request('/demo/reset', { method: 'POST' });
     applySession(result.session);
     renderDashboard(result.dashboard);
-    renderFefoQueue(await request('/demo/fefo-queue?limit=12'));
+    const queue = await request('/demo/fefo-queue?limit=12');
+    renderFefoQueue(queue);
+    renderWasteBatchOptions(queue);
     await loadCatalog();
+    await loadPendingWaste();
+    await loadUploadHistory();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
   } catch (error) {
     toast(`No se pudo restaurar la demo: ${error.message}`, 'error');
@@ -243,7 +248,120 @@ async function registerSale(event) {
   }
 }
 
-/* ─────────────────── panel 2: ingesta de Excel y cuarentena ─────────────────── */
+/* ───────────────── panel 2: mermas con aprobacion del gerente ───────────────── */
+
+const WASTE_REASONS = {
+  EXPIRATION: 'Vencimiento',
+  DAMAGE: 'Daño',
+  COLD_CHAIN_FAILURE: 'Cadena de frío',
+  RECALL: 'Retiro del proveedor'
+};
+
+/** El selector de lotes se alimenta de la misma cola FEFO que muestra el panel 1. */
+function renderWasteBatchOptions(rows) {
+  const select = $('waste-batch');
+  if (!rows.length) {
+    select.innerHTML = '<option value="">No hay lotes con stock</option>';
+    return;
+  }
+  select.innerHTML = rows.map((row) =>
+    `<option value="${row.batch_id}">${escapeHtml(row.name)} · ${escapeHtml(row.batch_code)} `
+    + `(${row.current_qty} u, vence en ${plural(Number(row.dias_restantes), 'día', 'días')})</option>`
+  ).join('');
+}
+
+async function reportWaste(event) {
+  event.preventDefault();
+  const batchId = Number($('waste-batch').value);
+  if (!batchId) {
+    toast('Restaura la tienda demo para ver los lotes.', 'error');
+    return;
+  }
+  const button = $('waste-form').querySelector('button[type="submit"]');
+  button.disabled = true;
+
+  try {
+    const pending = await request('/inventory/waste', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batchId,
+        quantity: Number($('waste-qty').value),
+        reason: $('waste-reason').value
+      })
+    });
+    renderPendingWaste(pending);
+    await refreshDashboard();
+    toast('Baja declarada. Las unidades quedan en cuarentena hasta que el gerente decida.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderPendingWaste(entries) {
+  const panel = $('waste-pending');
+  const body = $('waste-rows');
+
+  if (!entries.length) {
+    panel.classList.add('hidden');
+    body.replaceChildren();
+    return;
+  }
+  panel.classList.remove('hidden');
+
+  // Solo el gerente ve los botones; al operario se le explica por que no los tiene.
+  const isManager = state.session?.role === 'MANAGER';
+
+  body.replaceChildren(...entries.map((entry) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.productName)}</td>
+      <td class="px-3 py-2 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
+      <td class="num px-3 py-2">${entry.quantity}</td>
+      <td class="num px-3 py-2 text-risk-red">${money(entry.totalLoss)}</td>
+      <td class="px-3 py-2">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
+      <td class="px-3 py-2 text-ink-soft">${escapeHtml(entry.operatorId)}</td>
+      <td class="px-3 py-2">${isManager ? `
+        <span class="flex gap-2">
+          <button data-waste="${entry.wasteId}" data-decision="approve"
+                  class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Aprobar</button>
+          <button data-waste="${entry.wasteId}" data-decision="reject"
+                  class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Devolver al stock</button>
+        </span>` : '<span class="text-sm text-ink-faint">Requiere al gerente</span>'}</td>`;
+    return tr;
+  }));
+}
+
+$('waste-rows').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-waste]');
+  if (!button) return;
+
+  button.disabled = true;
+  const decision = button.dataset.decision;
+  try {
+    const pending = await request(`/inventory/waste/${button.dataset.waste}/${decision}`, { method: 'POST' });
+    renderPendingWaste(pending);
+    await refreshDashboard();
+    toast(decision === 'approve'
+      ? 'Merma aprobada: la pérdida queda consolidada.'
+      : 'Merma rechazada: la mercadería vuelve al stock vendible.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+    button.disabled = false;
+  }
+});
+
+async function loadPendingWaste() {
+  try {
+    renderPendingWaste(await request('/inventory/waste?status=PENDING_APPROVAL'));
+  } catch {
+    renderPendingWaste([]);
+  }
+}
+
+/* ─────────────────── panel 3: ingesta de Excel y cuarentena ─────────────────── */
 
 function wireDropzone(zoneId, inputId, onFile) {
   const zone = $(zoneId);
@@ -294,6 +412,7 @@ async function uploadExcel(file) {
     state.quarantine = summary.quarantinedRows.map((row) => ({ ...row, values: { ...row.originalValues } }));
     renderQuarantine();
     await refreshDashboard();
+    await loadUploadHistory();
 
     toast(summary.totalQuarantined
       ? `${plural(summary.totalInserted, 'lote creado', 'lotes creados')} y `
@@ -302,6 +421,96 @@ async function uploadExcel(file) {
       summary.totalQuarantined ? 'info' : 'ok');
   } catch (error) {
     toast(error.message, 'error');
+  }
+}
+
+const fechaHora = new Intl.DateTimeFormat('es-PE', {
+  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+});
+
+/** Rastro de auditoria: quien subio cada archivo y que entro con el. */
+async function loadUploadHistory() {
+  let history;
+  try {
+    history = await request('/inventory/ingest/history?limit=10');
+  } catch {
+    return;
+  }
+
+  const panel = $('upload-history');
+  if (!history.length) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+
+  $('history-rows').replaceChildren(...history.map((entry) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.fileName)}</td>
+      <td class="px-3 py-2 text-ink-soft">${escapeHtml(entry.uploadedBy)}</td>
+      <td class="num px-3 py-2 text-ink-soft">${fechaHora.format(new Date(entry.createdAt))}</td>
+      <td class="num px-3 py-2">${entry.totalRows}</td>
+      <td class="num px-3 py-2 text-risk-green">${entry.insertedRows}</td>
+      <td class="num px-3 py-2 ${entry.quarantinedRows ? 'text-risk-red' : 'text-ink-faint'}">${entry.quarantinedRows}</td>
+      <td class="px-3 py-2 font-mono text-xs text-ink-faint" title="SHA-256 del contenido">${entry.fileHash.slice(0, 12)}…</td>
+      <td class="px-3 py-2">${revertAction(entry)}</td>`;
+    return tr;
+  }));
+}
+
+/** Revertir es decision del gerente; al operario se le muestra el estado, sin boton. */
+function revertAction(entry) {
+  if (entry.rolledBackAt) {
+    return '<span class="text-sm text-ink-faint">Revertida</span>';
+  }
+  if (state.session?.role !== 'MANAGER') {
+    return '<span class="text-sm text-ink-faint">—</span>';
+  }
+  return `<button data-upload="${entry.uploadId}"
+                  class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">
+            Revertir
+          </button>`;
+}
+
+$('history-rows').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-upload]');
+  if (!button) return;
+
+  button.disabled = true;
+  try {
+    const result = await request(`/inventory/ingest/${button.dataset.upload}/rollback`, { method: 'POST' });
+    await loadUploadHistory();
+    await refreshDashboard();
+    toast(result.message, 'ok');
+  } catch (error) {
+    // El servidor explica que lotes lo impiden; se muestran tal cual.
+    toast(error.message, 'error');
+    button.disabled = false;
+  }
+});
+
+/** La descarga pasa por fetch para poder enviar el token en la cabecera. */
+async function exportInventory() {
+  const button = $('btn-export');
+  button.disabled = true;
+  try {
+    const response = await fetch(`${api}/inventory/export`, { headers: headers() });
+    if (!response.ok) {
+      throw new Error('No se pudo generar el archivo.');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `inventario-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast('Inventario exportado.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -570,6 +779,8 @@ async function confirmReceipt() {
 
 $('btn-demo').addEventListener('click', resetDemo);
 $('sale-form').addEventListener('submit', registerSale);
+$('waste-form').addEventListener('submit', reportWaste);
+$('btn-export').addEventListener('click', exportInventory);
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 

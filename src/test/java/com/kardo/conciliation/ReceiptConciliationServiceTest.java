@@ -142,7 +142,7 @@ class ReceiptConciliationServiceTest {
     @DisplayName("Confirmar persiste cabecera, lineas y lotes, y marca las discrepancias")
     void confirmacionPersisteTodo() {
         when(goodsReceiptRepository.upsertSupplier(eq(COMPANY_ID), any(), any())).thenReturn(55L);
-        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any())).thenReturn(900L);
+        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenReturn(900L);
         when(goodsReceiptRepository.insertItem(anyLong(), any())).thenReturn(1L, 2L, 3L);
 
         ReceiptConfirmationRequestDto request = new ReceiptConfirmationRequestDto(
@@ -156,7 +156,7 @@ class ReceiptConciliationServiceTest {
                         // Nada llego: se registra la linea para el reclamo, sin lote
                         line(3, 303L, "10", "0", null, null)));
 
-        ReceiptConfirmationResponseDto response = service.confirm(request);
+        ReceiptConfirmationResponseDto response = service.confirm(request, "operario@kardo.pe", "10.0.0.1");
 
         assertThat(response.receiptId()).isEqualTo(900L);
         assertThat(response.itemsPersisted()).isEqualTo(3);
@@ -165,7 +165,7 @@ class ReceiptConciliationServiceTest {
 
         verify(goodsReceiptRepository).upsertSupplier(COMPANY_ID, "Distribuidora Lima S.A.C.", "20123456789");
         verify(goodsReceiptRepository).insertHeader(eq(STORE_ID), eq(55L), eq("T001-4567"),
-                eq(LocalDate.of(2026, 10, 15)), any());
+                eq(LocalDate.of(2026, 10, 15)), any(), eq("operario@kardo.pe"), eq("10.0.0.1"));
 
         // La linea sin lote impreso recibe el marcador, porque batch_code es NOT NULL
         ArgumentCaptor<String> batchCodes = ArgumentCaptor.forClass(String.class);
@@ -178,13 +178,13 @@ class ReceiptConciliationServiceTest {
     @DisplayName("Rechaza recibir mercaderia sin fecha de vencimiento")
     void exigeVencimientoAlRecibir() {
         when(goodsReceiptRepository.upsertSupplier(anyLong(), any(), any())).thenReturn(55L);
-        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any())).thenReturn(900L);
+        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenReturn(900L);
 
         ReceiptConfirmationRequestDto request = new ReceiptConfirmationRequestDto(
                 STORE_ID, "20123456789", "Proveedor", "T001-9", LocalDate.now(),
                 List.of(line(1, 101L, "5", "5", "L-A", null)));
 
-        assertThatThrownBy(() -> service.confirm(request))
+        assertThatThrownBy(() -> service.confirm(request, "operario@kardo.pe", "10.0.0.1"))
                 .isInstanceOf(InvalidReceiptLineException.class)
                 .hasMessageContaining("Linea 1")
                 .hasMessageContaining("vencimiento");
@@ -196,13 +196,13 @@ class ReceiptConciliationServiceTest {
     @DisplayName("Rechaza cantidades fraccionarias porque el lote se mide en unidades enteras")
     void rechazaFraccionesDeUnidad() {
         when(goodsReceiptRepository.upsertSupplier(anyLong(), any(), any())).thenReturn(55L);
-        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any())).thenReturn(900L);
+        when(goodsReceiptRepository.insertHeader(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenReturn(900L);
 
         ReceiptConfirmationRequestDto request = new ReceiptConfirmationRequestDto(
                 STORE_ID, "20123456789", "Proveedor", "T001-9", LocalDate.now(),
                 List.of(line(1, 101L, "5", "2.5", "L-A", LocalDate.now().plusMonths(3))));
 
-        assertThatThrownBy(() -> service.confirm(request))
+        assertThatThrownBy(() -> service.confirm(request, "operario@kardo.pe", "10.0.0.1"))
                 .isInstanceOf(InvalidReceiptLineException.class)
                 .hasMessageContaining("entero");
     }

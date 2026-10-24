@@ -5,6 +5,8 @@ import com.kardo.dto.ReceiptConfirmationRequestDto;
 import com.kardo.dto.ReceiptConfirmationResponseDto;
 import com.kardo.dto.ReceiptScanResponseDto;
 import com.kardo.exception.UnreadableImageException;
+import com.kardo.security.CurrentUser;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.io.InputStream;
@@ -54,8 +56,10 @@ public class ReceiptScanController {
     @PostMapping(value = "/confirm", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
     public ResponseEntity<ReceiptConfirmationResponseDto> confirm(
-            @Valid @RequestBody ReceiptConfirmationRequestDto request) {
+            @Valid @RequestBody ReceiptConfirmationRequestDto request,
+            HttpServletRequest httpRequest) {
         StoreScope.requireMatching(request.storeId());
-        return ResponseEntity.ok(conciliationService.confirm(request));
+        return ResponseEntity.ok(conciliationService.confirm(
+                request, CurrentUser.require().email(), httpRequest.getRemoteAddr()));
     }
 }

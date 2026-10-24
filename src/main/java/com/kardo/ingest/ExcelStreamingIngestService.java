@@ -52,13 +52,15 @@ public class ExcelStreamingIngestService {
      * Recorre la hoja, valida cada fila y persiste las validas en micro-lotes.
      *
      * @param inputStream flujo del multipart, leido directamente sin copiarlo
+     * @param uploadId    carga a la que pertenecen los lotes creados, para poder
+     *                    revertirla despues; nulo si no hay archivo detras
      * @param storeId     tienda destino de los lotes
      * @return resumen con las filas insertadas y las que quedaron en cuarentena
      * @throws CorruptSpreadsheetException si falta una columna requerida o se
      *                                     supera el umbral de filas corruptas
      */
     @Transactional
-    public IngestSummaryResponseDto ingest(InputStream inputStream, long storeId) {
+    public IngestSummaryResponseDto ingest(InputStream inputStream, long storeId, Long uploadId) {
         long companyId = repository.findCompanyIdByStore(storeId);
 
         int processed = 0;
@@ -85,7 +87,7 @@ public class ExcelStreamingIngestService {
                         case RowValidationResult.Valid valid -> {
                             microBatch.add(valid.row());
                             if (microBatch.size() >= properties.batchSize()) {
-                                inserted += repository.persistMicroBatch(storeId, companyId, microBatch);
+                                inserted += repository.persistMicroBatch(storeId, companyId, microBatch, uploadId);
                                 // Se reemplaza la lista en vez de limpiarla: el lote ya
                                 // entregado no debe mutar bajo los pies del repositorio,
                                 // y el anterior queda elegible para el recolector.
@@ -104,7 +106,7 @@ public class ExcelStreamingIngestService {
                 }
             }
 
-            inserted += repository.persistMicroBatch(storeId, companyId, microBatch);
+            inserted += repository.persistMicroBatch(storeId, companyId, microBatch, uploadId);
 
         } catch (CorruptSpreadsheetException breaker) {
             // El Circuit Breaker ya trae su mensaje y su contador: se propaga tal cual.
@@ -151,7 +153,7 @@ public class ExcelStreamingIngestService {
         int inserted = 0;
         for (int start = 0; start < accepted.size(); start += properties.batchSize()) {
             int end = Math.min(start + properties.batchSize(), accepted.size());
-            inserted += repository.persistMicroBatch(storeId, companyId, accepted.subList(start, end));
+            inserted += repository.persistMicroBatch(storeId, companyId, accepted.subList(start, end), null);
         }
 
         return new IngestSummaryResponseDto(rows.size(), inserted, quarantined.size(), quarantined);

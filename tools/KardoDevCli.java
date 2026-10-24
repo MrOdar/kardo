@@ -51,6 +51,7 @@ public class KardoDevCli {
             case "query" -> query(args[1], args.length > 2 ? args[2] : null);
             case "excel" -> writeSampleWorkbook(args[1]);
             case "excel-dirty" -> writeDirtyWorkbook(args[1], Integer.parseInt(args[2]));
+            case "read-excel" -> dumpWorkbook(args[1]);
             case "token" -> System.out.println(issueToken(Long.parseLong(args[1])));
             // Genera el hash BCrypt que se siembra en sql/03_users_and_auth.sql.
             case "bcrypt" -> System.out.println(
@@ -156,6 +157,28 @@ public class KardoDevCli {
                 .expiration(Date.from(now.plusSeconds(3600)))
                 .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)))
                 .compact();
+    }
+
+    /** Vuelca un XLSX a texto, para comprobar lo que genero la exportacion. */
+    private static void dumpWorkbook(String path) throws Exception {
+        try (var input = Files.newInputStream(Path.of(path));
+             var workbook = new org.dhatim.fastexcel.reader.ReadableWorkbook(input)) {
+
+            var sheet = workbook.getFirstSheet();
+            try (var rows = sheet.openStream()) {
+                rows.forEach(row -> {
+                    StringBuilder line = new StringBuilder();
+                    for (int i = 0; i < row.getCellCount(); i++) {
+                        var cell = row.getCell(i);
+                        line.append(cell == null ? "" : String.valueOf(cell.getValue())).append(" | ");
+                    }
+                    String text = line.toString().trim();
+                    if (!text.replace("|", "").isBlank()) {
+                        System.out.println(text);
+                    }
+                });
+            }
+        }
     }
 
     /**

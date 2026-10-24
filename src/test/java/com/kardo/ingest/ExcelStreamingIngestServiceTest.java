@@ -2,6 +2,7 @@ package com.kardo.ingest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -50,7 +51,7 @@ class ExcelStreamingIngestServiceTest {
     void setUp() {
         when(repository.findCompanyIdByStore(anyLong())).thenReturn(COMPANY_ID);
         // El repositorio simulado confirma tantas inserciones como filas recibe.
-        when(repository.persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList()))
+        when(repository.persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList(), any()))
                 .thenAnswer(invocation -> ((List<?>) invocation.getArgument(2)).size());
         service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 100));
     }
@@ -64,7 +65,7 @@ class ExcelStreamingIngestServiceTest {
                 fila("SKU-002", null, "Leche Gloria 400g", "LACTEOS", "LATA",
                         "3.20", "4.80", "L-2026-B", null, "31/12/2026", 48)));
 
-        IngestSummaryResponseDto summary = service.ingest(excel, STORE_ID);
+        IngestSummaryResponseDto summary = service.ingest(excel, STORE_ID, 7L);
 
         assertThat(summary.totalRowsProcessed()).isEqualTo(2);
         assertThat(summary.totalInserted()).isEqualTo(2);
@@ -103,13 +104,13 @@ class ExcelStreamingIngestServiceTest {
                     "1.00", "2.00", "L-1", null, "2027-05-05", 10));
         }
 
-        IngestSummaryResponseDto summary = service.ingest(TestWorkbooks.xlsx(HEADERS_CON_ALIAS, filas), STORE_ID);
+        IngestSummaryResponseDto summary = service.ingest(TestWorkbooks.xlsx(HEADERS_CON_ALIAS, filas), STORE_ID, 7L);
 
         assertThat(summary.totalInserted()).isEqualTo(5);
         // 2 + 2 + 1: el ultimo micro-lote se descarga al cerrar el flujo
         ArgumentCaptor<List<SpreadsheetRowDto>> captor = captor();
         verify(repository, org.mockito.Mockito.times(3))
-                .persistMicroBatch(eq(STORE_ID), eq(COMPANY_ID), captor.capture());
+                .persistMicroBatch(eq(STORE_ID), eq(COMPANY_ID), captor.capture(), any());
         assertThat(captor.getAllValues()).extracting(List::size).containsExactly(2, 2, 1);
     }
 
@@ -128,7 +129,7 @@ class ExcelStreamingIngestServiceTest {
                 fila("SKU-ORD", null, "Vence antes de fabricarse", "VARIOS", "UNIDAD", "1.00", "2.00", "L-1",
                         "2026-06-01", "2026-01-01", 5)));
 
-        IngestSummaryResponseDto summary = service.ingest(excel, STORE_ID);
+        IngestSummaryResponseDto summary = service.ingest(excel, STORE_ID, 7L);
 
         assertThat(summary.totalRowsProcessed()).isEqualTo(6);
         assertThat(summary.totalInserted()).isEqualTo(1);
@@ -162,14 +163,14 @@ class ExcelStreamingIngestServiceTest {
 
         InputStream excel = TestWorkbooks.xlsx(HEADERS_CON_ALIAS, filas);
 
-        assertThatThrownBy(() -> service.ingest(excel, STORE_ID))
+        assertThatThrownBy(() -> service.ingest(excel, STORE_ID, 7L))
                 .isInstanceOf(CorruptSpreadsheetException.class)
                 .hasMessageContaining("plantilla no compatible")
                 .extracting(ex -> ((CorruptSpreadsheetException) ex).getCorruptRows())
                 .isEqualTo(4);
 
         // Corta sin persistir nada: no se escriben lotes de un archivo invalido
-        verify(repository, never()).persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList());
+        verify(repository, never()).persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList(), any());
     }
 
     @Test
@@ -179,7 +180,7 @@ class ExcelStreamingIngestServiceTest {
                 List.of("Codigo", "Descripcion", "Familia", "Precio Compra", "Precio", "Stock"),
                 List.of(List.of("SKU-001", "Producto", "VARIOS", "1.00", "2.00", 5)));
 
-        assertThatThrownBy(() -> service.ingest(excel, STORE_ID))
+        assertThatThrownBy(() -> service.ingest(excel, STORE_ID, 7L))
                 .isInstanceOf(CorruptSpreadsheetException.class)
                 .hasMessageContaining("expiration_date");
     }
@@ -207,7 +208,7 @@ class ExcelStreamingIngestServiceTest {
 
     private List<SpreadsheetRowDto> capturarFilasPersistidas() {
         ArgumentCaptor<List<SpreadsheetRowDto>> captor = captor();
-        verify(repository).persistMicroBatch(eq(STORE_ID), eq(COMPANY_ID), captor.capture());
+        verify(repository).persistMicroBatch(eq(STORE_ID), eq(COMPANY_ID), captor.capture(), any());
         return captor.getValue();
     }
 

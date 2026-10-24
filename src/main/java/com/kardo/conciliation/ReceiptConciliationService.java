@@ -152,15 +152,19 @@ public class ReceiptConciliationService {
      * linea falla, no queda stock sin documento ni documento sin stock.
      */
     @Transactional
-    public ReceiptConfirmationResponseDto confirm(ReceiptConfirmationRequestDto request) {
+    public ReceiptConfirmationResponseDto confirm(ReceiptConfirmationRequestDto request,
+                                                  String confirmedBy, String clientIp) {
         long storeId = request.storeId();
         long companyId = storeRepository.findCompanyIdByStore(storeId);
 
         long supplierId = goodsReceiptRepository.upsertSupplier(
                 companyId, request.supplierName(), request.supplierTaxId());
 
+        // Quien confirma queda en la cabecera: la conciliacion es una decision
+        // humana sobre que entro de verdad al almacen, no un dato del documento.
         long receiptId = goodsReceiptRepository.insertHeader(
-                storeId, supplierId, request.documentNumber(), request.issueDate(), toJsonOrNull(request));
+                storeId, supplierId, request.documentNumber(), request.issueDate(),
+                toJsonOrNull(request), confirmedBy, clientIp);
 
         int batchesCreated = 0;
         List<Integer> discrepancies = new ArrayList<>();

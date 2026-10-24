@@ -66,6 +66,11 @@ public class DemoRepository {
      * dentro del procedimiento.
      */
     public void resetDemoEnvironment() {
+        // El procedimiento borra lotes, guias y ventas, pero no el rastro de
+        // cargas. Sin esto, tras restaurar la demo el evaluador no podria volver
+        // a subir el mismo Excel: la huella seguiria registrada y la carga se
+        // rechazaria por duplicada aunque sus lotes ya no existan.
+        jdbcTemplate.update("DELETE FROM inventory_uploads WHERE store_id = ?", DEMO_STORE_ID);
         jdbcTemplate.execute("CALL sp_reset_demo_environment()");
     }
 
@@ -90,7 +95,8 @@ public class DemoRepository {
     /** Lotes activos ordenados por vencimiento: el orden exacto en que FEFO los vendera. */
     public java.util.List<java.util.Map<String, Object>> loadFefoQueue(int limit) {
         return jdbcTemplate.queryForList("""
-                SELECT p.sku,
+                SELECT b.batch_id,
+                       p.sku,
                        p.name,
                        b.batch_code,
                        b.expiration_date,

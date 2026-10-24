@@ -139,7 +139,65 @@
     </div>
   </section>
 
-  <!-- ───────────── Panel 2: ingesta de Excel ───────────── -->
+  <!-- ───────────── Panel 2: mermas con aprobación ───────────── -->
+  <section aria-labelledby="waste-title" class="mt-16 border-t border-shell-line pt-10">
+    <h2 id="waste-title" class="text-xl font-bold tracking-tight">Dar de baja mercadería</h2>
+    <p class="mt-1 max-w-prose text-sm text-ink-soft">
+      El operario declara la baja y las unidades quedan inmovilizadas; el gerente decide si la
+      pérdida se consolida o la mercadería vuelve al stock. Quien declara no puede aprobar.
+    </p>
+
+    <form id="waste-form" class="mt-6 flex flex-wrap items-end gap-3">
+      <div>
+        <label for="waste-batch" class="block text-sm text-ink-faint">Lote</label>
+        <select id="waste-batch" class="mt-1 w-72 rounded border border-shell-line bg-white px-2 py-1.5">
+          <option value="">Restaura la demo para ver los lotes</option>
+        </select>
+      </div>
+      <div>
+        <label for="waste-qty" class="block text-sm text-ink-faint">Unidades</label>
+        <input id="waste-qty" type="number" min="1" step="1" value="6"
+               class="num mt-1 w-24 rounded border border-shell-line px-2 py-1.5 text-right">
+      </div>
+      <div>
+        <label for="waste-reason" class="block text-sm text-ink-faint">Motivo</label>
+        <select id="waste-reason" class="mt-1 rounded border border-shell-line bg-white px-2 py-1.5">
+          <option value="EXPIRATION">Vencimiento</option>
+          <option value="DAMAGE">Daño</option>
+          <option value="COLD_CHAIN_FAILURE">Rotura de cadena de frío</option>
+          <option value="RECALL">Retiro del proveedor</option>
+        </select>
+      </div>
+      <button type="submit"
+              class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-ink disabled:opacity-60">
+        Declarar baja
+      </button>
+    </form>
+
+    <div id="waste-pending" class="mt-6 hidden">
+      <h3 class="text-lg font-semibold">En cuarentena, a la espera del gerente</h3>
+      <div class="mt-3 overflow-x-auto border border-shell-line bg-white">
+        <table class="w-full border-collapse text-sm">
+          <thead class="bg-shell text-left">
+            <tr class="text-ink-soft">
+              <th class="px-3 py-2 font-semibold">Producto</th>
+              <th class="px-3 py-2 font-semibold">Lote</th>
+              <th class="px-3 py-2 font-semibold">Unidades</th>
+              <th class="px-3 py-2 font-semibold">Pérdida</th>
+              <th class="px-3 py-2 font-semibold">Motivo</th>
+              <th class="px-3 py-2 font-semibold">Declaró</th>
+              <th class="px-3 py-2 font-semibold">Decisión</th>
+            </tr>
+          </thead>
+          <tbody id="waste-rows" class="divide-y divide-shell-line"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── Panel 3: ingesta de Excel ───────────── -->
   <section aria-labelledby="ingest-title" class="mt-16 border-t border-shell-line pt-10">
     <h2 id="ingest-title" class="text-xl font-bold tracking-tight">Cargar inventario desde Excel</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
@@ -169,6 +227,40 @@
           <dt class="text-ink-faint">En cuarentena</dt><dd id="s-quarantined" class="num font-semibold text-risk-red">0</dd>
         </div>
       </dl>
+    </div>
+
+    <div class="mt-6">
+      <button id="btn-export"
+              class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-ink">
+        Exportar inventario valorizado (.xlsx)
+      </button>
+    </div>
+
+    <div id="upload-history" class="mt-8 hidden">
+      <h3 class="text-lg font-semibold">Cargas anteriores</h3>
+      <p class="mt-1 text-sm text-ink-soft">
+        Quién subió cada archivo y qué entró. Un archivo ya procesado se rechaza en lugar de duplicar sus lotes;
+        el gerente puede revertir una carga mientras su mercadería siga intacta.
+      </p>
+      <div class="mt-3 overflow-x-auto border border-shell-line bg-white">
+        <table class="w-full border-collapse text-sm">
+          <thead class="bg-shell text-left">
+            <tr class="text-ink-soft">
+              <th class="px-3 py-2 font-semibold">Archivo</th>
+              <th class="px-3 py-2 font-semibold">Operario</th>
+              <th class="px-3 py-2 font-semibold">Fecha</th>
+              <th class="px-3 py-2 font-semibold">Filas</th>
+              <th class="px-3 py-2 font-semibold">Lotes</th>
+              <th class="px-3 py-2 font-semibold">Cuarentena</th>
+              <th class="px-3 py-2 font-semibold">Huella</th>
+              <th class="px-3 py-2 font-semibold">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="history-rows" class="divide-y divide-shell-line"></tbody>
+        </table>
+      </div>
     </div>
 
     <div id="quarantine" class="mt-8 hidden">

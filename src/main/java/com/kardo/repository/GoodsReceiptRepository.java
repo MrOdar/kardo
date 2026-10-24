@@ -23,8 +23,9 @@ public class GoodsReceiptRepository {
             """;
 
     private static final String INSERT_HEADER = """
-            INSERT INTO goods_receipt_headers (store_id, supplier_id, grn_number, issue_date, ocr_raw_json)
-            VALUES (?, ?, ?, ?, ?::jsonb)
+            INSERT INTO goods_receipt_headers (store_id, supplier_id, grn_number, issue_date,
+                                               ocr_raw_json, confirmed_by, client_ip)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)
             RETURNING receipt_id
             """;
 
@@ -63,9 +64,10 @@ public class GoodsReceiptRepository {
      *                   para poder auditar despues que leyo el modelo
      */
     public long insertHeader(long storeId, long supplierId, String grnNumber,
-                             java.time.LocalDate issueDate, String ocrRawJson) {
+                             java.time.LocalDate issueDate, String ocrRawJson,
+                             String confirmedBy, String clientIp) {
         Long receiptId = jdbcTemplate.queryForObject(INSERT_HEADER, Long.class,
-                storeId, supplierId, grnNumber, issueDate, ocrRawJson);
+                storeId, supplierId, grnNumber, issueDate, ocrRawJson, confirmedBy, clientIp);
         if (receiptId == null) {
             throw new IllegalStateException("No se pudo crear la cabecera de la guia " + grnNumber);
         }

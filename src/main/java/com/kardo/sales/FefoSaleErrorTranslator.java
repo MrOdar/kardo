@@ -1,10 +1,10 @@
 package com.kardo.sales;
 
 import com.kardo.exception.InsufficientStockException;
-import com.kardo.exception.InvalidSaleException;
+import com.kardo.exception.InvalidQuantityException;
 import com.kardo.exception.ProductNotFoundException;
 import com.kardo.exception.StoreNotFoundException;
-import java.sql.SQLException;
+import com.kardo.support.SqlErrors;
 import org.springframework.dao.DataAccessException;
 
 /**
@@ -21,49 +21,15 @@ final class FefoSaleErrorTranslator {
     private FefoSaleErrorTranslator() {
     }
 
-    /** Se queda con el mensaje de PostgreSQL, que ya viene redactado para el operario. */
     static RuntimeException translate(DataAccessException exception, String sku, long storeId) {
-        String sqlState = sqlStateOf(exception);
-        String message = rootMessage(exception);
+        String message = SqlErrors.message(exception);
 
-        return switch (sqlState == null ? "" : sqlState) {
+        return switch (SqlErrors.sqlState(exception)) {
             case "P0001" -> new ProductNotFoundException(sku);
             case "P0002" -> new InsufficientStockException(message);
             case "P0003" -> new StoreNotFoundException(storeId);
-            case "P0004" -> new InvalidSaleException(message);
+            case "P0004" -> new InvalidQuantityException(message);
             default -> exception;
         };
-    }
-
-    private static String sqlStateOf(DataAccessException exception) {
-        Throwable cause = exception;
-        while (cause != null) {
-            if (cause instanceof SQLException sqlException) {
-                return sqlException.getSQLState();
-            }
-            cause = cause.getCause();
-        }
-        return null;
-    }
-
-    /**
-     * PostgreSQL antepone "ERROR: " y añade la posicion; el operario solo
-     * necesita la frase.
-     */
-    private static String rootMessage(DataAccessException exception) {
-        Throwable cause = exception;
-        String message = exception.getMessage();
-        while (cause != null) {
-            if (cause instanceof SQLException sqlException) {
-                message = sqlException.getMessage();
-                break;
-            }
-            cause = cause.getCause();
-        }
-        if (message == null) {
-            return "No se pudo registrar la salida.";
-        }
-        String firstLine = message.lines().findFirst().orElse(message);
-        return firstLine.replaceFirst("^ERROR:\\s*", "").trim();
     }
 }

@@ -396,3 +396,157 @@ correcto en lugar de un 500 opaco:
 > La llamada va con casts explícitos (`?::int`): en Java la tienda es `long`, el
 > driver la envía como `BIGINT` y PostgreSQL no encuentra el procedimiento, que
 > declara sus parámetros `INT`.
+
+---
+
+## 🗑️ Mermas con cuarentena y aprobación (Reto 1 del spec)
+
+El esquema ya traía las piezas —`quarantined_qty`, `chk_batch_mass_balance` y
+`waste_log.approval_status`— pero ningún endpoint las usaba. `sql/05_waste_workflow.sql`
+las cierra con tres procedimientos.
+
+| Método | Endpoint | Rol |
+|---|---|---|
+| `POST` | `/api/v1/inventory/waste` | Operario o gerente: declara la baja |
+| `GET` | `/api/v1/inventory/waste?status=PENDING_APPROVAL` | Ambos: consulta |
+| `POST` | `/api/v1/inventory/waste/{id}/approve` | **Solo gerente** |
+| `POST` | `/api/v1/inventory/waste/{id}/reject` | **Solo gerente** |
+
+### Por qué una cuarentena y no un descuento directo
+Entre que el operario declara una merma y el gerente la resuelve, esas unidades
+no están vendibles (ya se tiraron o están apartadas) pero tampoco son una
+pérdida contable confirmada. Si se descontaran de `current_qty` sin más, un
+rechazo posterior tendría que *inventar* stock; si no se descontaran, el motor
+FEFO seguiría vendiendo mercadería que ya no está en la estantería.
+`quarantined_qty` las mantiene inmovilizadas y el invariante
+`current_qty + quarantined_qty <= initial_qty` impide que el lote crezca.
+
+**Aprobar** saca las unidades de la cuarentena sin devolverlas: la pérdida se
+consolida. **Rechazar** las devuelve a `current_qty` y reactiva el lote, salvo
+que haya vencido entretanto, en cuyo caso vuelve como `EXPIRED`: el stock existe
+pero el índice parcial de FEFO no lo tomará.
+
+### Verificado contra Supabase
+| Caso | Resultado |
+|---|---|
+| Operario declara 6 u de un lote de 20 | `current_qty` 14 + `quarantined_qty` 6 = masa 20 ≤ 48 · pérdida S/ 22.80 |
+| El motor FEFO intenta vender 16 | Vende 15 y pasa al siguiente lote: **las 6 en cuarentena no se tocan** |
+| **El mismo operario intenta aprobar** | **`403`** — quien declara no puede confirmar |
+| El gerente aprueba | Cuarentena a 0, `APPROVED`, `authorized_by` registrado |
+| Segundo clic del gerente | `409` "ya fue resuelta" (resolución idempotente) |
+| El gerente rechaza otra merma | La mercadería vuelve a `current_qty` y el lote sigue `ACTIVE` |
+| Declarar más unidades de las disponibles | `409`, sin tocar el lote |
+| Lote de otra tienda o inexistente | `404` |
+| Invariante de masa tras todas las pruebas | 0 violaciones, 0 cantidades negativas |
+
+> **Límite conocido:** el control que se aplica es por rol, no por persona. Un
+> gerente puede declarar y aprobar su propia merma. Separar también por usuario
+> (que nadie resuelva lo que él mismo declaró) es el siguiente paso natural si se
+> quiere segregación de funciones estricta.
+
+---
+
+## 📋 Auditoría de cargas e ingesta idempotente
+
+`sql/06_upload_audit.sql` añade `inventory_uploads` y dos columnas a
+`goods_receipt_headers`. Una misma tabla resuelve dos problemas distintos.
+
+**Auditoría.** Hasta ahora una carga de Excel no dejaba rastro: el inventario
+cambiaba y no había a quién preguntar. Cada carga registra operario, archivo,
+tamaño, métricas, IP y momento exacto. Las recepciones guardan además
+`confirmed_by`: la conciliación es una decisión humana sobre qué entró de
+verdad al almacén, no un dato del documento.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/api/v1/inventory/ingest/history` | Quién subió qué archivo, cuándo y con qué resultado |
+
+**Idempotencia.** Subir dos veces el mismo archivo duplicaba los lotes en
+silencio — lo verificamos en el Sprint 2: un SKU repetido generó dos lotes. Con
+conexiones inestables, reintentar una carga que sí llegó es el error más común
+del operario. La restricción `UNIQUE (store_id, file_hash)` lo impide, y como el
+SHA-256 se calcula sobre los bytes, **renombrar el archivo no lo esquiva**.
+
+El archivo se recorre dos veces: la primera para la huella, la segunda para la
+ingesta. Es barato porque Tomcat ya lo dejó en disco, y permite rechazar una
+recarga en milisegundos en lugar de tras procesar 10 MB. Todo ocurre en una
+transacción, asiento de auditoría incluido: si dos peticiones idénticas entran a
+la vez, la restricción hace fallar a la segunda y sus lotes desaparecen con el
+rollback.
+
+```
+POST /inventory/ingest/excel  (inventario-demo.xlsx)        → 200, uploadId 2, 4 lotes
+POST /inventory/ingest/excel  (el mismo archivo)            → 409 "Este archivo ya se
+   cargó el 18/10/2026 a las 23:40 por operario@kardo.pe (4 lotes creados)"
+POST /inventory/ingest/excel  (copia-renombrada.xlsx)       → 409 (misma huella)
+POST /demo/reset  +  la misma carga                          → 200, uploadId 3
+```
+
+Esa última línea era un detalle real: el reset borra lotes y guías pero no el
+rastro de cargas, así que tras restaurar la demo el evaluador no podía volver a
+subir el mismo Excel. `DemoRepository` limpia ahora las huellas de la tienda 999
+junto con el resto del escenario.
+
+> **IP y privacidad:** se registra para poder rastrear un acceso indebido, no
+> para perfilar al operario. Es dato personal bajo la Ley 29733 y conviene fijar
+> una política de retención antes de explotarlo. Detrás del proxy de Render la
+> dirección real llega en `X-Forwarded-For`, de ahí
+> `server.forward-headers-strategy=framework`; sin eso se registraría siempre la
+> IP del proxy.
+>
+> **Fuera del alcance por ahora:** el reenvío de filas corregidas (`/bulk-fix`)
+> no genera asiento de auditoría propio, solo registro en el log.
+
+---
+
+## 📤 Exportación valorizada y reversión de cargas
+
+| Método | Endpoint | Rol |
+|---|---|---|
+| `GET` | `/api/v1/inventory/export` | Operario o gerente: descarga `.xlsx` del stock valorizado |
+| `POST` | `/api/v1/inventory/ingest/{id}/rollback` | **Solo gerente**: deshace una carga |
+
+### Exportación
+`StreamingResponseBody` + el escritor de `fastexcel` vuelcan el archivo
+directamente sobre la respuesta: no se construye en memoria ni en disco, la misma
+disciplina que la ingesta y por el mismo motivo. El cursor se lee de a 500 filas
+dentro de una transacción de solo lectura, para que una venta a mitad de la
+exportación no produzca un archivo que no cuadre consigo mismo.
+
+Columnas: SKU, producto, categoría, unidad, lote, fabricación, vencimiento, días
+restantes, estado, cantidad, en cuarentena, costo unitario y valor, ordenadas por
+vencimiento (FEFO) y con fila de totales. Verificado: 85 unidades y **S/ 333.50**,
+el mismo valor que muestra el tablero.
+
+### Reversión: deltas, no snapshots
+No se guarda una foto del inventario por cada carga —multiplicaría los datos y se
+comería los 500 MB del plan gratuito. En su lugar, cada lote lleva el `upload_id`
+que lo creó: el "snapshot" es una consulta, no una copia.
+
+**Revertir no es borrar lo que la carga escribió, es borrarlo solo si nadie lo ha
+usado.** Un lote del que ya se vendió, del que se declaró una merma o que quedó
+parcialmente consumido es historia real del almacén; eliminarlo dejaría ventas
+apuntando a un lote inexistente. Por eso la reversión es **todo o nada**: si un
+solo lote fue tocado se rechaza entera y se nombra cuál.
+
+```json
+{"status":409,"message":"No se puede revertir la carga 5: su mercadería ya se movió.
+  Registra los ajustes a mano.",
+ "details":["L-2026-A (Cerveza Pilsen Callao Botella 650ml): ya tiene ventas o mermas registradas"]}
+```
+
+El catálogo **no** se toca: un SKU creado por la carga puede tener ya otros lotes
+de una recepción posterior, y borrarlo se llevaría por delante stock legítimo.
+
+| Comprobación contra Supabase | Resultado |
+|---|---|
+| Operario intenta revertir | `403` |
+| Gerente revierte una carga intacta | `200` — 4 lotes eliminados, 6 productos intactos, `rolled_back_by` registrado |
+| Revertir dos veces | `409` "ya fue revertida" |
+| Venta sobre un lote de la carga y luego revertir | `409` nombrando el lote bloqueante |
+| Subir de nuevo el archivo **tras revertir** | `200` — la carga revertida ya no bloquea |
+
+Ese último caso obligó a cambiar la unicidad por una **parcial**
+(`WHERE rolled_back_at IS NULL`): el flujo natural tras un error es revertir y
+volver a subir, y con una unicidad total el segundo intento se rechazaba como
+duplicado dejando al gerente atascado.

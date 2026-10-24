@@ -3,7 +3,7 @@ package com.kardo.sales;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.kardo.exception.InsufficientStockException;
-import com.kardo.exception.InvalidSaleException;
+import com.kardo.exception.InvalidQuantityException;
 import com.kardo.exception.ProductNotFoundException;
 import com.kardo.exception.StoreNotFoundException;
 import java.sql.SQLException;
@@ -58,7 +58,7 @@ class FefoSaleErrorTranslatorTest {
                 error("P0004", "ERROR: La cantidad a vender debe ser mayor que 0 (recibido: 0)."),
                 "SKU-X", 999L);
 
-        assertThat(translated).isInstanceOf(InvalidSaleException.class);
+        assertThat(translated).isInstanceOf(InvalidQuantityException.class);
         assertThat(translated.getMessage()).contains("mayor que 0");
     }
 

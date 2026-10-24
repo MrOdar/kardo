@@ -74,6 +74,25 @@ public class GlobalExceptionHandler {
     }
 
     /** Guia ya registrada: uq_grn_store impide duplicar la misma guia en la tienda. */
+    @ExceptionHandler(UploadNotFoundException.class)
+    public ResponseEntity<ApiError> handleUploadNotFound(UploadNotFoundException ex) {
+        return build(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    /** Lleva el detalle de que lotes bloquean la reversion, no solo el rechazo. */
+    @ExceptionHandler(UploadNotRevertibleException.class)
+    public ResponseEntity<ApiError> handleNotRevertible(UploadNotRevertibleException ex) {
+        log.warn("Reversion rechazada: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiError.of(
+                HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                ex.getMessage(), ex.blockers()));
+    }
+
+    @ExceptionHandler(DuplicateUploadException.class)
+    public ResponseEntity<ApiError> handleDuplicateUpload(DuplicateUploadException ex) {
+        return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<ApiError> handleDuplicateKey(DuplicateKeyException ex) {
         log.warn("Violacion de unicidad: {}", ex.getMessage());
@@ -81,14 +100,19 @@ public class GlobalExceptionHandler {
                 "El documento ya fue registrado para esta tienda.");
     }
 
-    @ExceptionHandler(InvalidSaleException.class)
-    public ResponseEntity<ApiError> handleInvalidSale(InvalidSaleException ex) {
+    @ExceptionHandler(InvalidQuantityException.class)
+    public ResponseEntity<ApiError> handleInvalidQuantity(InvalidQuantityException ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
-    @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<ApiError> handleProductNotFound(ProductNotFoundException ex) {
+    @ExceptionHandler({ProductNotFoundException.class, BatchNotFoundException.class})
+    public ResponseEntity<ApiError> handleNotFoundEntities(RuntimeException ex) {
         return build(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(WasteAlreadyResolvedException.class)
+    public ResponseEntity<ApiError> handleWasteResolved(WasteAlreadyResolvedException ex) {
+        return build(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(StoreNotFoundException.class)

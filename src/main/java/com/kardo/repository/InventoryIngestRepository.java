@@ -48,9 +48,10 @@ public class InventoryIngestRepository {
      */
     private static final String INSERT_BATCH = """
             INSERT INTO inventory_batches (store_id, product_id, batch_code, manufacturing_date,
-                                           expiration_date, initial_qty, current_qty, unit_cost, batch_status)
+                                           expiration_date, initial_qty, current_qty, unit_cost,
+                                           batch_status, upload_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?,
-                    CASE WHEN ? < CURRENT_DATE THEN 'EXPIRED' ELSE 'ACTIVE' END)
+                    CASE WHEN ? < CURRENT_DATE THEN 'EXPIRED' ELSE 'ACTIVE' END, ?)
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -72,13 +73,13 @@ public class InventoryIngestRepository {
      *
      * @return numero de lotes insertados
      */
-    public int persistMicroBatch(long storeId, long companyId, List<SpreadsheetRowDto> rows) {
+    public int persistMicroBatch(long storeId, long companyId, List<SpreadsheetRowDto> rows, Long uploadId) {
         if (rows.isEmpty()) {
             return 0;
         }
         upsertProducts(companyId, rows);
         Map<String, Long> productIdsBySku = resolveProductIds(companyId, rows);
-        return insertBatches(storeId, rows, productIdsBySku);
+        return insertBatches(storeId, rows, productIdsBySku, uploadId);
     }
 
     private void upsertProducts(long companyId, List<SpreadsheetRowDto> rows) {
@@ -128,7 +129,8 @@ public class InventoryIngestRepository {
         });
     }
 
-    private int insertBatches(long storeId, List<SpreadsheetRowDto> rows, Map<String, Long> productIdsBySku) {
+    private int insertBatches(long storeId, List<SpreadsheetRowDto> rows,
+                              Map<String, Long> productIdsBySku, Long uploadId) {
         int[] affected = jdbcTemplate.batchUpdate(INSERT_BATCH, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
@@ -152,6 +154,13 @@ public class InventoryIngestRepository {
                 ps.setInt(7, row.initialQty());
                 ps.setBigDecimal(8, row.unitCost());
                 ps.setObject(9, row.expirationDate());
+                // Ata el lote a la carga que lo creo: es lo que permite revertirla
+                // sin guardar una copia del inventario entero.
+                if (uploadId == null) {
+                    ps.setNull(10, Types.INTEGER);
+                } else {
+                    ps.setLong(10, uploadId);
+                }
             }
 
             @Override
