@@ -54,8 +54,9 @@ public class SecurityConfig {
                         // el archivo, el multipart excede el limite) se responde como
                         // 401 y oculta el error real al operario.
                         .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
-                        // Keep-Alive y sondas: publicos y sin acceso a BD
+                        // Keep-Alive y sondas: publicos y sin acceso a BD (GET y HEAD para UptimeRobot)
                         .requestMatchers(HttpMethod.GET, "/api/v1/ping").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/api/v1/ping").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         // Emision de tokens
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()

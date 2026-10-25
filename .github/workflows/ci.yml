@@ -1,0 +1,47 @@
+name: CI
+
+# El build completo corre en cada push y en cada pull request contra main.
+# Es el unico sitio donde las pruebas de integracion se ejecutan de verdad:
+# el runner de GitHub trae Docker, asi que Testcontainers levanta PostgreSQL 17
+# y aplica los scripts de sql/ tal como se aplican en Supabase.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build y pruebas
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      - name: Verificar que Docker esta disponible
+        # Si faltara, las pruebas de integracion se saltarian en silencio y el
+        # build seguiria verde sin haber probado nada del SQL. Mejor fallar aqui.
+        run: docker info > /dev/null
+
+      - name: mvn verify
+        run: mvn -B --no-transfer-progress verify
+
+      - name: Publicar resultados de las pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-de-pruebas
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7

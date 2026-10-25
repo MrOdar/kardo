@@ -43,6 +43,15 @@ CREATE INDEX IF NOT EXISTS idx_users_store ON users (store_id) WHERE is_active;
 --   operario@kardo.pe  / kardo-demo-2026   (OPERATOR)
 -- Hash BCrypt (coste 10) de 'kardo-demo-2026'.
 -- ------------------------------------------------------------------------------
+-- Asegurar que la empresa y tienda demo existan para satisfacer las FKs
+INSERT INTO companies (company_id, legal_name, tax_id)
+VALUES (999, 'Supermercados Demo Perú S.A.C.', '20999888771')
+ON CONFLICT (company_id) DO NOTHING;
+
+INSERT INTO stores (store_id, company_id, store_code, name, address)
+VALUES (999, 999, 'DEMO-LIMA-01', 'Tienda Demo Miraflores', 'Av. Larco 1234')
+ON CONFLICT (store_id) DO NOTHING;
+
 INSERT INTO users (company_id, store_id, email, full_name, password_hash, role)
 VALUES
     (999, 999, 'demo@kardo.pe', 'Gerente Demo',

@@ -115,6 +115,29 @@
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+            Pruebas de integracion sobre un PostgreSQL efimero.
+            El SQL es donde vive la logica critica de Kardo (FEFO, mermas,
+            invariante de masa, matching con GIN); hasta ahora solo se verificaba
+            a mano. Testcontainers levanta la misma version que sirve Supabase y
+            ejecuta los scripts de sql/ en cada build.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -132,6 +155,25 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+                Las pruebas de integracion (*IT) corren en la fase verify, no en
+                test: necesitan Docker para levantar PostgreSQL. Donde no lo hay
+                se saltan solas (ver DockerAvailable), de modo que `mvn verify`
+                sigue siendo verde en una maquina sin Docker y completo en CI.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

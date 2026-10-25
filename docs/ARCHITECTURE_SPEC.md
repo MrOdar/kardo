@@ -353,11 +353,22 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **68 pruebas**.
+Cobertura automatizada tras esta ronda: **68 pruebas unitarias**.
 
-> **Pendiente conocido:** no hay pruebas de integración contra una base real —todo
-> el SQL interesante (el `UNNEST` con `%>`, el `set_config` del umbral, los
-> procedimientos FEFO y de mermas, el invariante de masa) se verificó a mano
-> contra Supabase. Un PostgreSQL efímero con Testcontainers ejecutando el DDL en
-> cada build es el siguiente paso natural para un proyecto que se presenta como
-> de nivel bancario.
+#### Pruebas de integración contra PostgreSQL real
+El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
+un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
+`sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
+y ejecuta 27 pruebas sobre lo que de verdad puede romperse en silencio:
+
+| Clase | Qué protege |
+|---|---|
+| `FefoSaleIT` | Orden FEFO y costo por lote, **aislamiento entre compañías con el mismo SKU**, stock insuficiente sin rastro, cantidad no positiva, lote vencido no vendible |
+| `WasteWorkflowIT` | El invariante `current + cuarentena <= inicial` paso a paso, que FEFO no venda lo reservado, aprobar/rechazar, resolución idempotente, lote de otra tienda |
+| `SkuMatchingIT` | El caso insignia `"CERV PILSEN 650"` (score 0.55, que el umbral de fábrica descartaba), varias líneas en un viaje, producto nuevo sin forzar, aislamiento por compañía |
+| `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o por merma, idempotencia, y que la huella deje de bloquear tras revertir |
+
+Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
+`mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
+antes de lanzar el build, para que la ausencia de Docker nunca se confunda con
+pruebas en verde.

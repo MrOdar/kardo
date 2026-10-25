@@ -550,3 +550,28 @@ Ese último caso obligó a cambiar la unicidad por una **parcial**
 (`WHERE rolled_back_at IS NULL`): el flujo natural tras un error es revertir y
 volver a subir, y con una unicidad total el segundo intento se rechazaba como
 duplicado dejando al gerente atascado.
+
+---
+
+## ✅ Pruebas y CI
+
+```bash
+mvn verify          # 68 unitarias + 27 de integración (estas requieren Docker)
+```
+
+Las pruebas de integración levantan un **PostgreSQL 17 efímero** con
+Testcontainers y le aplican **los mismos scripts de `sql/`** que se usan en
+Supabase. No hay un esquema paralelo de pruebas: si alguien edita un
+procedimiento o rompe un invariante, el build lo descubre.
+
+| Clase | Qué protege |
+|---|---|
+| `FefoSaleIT` | Orden FEFO, costo por lote, aislamiento entre compañías con el mismo SKU, stock insuficiente, lote vencido |
+| `WasteWorkflowIT` | Invariante de masa, cuarentena no vendible, aprobar/rechazar, idempotencia |
+| `SkuMatchingIT` | El caso `"CERV PILSEN 650"`, matching por lotes, producto nuevo, aislamiento por compañía |
+| `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o merma |
+
+**Sin Docker se saltan y el build sigue verde**, así que `mvn verify` es seguro en
+cualquier máquina. GitHub Actions (`.github/workflows/ci.yml`) comprueba
+`docker info` antes de ejecutar el build: la falta de Docker debe notarse como
+pruebas saltadas, nunca como pruebas en verde.
