@@ -67,6 +67,47 @@ async function request(path, options = {}) {
   return parsed;
 }
 
+/* ──────────────────────── navegacion por pestañas ──────────────────────── */
+
+const TABS = ['semaforo', 'inventario', 'excel', 'recepcion'];
+
+/**
+ * Muestra una pestaña.
+ *
+ * <p>Se ocultan paneles en lugar de recrearlos: el estado de la cuarentena y de
+ * la guia escaneada vive en el DOM, y perderlo al cambiar de pestaña obligaria
+ * al operario a repetir el trabajo.
+ */
+function showTab(name) {
+  TABS.forEach((tab) => {
+    const selected = tab === name;
+    $(`tab-${tab}`).setAttribute('aria-selected', String(selected));
+    $(`tab-${tab}`).classList.toggle('text-shell', selected);
+    $(`panel-${tab}`).classList.toggle('hidden', !selected);
+  });
+
+  // El inventario se recarga al entrar: pudo cambiar por una venta o una merma.
+  if (name === 'inventario' && state.token) {
+    loadBatches();
+  }
+}
+
+TABS.forEach((tab) => {
+  $(`tab-${tab}`).addEventListener('click', () => showTab(tab));
+});
+
+// Flechas entre pestañas, como espera quien navega con teclado.
+$('tab-semaforo').parentElement.addEventListener('keydown', (event) => {
+  const current = TABS.findIndex((tab) => $(`tab-${tab}`).getAttribute('aria-selected') === 'true');
+  const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+  if (!delta) return;
+
+  event.preventDefault();
+  const next = TABS[(current + delta + TABS.length) % TABS.length];
+  showTab(next);
+  $(`tab-${next}`).focus();
+});
+
 /* ─────────────────── estado de conexion con el backend ─────────────────── */
 
 async function pingBackend() {
@@ -113,14 +154,16 @@ function renderFefoQueue(rows) {
     const days = Number(row.dias_restantes);
     const state_ = batchState(days);
     const item = document.createElement('li');
-    item.className = `state-${state_.key} flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-4 py-3 pl-4`;
+    // En pantallas estrechas se ocultan lote y fecha: lo que no puede faltar es
+    // cuanto le queda al lote, que producto es y cuanto dinero hay en juego.
+    item.className = `state-${state_.key} flex items-baseline gap-x-3 gap-y-1 border-l-4 py-3 pl-4`;
     item.innerHTML = `
-      <span class="num w-16 shrink-0 font-bold ${state_.tone}">${state_.label}</span>
-      <span class="min-w-0 flex-1 font-semibold">${escapeHtml(row.name)}</span>
-      <span class="font-mono text-xs text-ink-faint">${escapeHtml(row.batch_code)}</span>
-      <span class="num w-24 text-right text-sm text-ink-soft">${row.current_qty} u</span>
-      <span class="num w-28 text-right text-sm">${money(row.valor)}</span>
-      <span class="num w-28 text-right text-sm text-ink-faint">${row.expiration_date}</span>`;
+      <span class="num w-14 shrink-0 font-bold ${state_.tone}">${state_.label}</span>
+      <span class="min-w-0 flex-1 truncate font-semibold" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>
+      <span class="hidden font-mono text-xs text-ink-faint sm:inline">${escapeHtml(row.batch_code)}</span>
+      <span class="num w-16 shrink-0 text-right text-sm text-ink-soft">${row.current_qty} u</span>
+      <span class="num w-24 shrink-0 text-right text-sm">${money(row.valor)}</span>
+      <span class="num hidden w-28 shrink-0 text-right text-sm text-ink-faint sm:inline">${row.expiration_date}</span>`;
     return item;
   }));
 }
@@ -160,6 +203,7 @@ async function resetDemo() {
     await loadCatalog();
     await loadPendingWaste();
     await loadUploadHistory();
+    await loadBatches();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
   } catch (error) {
     toast(`No se pudo restaurar la demo: ${error.message}`, 'error');
@@ -248,7 +292,64 @@ async function registerSale(event) {
   }
 }
 
-/* ───────────────── panel 2: mermas con aprobacion del gerente ───────────────── */
+/* ───────────────── pestaña 2: inventario fisico con buscador ───────────────── */
+
+/** Evita una consulta por tecla: solo se busca cuando el operario deja de escribir. */
+function debounce(fn, delay = 300) {
+  let timer;
+  return (...args) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => fn(...args), delay);
+  };
+}
+
+async function loadBatches() {
+  const query = $('batch-search').value.trim();
+  const filter = $('batch-filter').value;
+
+  try {
+    const batches = await request(
+      `/inventory/batches?status=${filter}&limit=200${query ? `&q=${encodeURIComponent(query)}` : ''}`);
+    renderBatches(batches, query);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function renderBatches(batches, query) {
+  const body = $('batch-rows');
+  $('batch-count').textContent = batches.length
+    ? `${plural(batches.length, 'lote', 'lotes')}`
+    : 'Sin resultados';
+
+  if (!batches.length) {
+    body.innerHTML = `<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-ink-faint">${
+      query ? `Nada coincide con «${escapeHtml(query)}».` : 'No hay lotes con existencias.'
+    }</td></tr>`;
+    return;
+  }
+
+  body.replaceChildren(...batches.map((batch) => {
+    const state_ = batchState(batch.daysToExpiry);
+    const tr = document.createElement('tr');
+    tr.className = `state-${state_.key} border-l-4`;
+    tr.innerHTML = `
+      <td class="num px-3 py-2 ${state_.tone} font-semibold">${state_.label}</td>
+      <td class="px-3 py-2 font-semibold">${escapeHtml(batch.productName)}</td>
+      <td class="px-3 py-2 font-mono text-xs text-ink-soft">${escapeHtml(batch.sku)}</td>
+      <td class="px-3 py-2 font-mono text-xs text-ink-soft">${escapeHtml(batch.batchCode)}</td>
+      <td class="num px-3 py-2 text-right">${batch.currentQty}</td>
+      <td class="num px-3 py-2 text-right ${batch.quarantinedQty ? 'text-risk-amber font-semibold' : 'text-ink-faint'}">${batch.quarantinedQty}</td>
+      <td class="num px-3 py-2 text-right">${money(batch.value)}</td>
+      <td class="px-3 py-2 text-ink-soft">${escapeHtml(batch.status)}</td>`;
+    return tr;
+  }));
+}
+
+$('batch-search').addEventListener('input', debounce(loadBatches));
+$('batch-filter').addEventListener('change', loadBatches);
+
+/* ───────────────── pestaña 2: mermas con aprobacion del gerente ───────────────── */
 
 const WASTE_REASONS = {
   EXPIRATION: 'Vencimiento',

@@ -575,3 +575,42 @@ procedimiento o rompe un invariante, el build lo descubre.
 cualquier máquina. GitHub Actions (`.github/workflows/ci.yml`) comprueba
 `docker info` antes de ejecutar el build: la falta de Docker debe notarse como
 pruebas saltadas, nunca como pruebas en verde.
+
+> **Windows + Docker Desktop reciente:** las pruebas de integración pueden
+> saltarse en local aunque Docker esté instalado y la CLI funcione. Docker
+> Desktop 29 responde al `/info` de clientes que no son su CLI con un `400` y un
+> cuerpo vacío, y Testcontainers lo interpreta como "no hay Docker". El build
+> sigue en verde (las marca como saltadas) y CI las ejecuta de verdad sobre
+> Linux. Si necesitas correrlas en Windows, WSL2 o un runner Linux son el camino
+> corto.
+
+---
+
+## 🗂️ La interfaz en cuatro pestañas
+
+| Pestaña | Qué contiene |
+|---|---|
+| **Semáforo FEFO** | Métricas de riesgo, salida rápida y la cola en el orden exacto en que se entregará |
+| **Inventario y lotes** | Tabla completa con **buscador** (SKU, nombre o lote impreso) y **filtro por estado**, exportación valorizada y el circuito de mermas |
+| **Excel y versionado** | Dropzone, resumen de la carga, historial de auditoría con reversión y la cuarentena editable |
+| **Recepción con IA** | Foto de la guía, extracción, matching de SKUs y confirmación |
+
+Las mermas viven junto al inventario porque se declaran **sobre un lote**: el
+operario elige de la misma lista que está mirando.
+
+```
+GET /api/v1/inventory/batches?q=yogurt&status=POR_VENCER_5D
+```
+
+Filtros disponibles: `TODOS`, `ACTIVOS`, `POR_VENCER_48H`, `POR_VENCER_5D`,
+`VENCIDOS`, `EN_CUARENTENA` — los mismos tramos que pinta el semáforo, para que
+no haya dos lenguajes distintos en la misma aplicación. Cada filtro lleva su
+predicado SQL en el enum `BatchFilter`; el texto del operario nunca se concatena
+al SQL. Un filtro desconocido no rompe la pantalla: muestra todo.
+
+Detalles de interfaz: los paneles se ocultan en lugar de recrearse, para no
+perder la cuarentena a medio corregir ni la guía escaneada al cambiar de
+pestaña; la búsqueda espera a que el operario deje de escribir; las flechas del
+teclado recorren las pestañas; y en móvil la cola FEFO conserva lo esencial
+—cuánto le queda al lote, qué producto es y cuánto dinero hay en juego— ocultando
+lote y fecha.

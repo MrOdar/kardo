@@ -299,6 +299,7 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
 | `POST` | `/api/v1/inventory/waste/{id}/approve` · `/reject` | **MANAGER** |
 | `POST` | `/api/v1/receipts/scan` · `/confirm` | OPERATOR o MANAGER |
 | `GET` | `/api/v1/products` | Autenticado (catálogo de su compañía) |
+| `GET` | `/api/v1/inventory/batches?q=&status=` | OPERATOR o MANAGER (búsqueda y filtro del inventario) |
 
 ---
 

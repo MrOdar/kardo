@@ -37,6 +37,10 @@
   .state-expired{ border-left-color: #0E2A26; }
   [contenteditable]:focus { outline: 2px solid #0E2A26; outline-offset: -2px; background: #fff; }
   .dropzone-active { background: #E7EDEB; border-color: #0E2A26; }
+  /* La pestaña activa se marca con el filete inferior, no solo con color:
+     sigue siendo legible sin percepción de color. Va en claro porque la barra
+     de pestañas vive sobre la cabecera oscura. */
+  [role="tab"][aria-selected="true"] { border-bottom-color: #F2F4F3; color: #F2F4F3; font-weight: 600; }
   @media (prefers-reduced-motion: reduce) {
     * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
@@ -72,17 +76,43 @@
       </button>
     </div>
   </div>
+
+  <div class="border-t border-shell/15">
+    <nav class="mx-auto flex max-w-6xl gap-6 overflow-x-auto px-4 sm:px-6" role="tablist"
+         aria-label="Secciones de Kardo">
+      <button role="tab" id="tab-semaforo" aria-controls="panel-semaforo" aria-selected="true"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Semáforo FEFO
+      </button>
+      <button role="tab" id="tab-inventario" aria-controls="panel-inventario" aria-selected="false"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Inventario y lotes
+      </button>
+      <button role="tab" id="tab-excel" aria-controls="panel-excel" aria-selected="false"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Excel y versionado
+      </button>
+      <button role="tab" id="tab-recepcion" aria-controls="panel-recepcion" aria-selected="false"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Recepción con IA
+      </button>
+    </nav>
+  </div>
 </header>
 
 <main class="mx-auto max-w-6xl px-4 pb-24 sm:px-6">
 
-  <!-- ───────────── Panel 1: lo que vence primero ───────────── -->
-  <section aria-labelledby="fefo-title" class="pt-10">
+  <!-- ═════════ Pestaña 1: semáforo y salida rápida ═════════ -->
+  <section id="panel-semaforo" role="tabpanel" aria-labelledby="tab-semaforo" class="pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 id="fefo-title" class="text-2xl font-bold tracking-tight">Lo que vence primero</h1>
+        <h1 class="text-2xl font-bold tracking-tight">Lo que vence primero</h1>
         <p class="mt-1 max-w-prose text-sm text-ink-soft">
-          Orden exacto en que el motor FEFO entregará la mercadería de la tienda demo.
+          Orden exacto en que el motor FEFO entregará la mercadería de la tienda.
         </p>
       </div>
       <dl class="flex flex-wrap gap-x-8 gap-y-3">
@@ -139,67 +169,123 @@
     </div>
   </section>
 
-  <!-- ───────────── Panel 2: mermas con aprobación ───────────── -->
-  <section aria-labelledby="waste-title" class="mt-16 border-t border-shell-line pt-10">
-    <h2 id="waste-title" class="text-xl font-bold tracking-tight">Dar de baja mercadería</h2>
-    <p class="mt-1 max-w-prose text-sm text-ink-soft">
-      El operario declara la baja y las unidades quedan inmovilizadas; el gerente decide si la
-      pérdida se consolida o la mercadería vuelve al stock. Quien declara no puede aprobar.
-    </p>
-
-    <form id="waste-form" class="mt-6 flex flex-wrap items-end gap-3">
+  <!-- ═════════ Pestaña 2: inventario físico ═════════ -->
+  <section id="panel-inventario" role="tabpanel" aria-labelledby="tab-inventario" class="hidden pt-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <label for="waste-batch" class="block text-sm text-ink-faint">Lote</label>
-        <select id="waste-batch" class="mt-1 w-72 rounded border border-shell-line bg-white px-2 py-1.5">
-          <option value="">Restaura la demo para ver los lotes</option>
-        </select>
+        <h2 class="text-2xl font-bold tracking-tight">Inventario físico</h2>
+        <p class="mt-1 max-w-prose text-sm text-ink-soft">
+          Todos los lotes con existencias, en el mismo orden en que FEFO los entregará.
+        </p>
       </div>
-      <div>
-        <label for="waste-qty" class="block text-sm text-ink-faint">Unidades</label>
-        <input id="waste-qty" type="number" min="1" step="1" value="6"
-               class="num mt-1 w-24 rounded border border-shell-line px-2 py-1.5 text-right">
-      </div>
-      <div>
-        <label for="waste-reason" class="block text-sm text-ink-faint">Motivo</label>
-        <select id="waste-reason" class="mt-1 rounded border border-shell-line bg-white px-2 py-1.5">
-          <option value="EXPIRATION">Vencimiento</option>
-          <option value="DAMAGE">Daño</option>
-          <option value="COLD_CHAIN_FAILURE">Rotura de cadena de frío</option>
-          <option value="RECALL">Retiro del proveedor</option>
-        </select>
-      </div>
-      <button type="submit"
+      <button id="btn-export"
               class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
-                     focus-visible:outline-ink disabled:opacity-60">
-        Declarar baja
+                     focus-visible:outline-ink">
+        Exportar valorizado (.xlsx)
       </button>
-    </form>
+    </div>
 
-    <div id="waste-pending" class="mt-6 hidden">
-      <h3 class="text-lg font-semibold">En cuarentena, a la espera del gerente</h3>
-      <div class="mt-3 overflow-x-auto border border-shell-line bg-white">
-        <table class="w-full border-collapse text-sm">
-          <thead class="bg-shell text-left">
-            <tr class="text-ink-soft">
-              <th class="px-3 py-2 font-semibold">Producto</th>
-              <th class="px-3 py-2 font-semibold">Lote</th>
-              <th class="px-3 py-2 font-semibold">Unidades</th>
-              <th class="px-3 py-2 font-semibold">Pérdida</th>
-              <th class="px-3 py-2 font-semibold">Motivo</th>
-              <th class="px-3 py-2 font-semibold">Declaró</th>
-              <th class="px-3 py-2 font-semibold">Decisión</th>
-            </tr>
-          </thead>
-          <tbody id="waste-rows" class="divide-y divide-shell-line"></tbody>
-        </table>
+    <div class="mt-6 flex flex-wrap items-end gap-3">
+      <div class="min-w-[16rem] flex-1">
+        <label for="batch-search" class="block text-sm text-ink-faint">Buscar</label>
+        <input id="batch-search" type="search" placeholder="SKU, nombre del producto o lote impreso"
+               class="mt-1 w-full rounded border border-shell-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="batch-filter" class="block text-sm text-ink-faint">Estado</label>
+        <select id="batch-filter" class="mt-1 rounded border border-shell-line bg-white px-2 py-1.5">
+          <option value="TODOS">Todos</option>
+          <option value="POR_VENCER_48H">Vence en 48 h</option>
+          <option value="POR_VENCER_5D">Vence en 5 días</option>
+          <option value="ACTIVOS">Activos</option>
+          <option value="VENCIDOS">Vencidos</option>
+          <option value="EN_CUARENTENA">En cuarentena</option>
+        </select>
+      </div>
+      <p id="batch-count" class="py-2 text-sm text-ink-faint">—</p>
+    </div>
+
+    <div class="mt-4 overflow-x-auto border border-shell-line bg-white">
+      <table class="w-full border-collapse text-sm">
+        <thead class="bg-shell text-left">
+          <tr class="text-ink-soft">
+            <th class="px-3 py-2 font-semibold">Vence</th>
+            <th class="px-3 py-2 font-semibold">Producto</th>
+            <th class="px-3 py-2 font-semibold">SKU</th>
+            <th class="px-3 py-2 font-semibold">Lote</th>
+            <th class="px-3 py-2 font-semibold text-right">Cantidad</th>
+            <th class="px-3 py-2 font-semibold text-right">Cuarentena</th>
+            <th class="px-3 py-2 font-semibold text-right">Valor</th>
+            <th class="px-3 py-2 font-semibold">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="batch-rows" class="divide-y divide-shell-line"></tbody>
+      </table>
+    </div>
+
+    <!-- ───── Mermas: se declaran sobre un lote, así que viven junto al inventario ───── -->
+    <div class="mt-12 border-t border-shell-line pt-8">
+      <h3 class="text-xl font-bold tracking-tight">Dar de baja mercadería</h3>
+      <p class="mt-1 max-w-prose text-sm text-ink-soft">
+        El operario declara la baja y las unidades quedan inmovilizadas; el gerente decide si la
+        pérdida se consolida o la mercadería vuelve al stock. Quien declara no puede aprobar.
+      </p>
+
+      <form id="waste-form" class="mt-5 flex flex-wrap items-end gap-3">
+        <div>
+          <label for="waste-batch" class="block text-sm text-ink-faint">Lote</label>
+          <select id="waste-batch" class="mt-1 w-72 rounded border border-shell-line bg-white px-2 py-1.5">
+            <option value="">Restaura la demo para ver los lotes</option>
+          </select>
+        </div>
+        <div>
+          <label for="waste-qty" class="block text-sm text-ink-faint">Unidades</label>
+          <input id="waste-qty" type="number" min="1" step="1" value="6"
+                 class="num mt-1 w-24 rounded border border-shell-line px-2 py-1.5 text-right">
+        </div>
+        <div>
+          <label for="waste-reason" class="block text-sm text-ink-faint">Motivo</label>
+          <select id="waste-reason" class="mt-1 rounded border border-shell-line bg-white px-2 py-1.5">
+            <option value="EXPIRATION">Vencimiento</option>
+            <option value="DAMAGE">Daño</option>
+            <option value="COLD_CHAIN_FAILURE">Rotura de cadena de frío</option>
+            <option value="RECALL">Retiro del proveedor</option>
+          </select>
+        </div>
+        <button type="submit"
+                class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                       focus-visible:outline-ink disabled:opacity-60">
+          Declarar baja
+        </button>
+      </form>
+
+      <div id="waste-pending" class="mt-6 hidden">
+        <h4 class="font-semibold">En cuarentena, a la espera del gerente</h4>
+        <div class="mt-3 overflow-x-auto border border-shell-line bg-white">
+          <table class="w-full border-collapse text-sm">
+            <thead class="bg-shell text-left">
+              <tr class="text-ink-soft">
+                <th class="px-3 py-2 font-semibold">Producto</th>
+                <th class="px-3 py-2 font-semibold">Lote</th>
+                <th class="px-3 py-2 font-semibold">Unidades</th>
+                <th class="px-3 py-2 font-semibold">Pérdida</th>
+                <th class="px-3 py-2 font-semibold">Motivo</th>
+                <th class="px-3 py-2 font-semibold">Declaró</th>
+                <th class="px-3 py-2 font-semibold">Decisión</th>
+              </tr>
+            </thead>
+            <tbody id="waste-rows" class="divide-y divide-shell-line"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ───────────── Panel 3: ingesta de Excel ───────────── -->
-  <section aria-labelledby="ingest-title" class="mt-16 border-t border-shell-line pt-10">
-    <h2 id="ingest-title" class="text-xl font-bold tracking-tight">Cargar inventario desde Excel</h2>
+  <!-- ═════════ Pestaña 3: Excel, cuarentena y versionado ═════════ -->
+  <section id="panel-excel" role="tabpanel" aria-labelledby="tab-excel" class="hidden pt-10">
+    <h2 class="text-2xl font-bold tracking-tight">Cargar inventario desde Excel</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
       El archivo se procesa en streaming. Las filas que no pasan la compuerta de calidad vuelven aquí
       para corregirlas sin volver a subir nada.
@@ -210,7 +296,7 @@
            class="flex min-h-[132px] cursor-pointer flex-col items-center justify-center gap-2 rounded
                   border-2 border-dashed border-shell-line bg-white px-6 py-8 text-center transition-colors
                   hover:border-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
-           tabindex="0" role="button" aria-describedby="ingest-title">
+           tabindex="0" role="button">
         <p class="font-semibold">Arrastra tu archivo .xlsx</p>
         <p class="text-sm text-ink-faint">o haz clic para elegirlo · máximo 10 MB</p>
         <input id="file-excel" type="file" accept=".xlsx" class="sr-only">
@@ -227,15 +313,6 @@
           <dt class="text-ink-faint">En cuarentena</dt><dd id="s-quarantined" class="num font-semibold text-risk-red">0</dd>
         </div>
       </dl>
-    </div>
-
-    <div class="mt-6">
-      <button id="btn-export"
-              class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
-                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
-                     focus-visible:outline-ink">
-        Exportar inventario valorizado (.xlsx)
-      </button>
     </div>
 
     <div id="upload-history" class="mt-8 hidden">
@@ -298,9 +375,9 @@
     </div>
   </section>
 
-  <!-- ───────────── Panel 3: recepción documental ───────────── -->
-  <section aria-labelledby="scan-title" class="mt-16 border-t border-shell-line pt-10">
-    <h2 id="scan-title" class="text-xl font-bold tracking-tight">Recibir una guía de remisión</h2>
+  <!-- ═════════ Pestaña 4: recepción documental ═════════ -->
+  <section id="panel-recepcion" role="tabpanel" aria-labelledby="tab-recepcion" class="hidden pt-10">
+    <h2 class="text-2xl font-bold tracking-tight">Recibir una guía de remisión</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
       Toma la foto del documento. La visión multimodal extrae las líneas y las cruza contra el catálogo;
       tú confirmas lo que realmente llegó.
