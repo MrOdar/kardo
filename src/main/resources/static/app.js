@@ -227,9 +227,53 @@ function applySession(session) {
 
   const roles = { MANAGER: 'Gerente de tienda', OPERATOR: 'Operario' };
   $('session').classList.remove('hidden');
+  $('btn-switch').classList.remove('hidden');
   $('session-user').textContent = session.email;
   $('session-role').textContent = `${roles[session.role] ?? session.role} · ${session.storeName}`;
 }
+
+/* ───────────────────────── cambio de usuario ───────────────────────── */
+
+/**
+ * Permite entrar con otra cuenta sin recargar.
+ *
+ * <p>Existe porque la aprobacion de mermas exige que quien resuelve no sea quien
+ * declaro: para recorrer ese circuito hace falta poder ser las dos personas.
+ */
+async function switchUser(event) {
+  event.preventDefault();
+  const error = $('login-error');
+  error.classList.add('hidden');
+
+  try {
+    const session = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: $('login-email').value.trim(), password: $('login-password').value })
+    });
+
+    applySession(session);
+    $('login-dialog').close();
+    $('login-password').value = '';
+
+    // Todo lo que se ve depende de quien mira: roles, botones y tienda.
+    await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches()]);
+    await refreshDashboard();
+    toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.classList.remove('hidden');
+  }
+}
+
+$('btn-switch').addEventListener('click', () => {
+  $('login-email').value = state.session?.email === 'demo@kardo.pe' ? 'operario@kardo.pe' : 'demo@kardo.pe';
+  $('login-password').value = '';
+  $('login-error').classList.add('hidden');
+  $('login-dialog').showModal();
+});
+$('login-cancel').addEventListener('click', () => $('login-dialog').close());
+$('login-form').addEventListener('submit', switchUser);
 
 async function loadCatalog() {
   try {
@@ -412,8 +456,11 @@ function renderPendingWaste(entries) {
   }
   panel.classList.remove('hidden');
 
-  // Solo el gerente ve los botones; al operario se le explica por que no los tiene.
+  // Solo el gerente ve los botones; al operario se le explica por que no los
+  // tiene. Y nadie los ve sobre una merma que declaro el mismo: ofrecerlos
+  // llevaria a un 409 que el servidor ya rechaza por segregacion de funciones.
   const isManager = state.session?.role === 'MANAGER';
+  const me = state.session?.email;
 
   body.replaceChildren(...entries.map((entry) => {
     const tr = document.createElement('tr');
@@ -424,15 +471,26 @@ function renderPendingWaste(entries) {
       <td class="num px-3 py-2 text-risk-red">${money(entry.totalLoss)}</td>
       <td class="px-3 py-2">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
       <td class="px-3 py-2 text-ink-soft">${escapeHtml(entry.operatorId)}</td>
-      <td class="px-3 py-2">${isManager ? `
-        <span class="flex gap-2">
-          <button data-waste="${entry.wasteId}" data-decision="approve"
-                  class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Aprobar</button>
-          <button data-waste="${entry.wasteId}" data-decision="reject"
-                  class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Devolver al stock</button>
-        </span>` : '<span class="text-sm text-ink-faint">Requiere al gerente</span>'}</td>`;
+      <td class="px-3 py-2">${decisionCell(entry, isManager, me)}</td>`;
     return tr;
   }));
+}
+
+/** Quién puede decidir sobre esta merma, dicho en la propia tabla. */
+function decisionCell(entry, isManager, me) {
+  if (entry.operatorId === me) {
+    return '<span class="text-sm text-ink-faint">La declaraste tú: debe resolverla otra persona</span>';
+  }
+  if (!isManager) {
+    return '<span class="text-sm text-ink-faint">Requiere al gerente</span>';
+  }
+  return `
+    <span class="flex gap-2">
+      <button data-waste="${entry.wasteId}" data-decision="approve"
+              class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Aprobar</button>
+      <button data-waste="${entry.wasteId}" data-decision="reject"
+              class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Devolver al stock</button>
+    </span>`;
 }
 
 $('waste-rows').addEventListener('click', async (event) => {

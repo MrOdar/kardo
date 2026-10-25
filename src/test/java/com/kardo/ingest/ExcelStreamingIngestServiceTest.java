@@ -194,7 +194,7 @@ class ExcelStreamingIngestServiceTest {
                 new BigDecimal("1.00"), new BigDecimal("2.00"), "L-1",
                 LocalDate.of(2026, 6, 1), LocalDate.of(2026, 1, 1), 5);
 
-        IngestSummaryResponseDto summary = service.ingestFixedRows(STORE_ID, List.of(valida, incoherente));
+        IngestSummaryResponseDto summary = service.ingestFixedRows(STORE_ID, List.of(valida, incoherente), 7L);
 
         assertThat(summary.totalRowsProcessed()).isEqualTo(2);
         assertThat(summary.totalInserted()).isEqualTo(1);

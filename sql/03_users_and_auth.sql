@@ -39,9 +39,14 @@ CREATE INDEX IF NOT EXISTS idx_users_store ON users (store_id) WHERE is_active;
 -- Son credenciales PUBLICAS y deliberadas: el evaluador entra con ellas a un
 -- escenario que se borra y resiembra con un boton. Nunca uses este patron para
 -- una tienda real.
---   demo@kardo.pe      / kardo-demo-2026   (MANAGER)
---   operario@kardo.pe  / kardo-demo-2026   (OPERATOR)
+--   demo@kardo.pe        / kardo-demo-2026   (MANAGER)
+--   supervisor@kardo.pe  / kardo-demo-2026   (MANAGER)
+--   operario@kardo.pe    / kardo-demo-2026   (OPERATOR)
 -- Hash BCrypt (coste 10) de 'kardo-demo-2026'.
+--
+-- Hay DOS gerentes a proposito. Desde que nadie puede resolver la merma que el
+-- mismo declaro (sql/08), una tienda con un unico gerente dejaria sin salida
+-- todo lo que ese gerente declarase; el segundo permite recorrer el circuito.
 -- ------------------------------------------------------------------------------
 -- Asegurar que la empresa y tienda demo existan para satisfacer las FKs
 INSERT INTO companies (company_id, legal_name, tax_id)
@@ -55,6 +60,8 @@ ON CONFLICT (store_id) DO NOTHING;
 INSERT INTO users (company_id, store_id, email, full_name, password_hash, role)
 VALUES
     (999, 999, 'demo@kardo.pe', 'Gerente Demo',
+     '$2a$10$0VtKSaAKlGHg9L5XHg7nXe.LE37wFq3kCn16si7egncA9WUcjj1rC', 'MANAGER'),
+    (999, 999, 'supervisor@kardo.pe', 'Supervisora Demo',
      '$2a$10$0VtKSaAKlGHg9L5XHg7nXe.LE37wFq3kCn16si7egncA9WUcjj1rC', 'MANAGER'),
     (999, 999, 'operario@kardo.pe', 'Operario Demo',
      '$2a$10$0VtKSaAKlGHg9L5XHg7nXe.LE37wFq3kCn16si7egncA9WUcjj1rC', 'OPERATOR')

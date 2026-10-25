@@ -110,6 +110,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    @ExceptionHandler(SelfApprovalException.class)
+    public ResponseEntity<ApiError> handleSelfApproval(SelfApprovalException ex) {
+        log.warn("Intento de autoaprobacion: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(WasteAlreadyResolvedException.class)
     public ResponseEntity<ApiError> handleWasteResolved(WasteAlreadyResolvedException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());

@@ -47,7 +47,8 @@ public abstract class PostgresIntegrationTest {
             "sql/04_fefo_sale_hardening.sql",
             "sql/05_waste_workflow.sql",
             "sql/06_upload_audit.sql",
-            "sql/07_upload_rollback.sql");
+            "sql/07_upload_rollback.sql",
+            "sql/08_waste_segregation.sql");
 
     static {
         if (DockerEnvironment.isPresent()) {

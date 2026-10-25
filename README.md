@@ -439,10 +439,9 @@ pero el índice parcial de FEFO no lo tomará.
 | Lote de otra tienda o inexistente | `404` |
 | Invariante de masa tras todas las pruebas | 0 violaciones, 0 cantidades negativas |
 
-> **Límite conocido:** el control que se aplica es por rol, no por persona. Un
-> gerente puede declarar y aprobar su propia merma. Separar también por usuario
-> (que nadie resuelva lo que él mismo declaró) es el siguiente paso natural si se
-> quiere segregación de funciones estricta.
+> **Cerrado después:** el control dejó de ser solo por rol. `sql/08` impide que
+> nadie resuelva la merma que él mismo declaró — ver la sección de segregación de
+> funciones más abajo.
 
 ---
 
@@ -494,8 +493,9 @@ junto con el resto del escenario.
 > `server.forward-headers-strategy=framework`; sin eso se registraría siempre la
 > IP del proxy.
 >
-> **Fuera del alcance por ahora:** el reenvío de filas corregidas (`/bulk-fix`)
-> no genera asiento de auditoría propio, solo registro en el log.
+> **Cerrado después:** el reenvío de filas corregidas (`/bulk-fix`) también deja
+> su propio asiento, con huella del contenido — ver la sección de segregación y
+> auditoría más abajo.
 
 ---
 
@@ -614,3 +614,41 @@ pestaña; la búsqueda espera a que el operario deje de escribir; las flechas de
 teclado recorren las pestañas; y en móvil la cola FEFO conserva lo esencial
 —cuánto le queda al lote, qué producto es y cuánto dinero hay en juego— ocultando
 lote y fecha.
+
+---
+
+## 🛡️ Segregación de funciones, auditoría de correcciones y retención
+
+Tres límites que estaban documentados como abiertos y ahora están cerrados.
+
+**Quien declara no resuelve** (`sql/08_waste_segregation.sql`). El control por rol
+dejaba fuera el caso que importa en una tienda pequeña: el gerente que declara una
+pérdida y se la aprueba a sí mismo. Ahora `sp_approve_waste` y `sp_reject_waste`
+rechazan con `P0008` → **409** si el autorizante es el mismo que declaró —también
+al rechazar, porque devolver el stock sin revisión es la otra mitad del fraude—.
+La interfaz no ofrece los botones sobre una merma propia: dice *«La declaraste tú:
+debe resolverla otra persona»*.
+
+Esto obligó a dos cosas: la tienda demo tiene ahora **dos gerentes**
+(`demo@kardo.pe` y `supervisor@kardo.pe`), porque con uno solo lo que él declarara
+quedaría sin salida; y la SPA tiene **cambio de usuario** (`Cambiar de usuario` en
+la cabecera), que además era la única forma de entrar sin pasar por el botón de
+demo.
+
+**Las correcciones dejan rastro** (`BulkFixService`). `/bulk-fix` crea lotes igual
+que un archivo, así que ahora deja el mismo asiento: autor, IP, métricas y lotes
+ligados al `upload_id` —de modo que también pueden revertirse—. Como no hay archivo
+del que sacar la huella, se calcula el SHA-256 sobre el contenido de las filas
+ordenadas: reenviar las mismas correcciones responde `409` en lugar de duplicar
+mercadería.
+
+**La IP caduca** (`ClientIpRetentionScheduler`). Se guarda para rastrear un acceso
+indebido, no para perfilar al operario. Un trabajo nocturno la borra pasados
+`kardo.audit.ip-retention-days` (90 por defecto) de `inventory_uploads` y
+`goods_receipt_headers`. Se borra en vez de anonimizar: una IP truncada sigue
+siendo identificativa en una tienda con pocos operarios. El asiento conserva lo
+que importa —quién, qué y cuándo—.
+
+Verificado en el navegador: el gerente declara → no puede resolver → entra la
+supervisora → aprueba. Y contra Supabase: `bulk-fix` auditado con `uploadId`, y el
+reenvío idéntico rechazado. Cobertura: **43 pruebas de integración** (7 nuevas).

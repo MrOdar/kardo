@@ -4,6 +4,7 @@ import com.kardo.dto.WasteEntryDto;
 import com.kardo.exception.BatchNotFoundException;
 import com.kardo.exception.InsufficientStockException;
 import com.kardo.exception.InvalidQuantityException;
+import com.kardo.exception.SelfApprovalException;
 import com.kardo.exception.WasteAlreadyResolvedException;
 import com.kardo.support.SqlErrors;
 import java.util.List;
@@ -117,6 +118,7 @@ public class WasteService {
             case "P0005" -> new InsufficientStockException(message);
             case "P0006" -> new BatchNotFoundException(batchId);
             case "P0007" -> new WasteAlreadyResolvedException(wasteId);
+            case "P0008" -> new SelfApprovalException(message);
             default -> exception;
         };
     }

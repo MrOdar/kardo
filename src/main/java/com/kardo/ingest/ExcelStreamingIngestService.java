@@ -133,7 +133,7 @@ public class ExcelStreamingIngestService {
      * fila corregida a mano puede seguir violando los CHECK del DDL.
      */
     @Transactional
-    public IngestSummaryResponseDto ingestFixedRows(long storeId, List<SpreadsheetRowDto> rows) {
+    public IngestSummaryResponseDto ingestFixedRows(long storeId, List<SpreadsheetRowDto> rows, Long uploadId) {
         long companyId = repository.findCompanyIdByStore(storeId);
 
         List<SpreadsheetRowDto> accepted = new ArrayList<>(rows.size());
@@ -153,7 +153,7 @@ public class ExcelStreamingIngestService {
         int inserted = 0;
         for (int start = 0; start < accepted.size(); start += properties.batchSize()) {
             int end = Math.min(start + properties.batchSize(), accepted.size());
-            inserted += repository.persistMicroBatch(storeId, companyId, accepted.subList(start, end), null);
+            inserted += repository.persistMicroBatch(storeId, companyId, accepted.subList(start, end), uploadId);
         }
 
         return new IngestSummaryResponseDto(rows.size(), inserted, quarantined.size(), quarantined);

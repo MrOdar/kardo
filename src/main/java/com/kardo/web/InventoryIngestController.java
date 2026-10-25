@@ -5,7 +5,7 @@ import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.RollbackResponseDto;
 import com.kardo.dto.UploadAuditDto;
 import com.kardo.exception.CorruptSpreadsheetException;
-import com.kardo.ingest.ExcelStreamingIngestService;
+import com.kardo.ingest.BulkFixService;
 import com.kardo.ingest.ExcelUploadService;
 import com.kardo.ingest.UploadRollbackService;
 import com.kardo.security.CurrentUser;
@@ -33,14 +33,14 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/inventory/ingest")
 public class InventoryIngestController {
 
-    private final ExcelStreamingIngestService ingestService;
+    private final BulkFixService bulkFixService;
     private final ExcelUploadService uploadService;
     private final UploadRollbackService rollbackService;
 
-    public InventoryIngestController(ExcelStreamingIngestService ingestService,
+    public InventoryIngestController(BulkFixService bulkFixService,
                                      ExcelUploadService uploadService,
                                      UploadRollbackService rollbackService) {
-        this.ingestService = ingestService;
+        this.bulkFixService = bulkFixService;
         this.uploadService = uploadService;
         this.rollbackService = rollbackService;
     }
@@ -81,9 +81,12 @@ public class InventoryIngestController {
      */
     @PostMapping(value = "/bulk-fix", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
-    public ResponseEntity<IngestSummaryResponseDto> ingestFixedRows(@Valid @RequestBody BulkFixRequestDto request) {
+    public ResponseEntity<IngestSummaryResponseDto> ingestFixedRows(@Valid @RequestBody BulkFixRequestDto request,
+                                                                    HttpServletRequest httpRequest) {
         long storeId = StoreScope.requireMatching(request.storeId());
-        return ResponseEntity.ok(ingestService.ingestFixedRows(storeId, request.rows()));
+        // Las correcciones crean lotes igual que un archivo: dejan el mismo rastro.
+        return ResponseEntity.ok(bulkFixService.apply(
+                storeId, request.rows(), CurrentUser.require().email(), httpRequest.getRemoteAddr()));
     }
 
     /** Historial de cargas de la tienda: quien subio que archivo y cuando. */
