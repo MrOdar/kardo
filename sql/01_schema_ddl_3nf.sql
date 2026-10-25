@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SmartKardex AI — 01_schema_ddl_3nf.sql
+-- Kardo — 01_schema_ddl_3nf.sql
 -- PostgreSQL 15 Relational DDL (3NF) con Extensiones, Invariantes y RLS
 -- ==============================================================================
 

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SmartKardex AI — 02_procedures_and_triggers.sql
+-- Kardo — 02_procedures_and_triggers.sql
 -- Procedimientos Transaccionales FEFO, Control de Mermas y Escenario Demo
 -- ==============================================================================
 
