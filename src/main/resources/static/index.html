@@ -60,10 +60,13 @@
         <span id="session-user" class="block font-semibold">—</span>
         <span id="session-role" class="block text-shell/70">—</span>
       </p>
+      <!-- Visible desde el principio: la sesion vive en memoria, de modo que
+           tras recargar la pagina este boton es la unica forma de volver a
+           entrar sin restaurar la demo, que borraria el trabajo hecho. -->
       <button id="btn-switch"
-              class="hidden rounded border border-shell/40 px-3 py-1.5 text-sm text-shell hover:bg-shell/10
+              class="rounded border border-shell/40 px-3 py-1.5 text-sm text-shell hover:bg-shell/10
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
-        Cambiar de usuario
+        Iniciar sesión
       </button>
       <p id="connection" class="flex items-center gap-2 text-sm text-shell/80">
         <span id="connection-dot" class="h-2 w-2 rounded-full bg-shell/40"></span>
@@ -89,6 +92,15 @@
               class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
         Semáforo FEFO
+      </button>
+      <!-- El contador va en la pestaña a proposito: una alerta que solo existe
+           dentro de su panel no es proactiva, hay que ir a buscarla. -->
+      <button role="tab" id="tab-alertas" aria-controls="panel-alertas" aria-selected="false"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Qué rebajar hoy
+        <span id="alert-badge"
+              class="num ml-1 hidden rounded-full bg-risk-red px-1.5 py-0.5 text-xs font-bold text-white">0</span>
       </button>
       <button role="tab" id="tab-inventario" aria-controls="panel-inventario" aria-selected="false"
               class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
@@ -174,7 +186,64 @@
     </div>
   </section>
 
-  <!-- ═════════ Pestaña 2: inventario físico ═════════ -->
+  <!-- ═════════ Pestaña 2: alertas con una acción detrás ═════════ -->
+  <section id="panel-alertas" role="tabpanel" aria-labelledby="tab-alertas" class="hidden pt-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h2 class="text-2xl font-bold tracking-tight">Qué rebajar hoy</h2>
+        <p class="mt-1 max-w-prose text-sm text-ink-soft">
+          El semáforo dice cuánto falta; esto dice qué hacer. El precio sugerido nunca baja del costo
+          del lote: por debajo de ahí, rebajar sale peor que la merma.
+        </p>
+      </div>
+      <dl class="flex flex-wrap gap-x-8 gap-y-3">
+        <div>
+          <dt class="text-sm text-ink-faint">Costo en riesgo</dt>
+          <dd id="a-risk" class="num text-2xl font-bold text-risk-red">—</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-ink-faint">Margen que cuesta</dt>
+          <dd id="a-margin" class="num text-2xl font-bold">—</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-ink-faint">Ya decididas</dt>
+          <dd id="a-silenced" class="num text-2xl font-bold text-ink-soft">—</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="mt-6 overflow-x-auto border border-shell-line bg-white">
+      <table class="w-full border-collapse text-sm">
+        <thead class="bg-shell text-left">
+          <tr class="text-ink-soft">
+            <th class="px-3 py-2 font-semibold">Vence</th>
+            <th class="px-3 py-2 font-semibold">Producto</th>
+            <th class="px-3 py-2 font-semibold text-right">Unid.</th>
+            <th class="px-3 py-2 font-semibold text-right">Lista</th>
+            <th class="px-3 py-2 font-semibold text-right">Sugerido</th>
+            <th class="px-3 py-2 font-semibold text-right">En juego</th>
+            <th class="px-3 py-2 font-semibold">Acción</th>
+          </tr>
+        </thead>
+        <tbody id="alert-rows" class="divide-y divide-shell-line"></tbody>
+      </table>
+    </div>
+
+    <p id="alert-empty" class="hidden py-10 text-center text-sm text-ink-faint"></p>
+
+    <div class="mt-10 border-t border-shell-line pt-6">
+      <h3 class="font-semibold">Rebajas decididas</h3>
+      <p class="mt-1 max-w-prose text-sm text-ink-soft">
+        Queda firmado quién decidió y a qué precio, para poder explicar después por qué esa
+        mercadería salió más barata.
+      </p>
+      <ul id="alert-history" class="mt-4 divide-y divide-shell-line text-sm">
+        <li class="py-6 text-center text-ink-faint">Todavía no se ha decidido ninguna rebaja.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═════════ Pestaña 3: inventario físico ═════════ -->
   <section id="panel-inventario" role="tabpanel" aria-labelledby="tab-inventario" class="hidden pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
@@ -288,7 +357,7 @@
     </div>
   </section>
 
-  <!-- ═════════ Pestaña 3: Excel, cuarentena y versionado ═════════ -->
+  <!-- ═════════ Pestaña 4: Excel, cuarentena y versionado ═════════ -->
   <section id="panel-excel" role="tabpanel" aria-labelledby="tab-excel" class="hidden pt-10">
     <h2 class="text-2xl font-bold tracking-tight">Cargar inventario desde Excel</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
@@ -380,7 +449,7 @@
     </div>
   </section>
 
-  <!-- ═════════ Pestaña 4: recepción documental ═════════ -->
+  <!-- ═════════ Pestaña 5: recepción documental ═════════ -->
   <section id="panel-recepcion" role="tabpanel" aria-labelledby="tab-recepcion" class="hidden pt-10">
     <h2 class="text-2xl font-bold tracking-tight">Recibir una guía de remisión</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">

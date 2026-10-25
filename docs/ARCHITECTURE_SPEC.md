@@ -181,7 +181,7 @@ flowchart TD
   * `sp_approve_waste` consolida la pérdida; `sp_reject_waste` devuelve la mercadería y reactiva el lote, o lo marca `EXPIRED` si venció entretanto.
   * Ambas resoluciones bloquean la fila de merma con `FOR UPDATE`, lo que las hace **idempotentes**: dos clics del gerente no la aplican dos veces.
   * **Quien declara no puede aprobar:** declarar admite OPERATOR y MANAGER; resolver exige `hasRole('MANAGER')`.
-* **Límite conocido:** el control es por rol, no por persona. Un gerente puede declarar y aprobar su propia merma; separar también por usuario es el siguiente paso si se quiere segregación estricta.
+* **Límite cerrado después (`sql/08`):** el control era por rol y no por persona, de modo que un gerente podía declarar y aprobar su propia merma. Hoy `sp_approve_waste` y `sp_reject_waste` comparan el solicitante con `reported_by` y levantan `P0008` si coinciden (**409**, nombrando a quien la declaró). Por eso la tienda demo tiene **dos** gerentes: con uno solo, lo que él declarase quedaría sin salida. Verificado en producción y cubierto por `WasteSegregationIT`.
 
 #### 🛠️ Reto 9: Auditoría e Idempotencia por Contenido
 * **Problema:** una carga de Excel no dejaba rastro de quién la hizo, y **subir dos veces el mismo archivo duplicaba los lotes en silencio**. Con conexiones inestables, reintentar una carga que sí llegó es el error más común del operario.
@@ -198,6 +198,17 @@ flowchart TD
   * **Revertir no es borrar lo que la carga escribió, es borrarlo solo si nadie lo ha usado.** Un lote del que ya se vendió o del que se declaró una merma es historia real del almacén; eliminarlo dejaría ventas apuntando a un lote inexistente. La reversión es **todo o nada** y nombra el lote que la bloquea.
   * El catálogo no se toca: un SKU creado por la carga puede tener ya otros lotes de una recepción posterior.
   * La unicidad de la huella es **parcial** (`WHERE rolled_back_at IS NULL`): el flujo natural tras un error es revertir y volver a subir, y una unicidad total dejaría al gerente atascado.
+
+#### 🛠️ Reto 11: De la alerta al precio (escalera de descuentos con piso en el costo)
+* **Problema:** el semáforo decía que un lote vence en dos días, pero no qué hacer con él. **Un color no evita una merma**: alguien tiene que decidir a qué precio sale esa mercadería hoy, y nadie lo hacía porque la pantalla no lo pedía.
+* **Solución Arquitectónica:**
+  * `DiscountLadder` traduce días restantes en una acción: 10% a diez días, 20% a cinco, 30% a dos, 40% mañana, 50% hoy. Es puro, sin estado y sin SQL, porque es la regla que más se va a discutir con el negocio.
+  * **El precio sugerido nunca baja del costo del lote.** En la merma pierdes el costo una vez; vendiendo por debajo del costo pierdes el costo *y* regalas la unidad. Cuando el piso muerde, el porcentaje que se muestra es el real y no el de la tabla: en el escenario demo, la leche (costo 3.80, lista 5.20) sale a `−26%`, no al 30% nominal.
+  * Lo vencido **no se rebaja, se retira**: ofrecer un descuento ahí sería sugerir una infracción sanitaria. El botón lleva a declarar la merma con el lote y el motivo ya puestos.
+  * Si el costo iguala o supera el precio de lista no hay oferta que valga: la decisión sube a quien fija precios en vez de disfrazarse de descuento.
+* **La decisión que hace que el panel se lea:** una alerta que no se puede cerrar deja de mirarse, pero un "no mostrar más" convierte la próxima urgencia en silencio. `markdown_decisions` guarda el **peldaño** sobre el que se decidió, así que descartar la rebaja del 20% no silencia la del 40% cuando el lote se acerca: esa ya es otra recomendación. Lo vencido ocupa el peldaño 100 y por eso ninguna decisión previa puede callarlo.
+* **Rastro:** cada decisión queda firmada con su autor y el precio sugerido de ese momento, de modo que luego puede explicarse por qué esa mercadería salió más barata. El FK es `ON DELETE CASCADE` a propósito: una rebaja no puede ser lo que impida revertir la carga del lote.
+* **Verificado en vivo:** con el escenario demo, `S/ 143.50` en riesgo y `S/ 48.40` de margen en juego; el total de riesgo coincide con el del semáforo porque sale del mismo dinero. Tras rebajar, la alerta desaparece y el riesgo **sigue contándose**: callar el aviso no saca la mercadería del anaquel.
 
 ---
 
@@ -300,6 +311,8 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
 | `POST` | `/api/v1/receipts/scan` · `/confirm` | OPERATOR o MANAGER |
 | `GET` | `/api/v1/products` | Autenticado (catálogo de su compañía) |
 | `GET` | `/api/v1/inventory/batches?q=&status=` | OPERATOR o MANAGER (búsqueda y filtro del inventario) |
+| `GET` | `/api/v1/inventory/alerts` · `/alerts/history` | OPERATOR o MANAGER (qué rebajar hoy y qué se decidió) |
+| `POST` | `/api/v1/inventory/alerts/{batchId}/decision` | OPERATOR o MANAGER (el peldaño lo calcula el servidor) |
 
 ---
 
@@ -354,13 +367,13 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **68 pruebas unitarias**.
+Cobertura automatizada tras esta ronda: **129 pruebas unitarias**.
 
 #### Pruebas de integración contra PostgreSQL real
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 27 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta 52 pruebas sobre lo que de verdad puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|
@@ -368,8 +381,36 @@ y ejecuta 27 pruebas sobre lo que de verdad puede romperse en silencio:
 | `WasteWorkflowIT` | El invariante `current + cuarentena <= inicial` paso a paso, que FEFO no venda lo reservado, aprobar/rechazar, resolución idempotente, lote de otra tienda |
 | `SkuMatchingIT` | El caso insignia `"CERV PILSEN 650"` (score 0.55, que el umbral de fábrica descartaba), varias líneas en un viaje, producto nuevo sin forzar, aislamiento por compañía |
 | `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o por merma, idempotencia, y que la huella deje de bloquear tras revertir |
+| `ExpiryAlertIT` | Que el panel se pueda callar y **vuelva a hablar al bajar un peldaño**, que lo vencido no lo silencie ninguna decisión previa, cuarentena excluida, aislamiento por tienda, y que una rebaja no bloquee la reversión de su carga |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
 antes de lanzar el build, para que la ausencia de Docker nunca se confunda con
 pruebas en verde.
+
+#### Pruebas de la cadena de seguridad
+Las pruebas anteriores cubrían el SQL y la lógica con dobles, de modo que **borrar
+un `@PreAuthorize` dejaba la suite verde**. `EndpointSecurityTest` levanta la
+cadena de filtros real, con el filtro JWT real y tokens firmados de verdad, y
+responde desde fuera a las tres preguntas que importan —quién entra, con qué rol,
+y sobre qué tienda acaba escribiendo— en **46 pruebas**:
+
+| Grupo | Qué fija |
+|---|---|
+| `SinToken` | Los 20 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
+| `Publicos` | Lo que debe seguir abierto sigue abierto: `ping` por GET y HEAD (si dejara de serlo, Render apagaría el servicio), `demo/reset` y `auth/login` |
+| `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
+| `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |
+| `Aislamiento` | Token de una tienda con el cuerpo apuntando a otra se corta **antes de escribir**; un `storeId` colado en la URL se ignora; venta, catálogo, merma y reversión usan la tienda y el correo del token |
+
+Los dobles sin usar son aquí la afirmación más fuerte: comprueban que la petición
+nunca llegó al servicio. Para confirmar que las pruebas muerden se quitó el
+`@PreAuthorize` de la aprobación de mermas y la suite falló con **200 donde
+esperaba 403** — el operario aprobando su propia pérdida.
+
+**Residuo que esto dejó a la vista:** sin ningún `UserDetailsService` propio,
+Spring Boot sembraba un usuario `user` en memoria con contraseña aleatoria y la
+imprimía en el arranque. No era explotable (`httpBasic` y `formLogin` están
+deshabilitados y la identidad sale del token), pero era una credencial que nadie
+creó a propósito. Se excluye `UserDetailsServiceAutoConfiguration` y la prueba de
+credenciales básicas impide que vuelva a ser una vía de entrada.

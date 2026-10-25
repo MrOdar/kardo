@@ -69,7 +69,7 @@ async function request(path, options = {}) {
 
 /* ──────────────────────── navegacion por pestañas ──────────────────────── */
 
-const TABS = ['semaforo', 'inventario', 'excel', 'recepcion'];
+const TABS = ['semaforo', 'alertas', 'inventario', 'excel', 'recepcion'];
 
 /**
  * Muestra una pestaña.
@@ -89,6 +89,10 @@ function showTab(name) {
   // El inventario se recarga al entrar: pudo cambiar por una venta o una merma.
   if (name === 'inventario' && state.token) {
     loadBatches();
+  }
+  if (name === 'alertas' && state.token) {
+    loadAlerts();
+    loadMarkdownHistory();
   }
 }
 
@@ -183,6 +187,10 @@ async function refreshDashboard() {
   renderDashboard(dashboard);
   renderFefoQueue(queue);
   renderWasteBatchOptions(queue);
+
+  // Una venta o una merma cambian lo que conviene rebajar, y el contador de la
+  // pestaña debe decirlo aunque el operario este en otra pantalla.
+  await loadAlerts();
 }
 
 /* ───────────────────────── restaurar la demo ───────────────────────── */
@@ -201,6 +209,8 @@ async function resetDemo() {
     renderFefoQueue(queue);
     renderWasteBatchOptions(queue);
     await loadCatalog();
+    await loadAlerts();
+    await loadMarkdownHistory();
     await loadPendingWaste();
     await loadUploadHistory();
     await loadBatches();
@@ -227,7 +237,10 @@ function applySession(session) {
 
   const roles = { MANAGER: 'Gerente de tienda', OPERATOR: 'Operario' };
   $('session').classList.remove('hidden');
-  $('btn-switch').classList.remove('hidden');
+  // Con sesion abierta el boton deja de invitar a entrar y pasa a ofrecer el
+  // cambio de persona, que es lo que hace falta para recorrer el circuito de
+  // mermas: quien declara no puede resolver.
+  $('btn-switch').textContent = 'Cambiar de usuario';
   $('session-user').textContent = session.email;
   $('session-role').textContent = `${roles[session.role] ?? session.role} · ${session.storeName}`;
 }
@@ -257,7 +270,8 @@ async function switchUser(event) {
     $('login-password').value = '';
 
     // Todo lo que se ve depende de quien mira: roles, botones y tienda.
-    await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches()]);
+    await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches(),
+                       loadMarkdownHistory()]);
     await refreshDashboard();
     toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
   } catch (failure) {
@@ -520,7 +534,192 @@ async function loadPendingWaste() {
   }
 }
 
-/* ─────────────────── panel 3: ingesta de Excel y cuarentena ─────────────────── */
+/* ───────────────────── panel 2: alertas y rebajas ───────────────────── */
+
+/**
+ * Pinta el panel de alertas.
+ *
+ * El contador de la pestaña se actualiza aqui y no en showTab porque es lo que
+ * hace la alerta proactiva: el operario ve que hay tres decisiones pendientes
+ * sin tener que entrar a mirar.
+ */
+function renderAlerts(board) {
+  const body = $('alert-rows');
+  const empty = $('alert-empty');
+  const badge = $('alert-badge');
+
+  $('a-risk').textContent = money(board.valueAtRisk);
+  $('a-margin').textContent = money(board.marginSacrificed);
+  $('a-silenced').textContent = board.silenced;
+
+  badge.textContent = board.alerts.length;
+  badge.classList.toggle('hidden', board.alerts.length === 0);
+
+  if (!board.alerts.length) {
+    body.replaceChildren();
+    empty.classList.remove('hidden');
+    // Un panel vacio porque ya lo resolviste todo no dice lo mismo que un panel
+    // vacio porque no hay nada que vencer.
+    empty.textContent = board.silenced
+      ? `Nada pendiente: ya decidiste sobre ${plural(board.silenced, 'lote', 'lotes')}.`
+      : 'Nada vence en los próximos 10 días.';
+    return;
+  }
+
+  empty.classList.add('hidden');
+  body.replaceChildren(...board.alerts.map(alertRow));
+}
+
+function alertRow(alert) {
+  const state_ = batchState(alert.daysToExpiry);
+  const tr = document.createElement('tr');
+  tr.className = `state-${state_.key} border-l-4`;
+
+  const previo = alert.previousDecision
+    ? `<span class="text-xs text-ink-faint">· ya ${alert.previousDecision === 'APPLIED' ? 'rebajado' : 'descartado'}
+         al ${alert.decidedStep}%</span>`
+    : '';
+
+  tr.innerHTML = `
+    <td class="num px-3 py-2 font-bold ${state_.tone}">${state_.label}</td>
+    <td class="px-3 py-2">
+      <span class="font-semibold">${escapeHtml(alert.productName)}</span>
+      <span class="font-mono text-xs text-ink-faint">${escapeHtml(alert.batchCode)}</span> ${previo}
+      <span class="block text-xs text-ink-soft">${escapeHtml(alert.rationale)}</span>
+    </td>
+    <td class="num px-3 py-2 text-right">${alert.sellableQty}</td>
+    <td class="num px-3 py-2 text-right text-ink-faint">${money(alert.retailPrice)}</td>
+    <td class="num px-3 py-2 text-right font-bold">${
+      alert.suggestedPrice === null
+        ? '—'
+        : `${money(alert.suggestedPrice)} <span class="text-xs font-normal text-risk-amber">−${alert.discountPercent}%</span>`
+    }</td>
+    <td class="num px-3 py-2 text-right text-xs text-ink-soft">
+      cede ${money(alert.marginSacrificed)}<br>riesgo ${money(alert.valueAtRisk)}
+    </td>
+    <td class="px-3 py-2">${alertActions(alert)}</td>`;
+
+  return tr;
+}
+
+/** Cada acción lleva a una tarea concreta de anaquel, no a un aviso más. */
+function alertActions(alert) {
+  const descartar = `
+    <button data-alert="${alert.batchId}" data-decision="DISMISSED"
+            class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Descartar</button>`;
+
+  if (alert.action === 'RETIRAR') {
+    return `
+      <span class="flex gap-2">
+        <button data-withdraw="${alert.batchId}"
+                class="rounded bg-risk-red px-3 py-1 text-xs font-semibold text-white hover:opacity-90">Declarar merma</button>
+        ${descartar}
+      </span>`;
+  }
+  if (alert.action === 'REVISAR_PRECIO') {
+    return `<span class="flex items-center gap-2 text-xs text-ink-faint">Decide quien fija precios ${descartar}</span>`;
+  }
+  return `
+    <span class="flex gap-2">
+      <button data-alert="${alert.batchId}" data-decision="APPLIED"
+              class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Rebajar a ${money(alert.suggestedPrice)}</button>
+      ${descartar}
+    </span>`;
+}
+
+$('alert-rows').addEventListener('click', async (event) => {
+  const retirar = event.target.closest('[data-withdraw]');
+  if (retirar) {
+    jumpToWaste(retirar.dataset.withdraw);
+    return;
+  }
+
+  const button = event.target.closest('[data-alert]');
+  if (!button) return;
+
+  button.disabled = true;
+  try {
+    const board = await request(`/inventory/alerts/${button.dataset.alert}/decision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision: button.dataset.decision })
+    });
+    renderAlerts(board);
+    await loadMarkdownHistory();
+    toast(button.dataset.decision === 'APPLIED'
+      ? 'Rebaja registrada. Queda firmada con tu nombre y el precio sugerido.'
+      : 'Descartada. Volverá a avisarte si el lote baja un peldaño.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+    button.disabled = false;
+  }
+});
+
+/**
+ * Lleva de la alerta a la baja de mercadería con el lote ya elegido.
+ *
+ * El selector de mermas se llena con la cola FEFO, que solo trae lotes activos,
+ * de modo que un lote ya vencido no estaria en la lista: se añade aqui para que
+ * el botón no prometa algo que la otra pestaña no puede hacer.
+ */
+function jumpToWaste(batchId) {
+  const select = $('waste-batch');
+  if (!Array.from(select.options).some((option) => option.value === String(batchId))) {
+    const row = document.createElement('option');
+    row.value = batchId;
+    row.textContent = 'Lote vencido seleccionado desde las alertas';
+    select.append(row);
+  }
+  select.value = String(batchId);
+  $('waste-reason').value = 'EXPIRATION';
+
+  showTab('inventario');
+  $('tab-inventario').focus();
+  select.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  toast('Lote vencido: declara la baja por vencimiento y el gerente la resolverá.', 'info');
+}
+
+async function loadAlerts() {
+  try {
+    renderAlerts(await request('/inventory/alerts'));
+  } catch {
+    renderAlerts({ valueAtRisk: 0, marginSacrificed: 0, silenced: 0, alerts: [] });
+  }
+}
+
+function renderMarkdownHistory(rows) {
+  const list = $('alert-history');
+  if (!rows.length) {
+    list.innerHTML = '<li class="py-6 text-center text-ink-faint">Todavía no se ha decidido ninguna rebaja.</li>';
+    return;
+  }
+  list.replaceChildren(...rows.map((row) => {
+    const item = document.createElement('li');
+    const precio = row.suggested_price === null ? 'sin rebaja' : `a ${money(row.suggested_price)}`;
+    item.className = 'flex flex-wrap items-baseline gap-x-3 py-2';
+    item.innerHTML = `
+      <span class="num w-36 shrink-0 text-xs text-ink-faint">${new Date(row.decided_at).toLocaleString('es-PE')}</span>
+      <span class="min-w-0 flex-1 truncate">
+        <span class="font-semibold">${escapeHtml(row.product_name)}</span>
+        <span class="font-mono text-xs text-ink-faint">${escapeHtml(row.batch_code)}</span>
+      </span>
+      <span class="text-sm">${row.decision === 'APPLIED' ? `Rebajado ${precio}` : 'Descartado'}
+        <span class="text-xs text-ink-faint">(peldaño ${row.step_percent}%)</span>
+      </span>
+      <span class="text-xs text-ink-soft">${escapeHtml(row.decided_by)}</span>`;
+    return item;
+  }));
+}
+
+async function loadMarkdownHistory() {
+  try {
+    renderMarkdownHistory(await request('/inventory/alerts/history?limit=20'));
+  } catch {
+    renderMarkdownHistory([]);
+  }
+}
+
+/* ─────────────────── panel 4: ingesta de Excel y cuarentena ─────────────────── */
 
 function wireDropzone(zoneId, inputId, onFile) {
   const zone = $(zoneId);
