@@ -3,6 +3,7 @@ package com.kardo.diagnostics;
 import com.kardo.dto.DiagnosticsReportDto;
 import com.kardo.dto.DiagnosticsReportDto.PoolDto;
 import com.kardo.dto.DiagnosticsReportDto.SuspectDto;
+import com.kardo.throttle.LoginThrottle;
 import com.kardo.vision.GeminiVisionClient;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -41,9 +42,11 @@ public class DiagnosticsService {
     private static final long POOL_SLOW_MS = 50;
 
     private final MeterRegistry registry;
+    private final LoginThrottle loginThrottle;
 
-    public DiagnosticsService(MeterRegistry registry) {
+    public DiagnosticsService(MeterRegistry registry, LoginThrottle loginThrottle) {
         this.registry = registry;
+        this.loginThrottle = loginThrottle;
     }
 
     public DiagnosticsReportDto report() {
@@ -56,12 +59,16 @@ public class DiagnosticsService {
         long heapUsed = gauge("jvm.memory.used", "area", "heap") / (1024 * 1024);
         long heapMax = gauge("jvm.memory.max", "area", "heap") / (1024 * 1024);
 
+        // Los bloqueos de login van aqui y no en un panel aparte porque son una
+        // pregunta operativa del mismo tipo: si hay veinte cuentas frenadas, el
+        // sistema no va lento, esta recibiendo un ataque.
         return new DiagnosticsReportDto(
                 verdict(vision, database, pool),
                 List.of(vision, database),
                 pool,
                 heapUsed,
-                heapMax);
+                heapMax,
+                loginThrottle.blockedNow());
     }
 
     /**

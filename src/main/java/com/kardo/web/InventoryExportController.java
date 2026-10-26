@@ -1,6 +1,7 @@
 package com.kardo.web;
 
 import com.kardo.ingest.InventoryExportService;
+import com.kardo.ingest.InventoryPdfExportService;
 import com.kardo.repository.StoreRepository;
 import com.kardo.security.CurrentUser;
 import java.time.LocalDate;
@@ -23,10 +24,14 @@ public class InventoryExportController {
             MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     private final InventoryExportService exportService;
+    private final InventoryPdfExportService pdfExportService;
     private final StoreRepository storeRepository;
 
-    public InventoryExportController(InventoryExportService exportService, StoreRepository storeRepository) {
+    public InventoryExportController(InventoryExportService exportService,
+                                     InventoryPdfExportService pdfExportService,
+                                     StoreRepository storeRepository) {
         this.exportService = exportService;
+        this.pdfExportService = pdfExportService;
         this.storeRepository = storeRepository;
     }
 
@@ -48,6 +53,30 @@ public class InventoryExportController {
 
         return ResponseEntity.ok()
                 .contentType(XLSX)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(fileName).build().toString())
+                .body(body);
+    }
+
+    /**
+     * Informe valorizado imprimible.
+     *
+     * <p>No sustituye al Excel: ese es para trabajar con los datos y este para
+     * firmar, archivar o entregar. Por eso lleva quien lo genero -sale del
+     * token, no del cliente- y el criterio de valorizacion al pie.
+     */
+    @GetMapping("/pdf")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<StreamingResponseBody> exportPdf() {
+        var user = CurrentUser.require();
+        String storeName = storeRepository.findNameById(user.storeId());
+        String fileName = "inventario-" + user.storeId() + "-" + LocalDate.now() + ".pdf";
+
+        StreamingResponseBody body = output ->
+                pdfExportService.writeTo(user.storeId(), storeName, user.email(), output);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename(fileName).build().toString())
                 .body(body);

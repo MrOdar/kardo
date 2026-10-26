@@ -4,6 +4,8 @@ import com.kardo.dto.DemoDashboardDto;
 import com.kardo.dto.DemoResetResponseDto;
 import com.kardo.repository.DemoRepository;
 import com.kardo.security.AuthenticationService;
+import com.kardo.throttle.DemoResetThrottle;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -34,10 +36,14 @@ public class DemoController {
 
     private final DemoRepository demoRepository;
     private final AuthenticationService authenticationService;
+    private final DemoResetThrottle resetThrottle;
 
-    public DemoController(DemoRepository demoRepository, AuthenticationService authenticationService) {
+    public DemoController(DemoRepository demoRepository,
+                          AuthenticationService authenticationService,
+                          DemoResetThrottle resetThrottle) {
         this.demoRepository = demoRepository;
         this.authenticationService = authenticationService;
+        this.resetThrottle = resetThrottle;
     }
 
     /**
@@ -48,7 +54,12 @@ public class DemoController {
      */
     @PostMapping("/reset")
     @Transactional
-    public ResponseEntity<DemoResetResponseDto> reset() {
+    public ResponseEntity<DemoResetResponseDto> reset(HttpServletRequest httpRequest) {
+        // El freno va antes del procedimiento: lo que hay que evitar es
+        // precisamente el trabajo que viene despues, que borra y resiembra la
+        // tienda entera tomando un candado sobre ella.
+        resetThrottle.checkAllowed(httpRequest.getRemoteAddr());
+
         demoRepository.resetDemoEnvironment();
 
         // La sesion sale del usuario demo real de la tabla users, no de una

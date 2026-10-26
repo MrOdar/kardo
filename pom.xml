@@ -22,6 +22,7 @@
         <java.version>21</java.version>
         <fastexcel.version>0.18.4</fastexcel.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <pdfbox.version>3.0.3</pdfbox.version>
     </properties>
 
     <dependencies>
@@ -65,6 +66,19 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!--
+            PDFBox para el informe valorizado imprimible.
+            Se elige frente a OpenPDF por la licencia: Apache-2.0 frente a LGPL,
+            que en un producto comercial es una pregunta que conviene no tener.
+            A cambio hay que componer la tabla a mano, lo que de paso permite
+            controlar la memoria pagina a pagina.
+        -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
 
         <!-- fastexcel (dhatim): lectura/escritura XLSX en streaming, memoria constante -->

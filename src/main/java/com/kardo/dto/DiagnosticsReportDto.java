@@ -14,13 +14,16 @@ import java.util.List;
  * @param pool       presion sobre el pool de conexiones, que no es latencia de
  *                   Supabase sino espera por una conexion libre
  * @param heapUsedMb memoria en uso: en 512 MB, un "resto" alto suele ser esto
+ * @param blockedLogins cuentas e IP frenadas ahora mismo; si suben de golpe, el
+ *                      sistema no va lento, esta recibiendo un ataque
  */
 public record DiagnosticsReportDto(
         String verdict,
         List<SuspectDto> suspects,
         PoolDto pool,
         long heapUsedMb,
-        long heapMaxMb) {
+        long heapMaxMb,
+        long blockedLogins) {
 
     /**
      * @param p95Millis nulo cuando aun no hay muestras suficientes; se dice en

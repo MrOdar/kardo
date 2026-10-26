@@ -12,7 +12,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.kardo.dto.DemoDashboardDto;
 import com.kardo.dto.SessionDto;
+import com.kardo.config.ThrottleProperties;
 import com.kardo.repository.DemoRepository;
+import com.kardo.throttle.DemoResetThrottle;
+import java.time.Clock;
+import java.time.Duration;
 import com.kardo.security.AuthenticationService;
 import java.math.BigDecimal;
 import java.util.List;
@@ -45,8 +49,15 @@ class DemoControllerTest {
         when(demoRepository.loadDashboard()).thenReturn(dashboard());
         when(authenticationService.openDemoSession(eq("demo@kardo.pe"), anyLong())).thenReturn(session());
 
+        // Freno con intervalo cero: aqui se prueba el reinicio, no el freno, que
+        // tiene sus propias pruebas en DemoResetThrottleTest.
+        var throttle = new DemoResetThrottle(new ThrottleProperties(
+                new ThrottleProperties.Login(5, 20, Duration.ofMinutes(15)),
+                new ThrottleProperties.Demo(Duration.ZERO, 1000, Duration.ofMinutes(10))),
+                Clock.systemUTC());
+
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DemoController(demoRepository, authenticationService))
+                .standaloneSetup(new DemoController(demoRepository, authenticationService, throttle))
                 .build();
     }
 

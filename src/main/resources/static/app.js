@@ -856,11 +856,19 @@ $('history-rows').addEventListener('click', async (event) => {
 });
 
 /** La descarga pasa por fetch para poder enviar el token en la cabecera. */
-async function exportInventory() {
-  const button = $('btn-export');
+/**
+ * Descarga el inventario en el formato pedido.
+ *
+ * El Excel es para trabajar con los datos; el PDF, para firmar o entregar. Son
+ * el mismo inventario contado igual, de modo que lo unico que cambia aqui es la
+ * ruta y la extension.
+ */
+async function exportInventory(format) {
+  const pdf = format === 'pdf';
+  const button = $(pdf ? 'btn-export-pdf' : 'btn-export');
   button.disabled = true;
   try {
-    const response = await fetch(`${api}/inventory/export`, { headers: headers() });
+    const response = await fetch(`${api}/inventory/export${pdf ? '/pdf' : ''}`, { headers: headers() });
     if (!response.ok) {
       throw new Error('No se pudo generar el archivo.');
     }
@@ -868,10 +876,10 @@ async function exportInventory() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `inventario-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `inventario-${new Date().toISOString().slice(0, 10)}.${pdf ? 'pdf' : 'xlsx'}`;
     link.click();
     URL.revokeObjectURL(url);
-    toast('Inventario exportado.', 'ok');
+    toast(pdf ? 'Informe valorizado generado.' : 'Inventario exportado.', 'ok');
   } catch (error) {
     toast(error.message, 'error');
   } finally {
@@ -1198,9 +1206,15 @@ function renderDiagnostics(report) {
     `Máxima ${report.pool.acquireMaxMillis} ms, normalmente al abrir la primera conexión.`));
 
   $('diag-cards').replaceChildren(...cards);
+  // Un salto en los bloqueos no es lentitud: es alguien probando contraseñas.
+  const bloqueos = report.blockedLogins
+    ? ` ${plural(report.blockedLogins, 'cuenta o IP frenada', 'cuentas o IP frenadas')} por intentos fallidos.`
+    : '';
+
   $('diag-heap').textContent =
     `Memoria del contenedor: ${report.heapUsedMb} MB en uso de ${report.heapMaxMb} MB. `
-    + 'Un “resto” alto en los tiempos con la memoria al límite suele ser el recolector, no un proveedor.';
+    + 'Un “resto” alto en los tiempos con la memoria al límite suele ser el recolector, no un proveedor.'
+    + bloqueos;
 }
 
 function card(title, big, small, detail) {
@@ -1235,7 +1249,8 @@ $('btn-diag').addEventListener('click', loadDiagnostics);
 $('btn-demo').addEventListener('click', resetDemo);
 $('sale-form').addEventListener('submit', registerSale);
 $('waste-form').addEventListener('submit', reportWaste);
-$('btn-export').addEventListener('click', exportInventory);
+$('btn-export').addEventListener('click', () => exportInventory('xlsx'));
+$('btn-export-pdf').addEventListener('click', () => exportInventory('pdf'));
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 

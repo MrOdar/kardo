@@ -257,12 +257,22 @@
           Todos los lotes con existencias, en el mismo orden en que FEFO los entregará.
         </p>
       </div>
-      <button id="btn-export"
-              class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
-                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
-                     focus-visible:outline-ink">
-        Exportar valorizado (.xlsx)
-      </button>
+      <!-- Dos formatos porque son dos usos: el Excel para trabajar los datos,
+           el PDF para firmar, archivar o entregar al contador. -->
+      <span class="flex flex-wrap gap-2">
+        <button id="btn-export"
+                class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                       focus-visible:outline-ink">
+          Exportar valorizado (.xlsx)
+        </button>
+        <button id="btn-export-pdf"
+                class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                       focus-visible:outline-ink">
+          Informe firmable (.pdf)
+        </button>
+      </span>
     </div>
 
     <div class="mt-6 flex flex-wrap items-end gap-3">

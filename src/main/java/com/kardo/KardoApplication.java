@@ -5,6 +5,7 @@ import com.kardo.config.IngestProperties;
 import com.kardo.config.KeepAliveProperties;
 import com.kardo.config.MatchingProperties;
 import com.kardo.config.SecurityProperties;
+import com.kardo.config.ThrottleProperties;
 import com.kardo.config.VisionProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -34,7 +35,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         MatchingProperties.class,
         KeepAliveProperties.class,
         IngestProperties.class,
-        GeminiProperties.class
+        GeminiProperties.class,
+        ThrottleProperties.class
 })
 public class KardoApplication {
 

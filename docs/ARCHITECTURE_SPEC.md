@@ -236,6 +236,29 @@ flowchart TD
 * **Un falso positivo que costó encontrar:** el veredicto juzgaba el pool por la espera **máxima**, y abrir la primera conexión contra Supabase cuesta ~1,5 s de TCP y TLS. En un proceso que no se reinicia, ese pico de arranque acusaba al pool para siempre. Ahora juzga por la mediana y enseña el máximo como contexto.
 * **Coste:** las métricas viven en memoria y los percentiles se calculan en la aplicación, que es lo que evita exportar histogramas completos. En el contenedor: 42 MB de heap en uso.
 
+#### 🛠️ Reto 14: Freno en las Dos Puertas Públicas
+* **Problema:** `/auth/login` aceptaba intentos ilimitados contra unas credenciales que, además, **están publicadas en el repositorio** para que el evaluador entre; y `/demo/reset` es el único endpoint público que **escribe**: borra y resiembra la tienda 999 en cada llamada, tomando un candado sobre ella. Invocarlo en bucle no roba nada, pero consume el plan de Supabase que paga el dueño del proyecto. Era el ataque más barato que tenía el sistema.
+* **El contador vive en memoria, a propósito.** Un freno que escribe en la base en cada intento convierte el ataque en una factura: cuanto más insiste el atacante, más cuesta defenderse. Perder los contadores en un reinicio es un precio menor, y además no es algo que el atacante pueda provocar. El mapa está **acotado a 10 000 claves**: en 512 MB, un contador por clave sin límite es otra forma del mismo problema — bastaría rotar correos inventados para llenar el heap.
+* **Por cuenta y por IP, porque cada uno tapa el agujero del otro.** Sólo por cuenta, un barrido de correos desde una máquina no toca ningún límite (cada correo empieza de cero); sólo por IP, basta repartir el ataque para volver a tener vía libre. Cinco fallos por cuenta y veinte por IP en quince minutos — el de IP es más alto porque una tienda entera puede salir por una sola.
+* **El acierto borra el historial.** Sin esto, el freno castigaría sobre todo a los usuarios torpes, que son muchísimos más que los atacantes: quien se equivoca dos veces y a la tercera entra no arrastra el bloqueo.
+* **Rechazar antes de verificar.** El BCrypt del login cuesta ~100 ms a propósito; si cada intento frenado siguiera gastándolos, el propio freno sería la forma más cómoda de tumbar el servicio. Una prueba lo fija: tras el bloqueo, `AuthenticationService` no se llama.
+* **El mensaje no distingue** entre un correo real y uno inventado: un freno que respondiera distinto sería un buscador de usuarios dados de alta. Y lleva `Retry-After`, para que el cliente sepa cuánto esperar sin ponerse a sondear — que es justo lo que el freno quiere evitar.
+* **El reinicio de la demo** lleva un intervalo mínimo **global** de 20 s (la tienda demo es una sola: dos evaluadores reiniciándola a la vez se pisan el escenario) resuelto con `compareAndSet` sobre el instante del último reinicio, de modo que de diez llamadas simultáneas pasa exactamente una. Más un tope por IP, holgado, para que un evaluador pueda recorrer la demo varias veces sin pelearse.
+* **Límite honesto:** la IP sale de `getRemoteAddr()`, real en Render gracias a `server.forward-headers-strategy=framework`, pero una cabecera `X-Forwarded-For` falsificada podría esquivar el límite por IP. Por eso el límite **por cuenta** es el que de verdad protege a un usuario concreto, y no un adorno. Y si un evaluador se bloquea tecleando mal, `/demo/reset` le sigue dando un token sin contraseña.
+* **Visible en el diagnóstico:** `blockedLogins` cuenta las cuentas e IP frenadas ahora mismo. Si sube de golpe, el sistema no va lento: está recibiendo un ataque.
+* **Verificado en vivo:** cinco `401` y a partir del sexto `429` con `Retry-After: 886`; otra cuenta sigue entrando con normalidad; dos fallos, un acierto y dos fallos más **no** bloquean; y el segundo reinicio seguido de la demo responde `429` sin llegar a ejecutar el procedimiento.
+
+#### 🛠️ Reto 15: Informe Valorizado Imprimible (el PDF del Reto 3)
+* **No duplica el Excel, lo complementa.** El `.xlsx` es para trabajar con los datos; el PDF es para **firmar, archivar o entregar** al contador. Por eso lleva lo que una hoja de cálculo no necesita —totales arriba, quién lo generó y cuándo, el criterio de valorización al pie— y prescinde de columnas que sólo sirven para filtrar.
+* **Licencia como criterio de elección:** PDFBox (Apache-2.0) frente a OpenPDF (LGPL), que en un producto comercial es una pregunta que conviene no tener. A cambio hay que componer la tabla a mano, lo que de paso permite controlar la memoria página a página.
+* **Este sí se arma antes de enviarse**, al revés que el Excel: un PDF lleva al final la tabla de referencias cruzadas, así que no se puede ir escribiendo sobre la respuesta. Para que eso no se traduzca en heap: los flujos de contenido van a un **archivo temporal**, el resumen sale de una consulta agregada en vez de recorrer las filas dos veces, y el listado tiene un tope de 1500 lotes —un informe de cuatrocientas páginas no lo lee nadie, y el PDF lo dice y remite al Excel—.
+* **El pie es lo que lo convierte en un documento** y no en una captura de pantalla: *"Valorizado al costo de cada lote, no al precio de venta"* más `Página X de Y`, que es como quien recibe un impreso comprueba que está completo. La numeración se escribe al final, cuando ya se sabe el total.
+* **Detalles que sólo se ven mirando el papel:**
+  * El reparto de ancho **prioriza el lote** sobre el nombre del producto: el lote es lo que el auditor coteja contra la etiqueta del envase, y uno recortado no sirve de nada, mientras que un nombre recortado se sigue entendiendo. Hicieron falta tres pasadas contra un PDF real para que los tres identificadores cupieran enteros.
+  * Las fuentes estándar usan **WinAnsi**, que cubre el español pero no un guion largo ni unas comillas tipográficas. Sin sanear el texto, un producto llamado *Leche "La Vaquita"* con comillas curvas no recortaría el informe: lo haría **fallar entero** a mitad del dibujo. Hay una prueba con ese nombre exacto.
+* **Las pruebas releen el PDF generado.** Afirmar que "se generó sin excepciones" no dice nada: un documento válido y vacío también cumple eso. `InventoryPdfExportIT` lo vuelve a abrir con PDFBox y busca dentro lo que el contador buscará con el dedo —los totales, el criterio, la paginación, que no asome un lote de otra tienda—.
+* **Verificado contra Supabase:** el informe del escenario demo da `S/ 333.50` de inventario y `S/ 143.50` en riesgo, **las mismas cifras que el semáforo**, porque salen del mismo dinero.
+
 ---
 
 ### 4. Roadmap de Desarrollo (2 Semanas / 4 Sprints con Tailwind CSS)
@@ -324,13 +347,13 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
 | Método | Endpoint | Acceso |
 |---|---|---|
 | `GET` | `/api/v1/ping` | Público, sin tocar la BD |
-| `POST` | `/api/v1/auth/login` · `GET /api/v1/auth/me` | Público / autenticado |
-| `POST` | `/api/v1/demo/reset` | Público (solo tienda 999) |
+| `POST` | `/api/v1/auth/login` · `GET /api/v1/auth/me` | Público **con freno** (5 fallos por cuenta → `429`) / autenticado |
+| `POST` | `/api/v1/demo/reset` | Público (solo tienda 999, intervalo mínimo global de 20 s) |
 | `GET` | `/api/v1/demo/dashboard` · `/demo/fefo-queue` | Autenticado |
 | `POST` | `/api/v1/inventory/ingest/excel` · `/bulk-fix` | OPERATOR o MANAGER |
 | `GET` | `/api/v1/inventory/ingest/history` | OPERATOR o MANAGER |
 | `POST` | `/api/v1/inventory/ingest/{id}/rollback` | **MANAGER** |
-| `GET` | `/api/v1/inventory/export` | OPERATOR o MANAGER |
+| `GET` | `/api/v1/inventory/export` · `/export/pdf` | OPERATOR o MANAGER (Excel para trabajar, PDF para firmar) |
 | `POST` | `/api/v1/inventory/sales` | OPERATOR o MANAGER |
 | `POST` | `/api/v1/inventory/waste` · `GET` lista | OPERATOR o MANAGER |
 | `POST` | `/api/v1/inventory/waste/{id}/approve` · `/reject` | **MANAGER** |
@@ -395,13 +418,13 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **150 pruebas unitarias**.
+Cobertura automatizada tras esta ronda: **169 pruebas unitarias**.
 
 #### Pruebas de integración contra PostgreSQL real
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 64 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta 71 pruebas sobre lo que de verdad puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|
@@ -412,6 +435,7 @@ y ejecuta 64 pruebas sobre lo que de verdad puede romperse en silencio:
 | `ExpiryAlertIT` | Que el panel se pueda callar y **vuelva a hablar al bajar un peldaño**, que lo vencido no lo silencie ninguna decisión previa, cuarentena excluida, aislamiento por tienda, y que una rebaja no bloquee la reversión de su carga |
 | `VisionQuotaIT` | **Diez escaneos simultáneos contra un tope de cinco pasan exactamente cinco**, el tope global corta aunque a la tienda le sobre saldo, el cupo de una tienda no gasta el de otra, y el consumo se imputa al día de Lima |
 | `DiagnosticsIT` | Que la instrumentación **esté de verdad puesta** en el contexto real: el `DataSource` es el que mide, cada sentencia y cada `CALL` suman al cronómetro, y el pool se publica solo. Es el fallo silencioso que ya ocurrió una vez |
+| `InventoryPdfExportIT` | **Relee el PDF generado** y busca dentro los totales, el criterio de valorización y la paginación; que un inventario vacío produzca un documento válido, que un nombre con comillas tipográficas no lo rompa, y que no asome un lote de otra tienda |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
@@ -427,7 +451,7 @@ y sobre qué tienda acaba escribiendo— en **50 pruebas**:
 
 | Grupo | Qué fija |
 |---|---|
-| `SinToken` | Los 22 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
+| `SinToken` | Los 23 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
 | `Publicos` | Lo que debe seguir abierto sigue abierto: `ping` por GET y HEAD (si dejara de serlo, Render apagaría el servicio), `demo/reset` y `auth/login` |
 | `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
 | `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |

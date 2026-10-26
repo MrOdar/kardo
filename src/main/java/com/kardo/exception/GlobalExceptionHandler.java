@@ -4,6 +4,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.ResponseEntity;
@@ -60,6 +61,21 @@ public class GlobalExceptionHandler {
      * suyo. La diferencia importa porque un 503 invita a reintentar y aqui
      * reintentar no sirve hasta mañana.
      */
+    /**
+     * Demasiados intentos en los endpoints publicos.
+     *
+     * <p>Lleva {@code Retry-After} porque es la unica forma de que un cliente
+     * -o el propio SPA- sepa cuanto esperar sin ponerse a sondear, que es
+     * exactamente lo que el freno pretende evitar.
+     */
+    @ExceptionHandler(TooManyAttemptsException.class)
+    public ResponseEntity<ApiError> handleTooManyAttempts(TooManyAttemptsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .body(ApiError.of(HttpStatus.TOO_MANY_REQUESTS.value(),
+                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(), ex.getMessage()));
+    }
+
     @ExceptionHandler(VisionQuotaExceededException.class)
     public ResponseEntity<ApiError> handleVisionQuota(VisionQuotaExceededException ex) {
         return build(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());

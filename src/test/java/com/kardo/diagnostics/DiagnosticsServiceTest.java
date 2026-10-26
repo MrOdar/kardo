@@ -2,6 +2,7 @@ package com.kardo.diagnostics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kardo.throttle.LoginThrottle;
 import com.kardo.vision.GeminiVisionClient;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -20,7 +21,12 @@ import org.junit.jupiter.api.Test;
 class DiagnosticsServiceTest {
 
     private final MeterRegistry registry = new SimpleMeterRegistry();
-    private final DiagnosticsService service = new DiagnosticsService(registry);
+    private final DiagnosticsService service = new DiagnosticsService(registry, new LoginThrottle(
+            new com.kardo.config.ThrottleProperties(
+                    new com.kardo.config.ThrottleProperties.Login(5, 20, java.time.Duration.ofMinutes(15)),
+                    new com.kardo.config.ThrottleProperties.Demo(
+                            java.time.Duration.ofSeconds(20), 10, java.time.Duration.ofMinutes(10))),
+            java.time.Clock.systemUTC()));
 
     @Test
     @DisplayName("Sin muestras lo dice, en vez de dar a entender que todo vuela")

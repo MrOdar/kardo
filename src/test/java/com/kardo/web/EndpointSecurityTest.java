@@ -45,6 +45,8 @@ import com.kardo.repository.ProductCatalogRepository;
 import com.kardo.repository.StoreRepository;
 import com.kardo.sales.FefoSaleService;
 import com.kardo.security.AuthenticationService;
+import com.kardo.throttle.DemoResetThrottle;
+import com.kardo.throttle.LoginThrottle;
 import com.kardo.security.JwtAuthenticationFilter;
 import com.kardo.security.JwtService;
 import com.kardo.vision.VisionQuotaService;
@@ -136,6 +138,9 @@ class EndpointSecurityTest {
     private InventoryExportService exportService;
 
     @MockBean
+    private com.kardo.ingest.InventoryPdfExportService pdfExportService;
+
+    @MockBean
     private StoreRepository storeRepository;
 
     @MockBean
@@ -168,6 +173,15 @@ class EndpointSecurityTest {
     @MockBean
     private DiagnosticsService diagnosticsService;
 
+    // Los frenos de los endpoints publicos tienen sus propias pruebas en
+    // PublicEndpointThrottleTest; aqui estorbarian, porque varias pruebas
+    // repiten el mismo login a proposito.
+    @MockBean
+    private LoginThrottle loginThrottle;
+
+    @MockBean
+    private DemoResetThrottle demoResetThrottle;
+
     private String operatorToken;
     private String managerToken;
 
@@ -198,6 +212,7 @@ class EndpointSecurityTest {
                 "GET,  /api/v1/inventory/alerts/history",
                 "POST, /api/v1/inventory/alerts/7/decision",
                 "GET,  /api/v1/inventory/export",
+                "GET,  /api/v1/inventory/export/pdf",
                 "GET,  /api/v1/inventory/ingest/history",
                 "POST, /api/v1/inventory/ingest/excel",
                 "POST, /api/v1/inventory/ingest/bulk-fix",
@@ -426,7 +441,7 @@ class EndpointSecurityTest {
         @DisplayName("El diagnostico de rendimiento es solo del gerente")
         void diagnosticoSoloGerente() throws Exception {
             when(diagnosticsService.report()).thenReturn(new DiagnosticsReportDto(
-                    "Nada destaca", List.of(), new DiagnosticsReportDto.PoolDto(1, 4, 5, 0, 2, 3), 120, 512));
+                    "Nada destaca", List.of(), new DiagnosticsReportDto.PoolDto(1, 4, 5, 0, 2, 3), 120, 512, 0));
 
             mockMvc.perform(get("/api/v1/ops/diagnostics")
                             .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
