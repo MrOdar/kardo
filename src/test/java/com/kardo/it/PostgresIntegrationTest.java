@@ -49,7 +49,8 @@ public abstract class PostgresIntegrationTest {
             "sql/06_upload_audit.sql",
             "sql/07_upload_rollback.sql",
             "sql/08_waste_segregation.sql",
-            "sql/09_expiry_alerts.sql");
+            "sql/09_expiry_alerts.sql",
+            "sql/10_vision_quota.sql");
 
     static {
         if (DockerEnvironment.isPresent()) {

@@ -18,10 +18,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kardo.conciliation.ReceiptConciliationService;
+import com.kardo.diagnostics.DiagnosticsService;
 import com.kardo.config.SecurityConfig;
 import com.kardo.config.SecurityProperties;
 import com.kardo.dto.BulkFixRequestDto;
 import com.kardo.dto.DemoDashboardDto;
+import com.kardo.dto.DiagnosticsReportDto;
 import com.kardo.dto.ExpiryAlertBoardDto;
 import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.MarkdownDecisionRequestDto;
@@ -30,6 +32,7 @@ import com.kardo.dto.SaleRequestDto;
 import com.kardo.dto.SaleResponseDto;
 import com.kardo.dto.SessionDto;
 import com.kardo.dto.SpreadsheetRowDto;
+import com.kardo.dto.VisionQuotaDto;
 import com.kardo.dto.WasteReportRequestDto;
 import com.kardo.ingest.BulkFixService;
 import com.kardo.ingest.ExcelUploadService;
@@ -44,6 +47,7 @@ import com.kardo.sales.FefoSaleService;
 import com.kardo.security.AuthenticationService;
 import com.kardo.security.JwtAuthenticationFilter;
 import com.kardo.security.JwtService;
+import com.kardo.vision.VisionQuotaService;
 import com.kardo.waste.WasteService;
 import io.jsonwebtoken.Jwts;
 import java.math.BigDecimal;
@@ -158,6 +162,12 @@ class EndpointSecurityTest {
     @MockBean
     private ExpiryAlertService alertService;
 
+    @MockBean
+    private VisionQuotaService visionQuotaService;
+
+    @MockBean
+    private DiagnosticsService diagnosticsService;
+
     private String operatorToken;
     private String managerToken;
 
@@ -193,12 +203,14 @@ class EndpointSecurityTest {
                 "POST, /api/v1/inventory/ingest/bulk-fix",
                 "POST, /api/v1/inventory/ingest/7/rollback",
                 "POST, /api/v1/receipts/scan",
+                "GET,  /api/v1/receipts/quota",
                 "POST, /api/v1/receipts/confirm",
                 "POST, /api/v1/inventory/sales",
                 "GET,  /api/v1/inventory/waste",
                 "POST, /api/v1/inventory/waste",
                 "POST, /api/v1/inventory/waste/9/approve",
                 "POST, /api/v1/inventory/waste/9/reject",
+                "GET,  /api/v1/ops/diagnostics",
                 "GET,  /api/v1/demo/dashboard",
                 "GET,  /api/v1/demo/fefo-queue"
         })
@@ -405,6 +417,28 @@ class EndpointSecurityTest {
             verifyNoInteractions(wasteService, rollbackService);
         }
 
+        /**
+         * El diagnostico describe la infraestructura -pool, latencias de los
+         * proveedores, memoria del contenedor-, que no le sirve al operario pero
+         * si a quien quiera sondear el despliegue.
+         */
+        @Test
+        @DisplayName("El diagnostico de rendimiento es solo del gerente")
+        void diagnosticoSoloGerente() throws Exception {
+            when(diagnosticsService.report()).thenReturn(new DiagnosticsReportDto(
+                    "Nada destaca", List.of(), new DiagnosticsReportDto.PoolDto(1, 4, 5, 0, 2, 3), 120, 512));
+
+            mockMvc.perform(get("/api/v1/ops/diagnostics")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(diagnosticsService);
+
+            mockMvc.perform(get("/api/v1/ops/diagnostics")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.verdict").value("Nada destaca"));
+        }
+
         @Test
         @DisplayName("El gerente si resuelve mermas")
         void gerenteResuelve() throws Exception {
@@ -527,6 +561,22 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             verify(fefoSaleService).sell(TOKEN_STORE, "SKU-1", 2, OPERATOR);
+        }
+
+        /** El cupo es por tienda: pedir el de otra seria ver cuanto consume. */
+        @Test
+        @DisplayName("El cupo de vision que se consulta es el de la tienda del token")
+        void cupoAcotado() throws Exception {
+            when(visionQuotaService.status(anyLong()))
+                    .thenReturn(new VisionQuotaDto(LocalDate.now(), 3, 40, 37, 3, 200));
+
+            mockMvc.perform(get("/api/v1/receipts/quota")
+                            .param("storeId", String.valueOf(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.remainingToday").value(37));
+
+            verify(visionQuotaService).status(TOKEN_STORE);
         }
 
         @Test

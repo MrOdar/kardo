@@ -15,6 +15,7 @@ import com.kardo.repository.SkuMatchingRepository;
 import com.kardo.repository.StoreRepository;
 import com.kardo.vision.GeminiVisionClient;
 import com.kardo.vision.ImageProcessingService;
+import com.kardo.vision.VisionQuotaService;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,11 +47,13 @@ public class ReceiptConciliationService {
     private final SkuMatchingRepository skuMatchingRepository;
     private final GoodsReceiptRepository goodsReceiptRepository;
     private final StoreRepository storeRepository;
+    private final VisionQuotaService visionQuotaService;
     private final MatchingProperties matchingProperties;
     private final ObjectMapper objectMapper;
 
     public ReceiptConciliationService(ImageProcessingService imageProcessingService,
                                       GeminiVisionClient geminiVisionClient,
+                                      VisionQuotaService visionQuotaService,
                                       SkuMatchingRepository skuMatchingRepository,
                                       GoodsReceiptRepository goodsReceiptRepository,
                                       StoreRepository storeRepository,
@@ -58,6 +61,7 @@ public class ReceiptConciliationService {
                                       ObjectMapper objectMapper) {
         this.imageProcessingService = imageProcessingService;
         this.geminiVisionClient = geminiVisionClient;
+        this.visionQuotaService = visionQuotaService;
         this.skuMatchingRepository = skuMatchingRepository;
         this.goodsReceiptRepository = goodsReceiptRepository;
         this.storeRepository = storeRepository;
@@ -71,10 +75,16 @@ public class ReceiptConciliationService {
      * @param imageStream foto de la guia, leida directamente del multipart
      * @param storeId     tienda que recibe la mercaderia
      */
-    public ReceiptScanResponseDto scan(InputStream imageStream, long storeId) {
+    public ReceiptScanResponseDto scan(InputStream imageStream, long storeId, String requestedBy) {
         long companyId = storeRepository.findCompanyIdByStore(storeId);
 
+        // El preprocesado va antes de reservar cupo: una foto ilegible falla
+        // aqui, sin haber llegado a Gemini, y cobrarsela al operario le gastaria
+        // el dia por un error que el sistema detecto solo.
         String base64Jpeg = imageProcessingService.toBase64Jpeg(imageStream);
+
+        var quota = visionQuotaService.reserve(storeId, requestedBy);
+
         var extraction = geminiVisionClient.extract(base64Jpeg);
         ExtractedReceiptDto receipt = extraction.receipt();
 
@@ -92,7 +102,8 @@ public class ReceiptConciliationService {
                 receipt.issueDate(),
                 extraction.modelUsed(),
                 unmatched,
-                lines);
+                lines,
+                quota);
     }
 
     /**

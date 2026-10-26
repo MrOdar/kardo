@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,7 +19,10 @@ import com.kardo.dto.ExtractedReceiptDto;
 import com.kardo.dto.ReceiptConfirmationRequestDto;
 import com.kardo.dto.ReceiptConfirmationResponseDto;
 import com.kardo.dto.ReceiptScanResponseDto;
+import com.kardo.dto.VisionQuotaDto;
 import com.kardo.exception.InvalidReceiptLineException;
+import com.kardo.exception.UnreadableImageException;
+import com.kardo.exception.VisionQuotaExceededException;
 import com.kardo.repository.GoodsReceiptRepository;
 import com.kardo.repository.SkuMatchingRepository;
 import com.kardo.repository.SkuMatchingRepository.SkuMatch;
@@ -26,6 +30,7 @@ import com.kardo.repository.StoreRepository;
 import com.kardo.vision.GeminiVisionClient;
 import com.kardo.vision.GeminiVisionClient.GeminiExtractionResult;
 import com.kardo.vision.ImageProcessingService;
+import com.kardo.vision.VisionQuotaService;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -47,6 +52,7 @@ class ReceiptConciliationServiceTest {
 
     private static final long STORE_ID = 999L;
     private static final long COMPANY_ID = 7L;
+    private static final String OPERARIO = "operario@kardo.pe";
 
     @Mock
     private ImageProcessingService imageProcessingService;
@@ -58,6 +64,8 @@ class ReceiptConciliationServiceTest {
     private GoodsReceiptRepository goodsReceiptRepository;
     @Mock
     private StoreRepository storeRepository;
+    @Mock
+    private VisionQuotaService visionQuotaService;
 
     private ReceiptConciliationService service;
 
@@ -65,8 +73,10 @@ class ReceiptConciliationServiceTest {
     void setUp() {
         when(storeRepository.findCompanyIdByStore(STORE_ID)).thenReturn(COMPANY_ID);
         when(imageProcessingService.toBase64Jpeg(any())).thenReturn("BASE64");
+        when(visionQuotaService.reserve(anyLong(), any()))
+                .thenReturn(new VisionQuotaDto(LocalDate.now(), 1, 40, 39, 1, 200));
         service = new ReceiptConciliationService(
-                imageProcessingService, geminiVisionClient, skuMatchingRepository,
+                imageProcessingService, geminiVisionClient, visionQuotaService, skuMatchingRepository,
                 goodsReceiptRepository, storeRepository,
                 new MatchingProperties(0.35), new ObjectMapper().findAndRegisterModules());
     }
@@ -89,7 +99,7 @@ class ReceiptConciliationServiceTest {
                 // Sin candidato en el catalogo
                 new SkuMatch(3, null, null, null)));
 
-        ReceiptScanResponseDto response = service.scan(image(), STORE_ID);
+        ReceiptScanResponseDto response = service.scan(image(), STORE_ID, OPERARIO);
 
         assertThat(response.supplierTaxId()).isEqualTo("20123456789");
         assertThat(response.documentNumber()).isEqualTo("T001-4567");
@@ -131,7 +141,7 @@ class ReceiptConciliationServiceTest {
                 new ExtractedReceiptDto("20123456789", "Proveedor", "T001-1", LocalDate.now(), null),
                 "gemini-2.0-flash"));
 
-        ReceiptScanResponseDto response = service.scan(image(), STORE_ID);
+        ReceiptScanResponseDto response = service.scan(image(), STORE_ID, OPERARIO);
 
         assertThat(response.lines()).isEmpty();
         assertThat(response.unmatchedLines()).isZero();
@@ -205,6 +215,60 @@ class ReceiptConciliationServiceTest {
         assertThatThrownBy(() -> service.confirm(request, "operario@kardo.pe", "10.0.0.1"))
                 .isInstanceOf(InvalidReceiptLineException.class)
                 .hasMessageContaining("entero");
+    }
+
+    /**
+     * El orden importa: si se llamara primero a Gemini, el tope no protegeria
+     * nada; seria un contador de lo que ya se gasto.
+     */
+    @Test
+    @DisplayName("El cupo se reserva antes de llamar a Gemini")
+    void reservaAntesDeGastar() {
+        when(geminiVisionClient.extract(any())).thenReturn(vacia());
+
+        var response = service.scan(image(), STORE_ID, OPERARIO);
+
+        var orden = inOrder(visionQuotaService, geminiVisionClient);
+        orden.verify(visionQuotaService).reserve(STORE_ID, OPERARIO);
+        orden.verify(geminiVisionClient).extract("BASE64");
+
+        // Y el saldo viaja en la respuesta, para decirlo sin otra peticion
+        assertThat(response.quota().remainingToday()).isEqualTo(39);
+    }
+
+    @Test
+    @DisplayName("Sin cupo no se llama a Gemini")
+    void sinCupoNoSeLlama() {
+        when(visionQuotaService.reserve(anyLong(), any()))
+                .thenThrow(VisionQuotaExceededException.forStore(40));
+
+        assertThatThrownBy(() -> service.scan(image(), STORE_ID, OPERARIO))
+                .isInstanceOf(VisionQuotaExceededException.class)
+                .hasMessageContaining("medianoche");
+
+        verify(geminiVisionClient, never()).extract(any());
+    }
+
+    /**
+     * Una foto ilegible falla antes de salir del contenedor: cobrarsela al
+     * operario le gastaria el dia por un error que el sistema detecto solo.
+     */
+    @Test
+    @DisplayName("Una imagen que no se puede procesar no gasta cupo")
+    void imagenIlegibleNoGastaCupo() {
+        when(imageProcessingService.toBase64Jpeg(any()))
+                .thenThrow(new UnreadableImageException("La imagen esta vacia."));
+
+        assertThatThrownBy(() -> service.scan(image(), STORE_ID, OPERARIO))
+                .isInstanceOf(UnreadableImageException.class);
+
+        verify(visionQuotaService, never()).reserve(anyLong(), any());
+    }
+
+    private static GeminiExtractionResult vacia() {
+        return new GeminiExtractionResult(
+                new ExtractedReceiptDto("20123456789", "Proveedor", "T001-1", LocalDate.now(), List.of()),
+                "gemini-3.8-flash");
     }
 
     private static InputStream image() {

@@ -9,6 +9,8 @@ import java.util.List;
  * @param modelUsed       modelo de Gemini que respondio (puede ser un respaldo
  *                        si el primario devolvio 429 o 503)
  * @param unmatchedLines  cuantas lineas requieren decision humana
+ * @param quota           cupo de escaneos que le queda hoy a la tienda, para que
+ *                        la interfaz lo muestre sin una segunda peticion
  */
 public record ReceiptScanResponseDto(
         String supplierTaxId,
@@ -17,5 +19,6 @@ public record ReceiptScanResponseDto(
         java.time.LocalDate issueDate,
         String modelUsed,
         int unmatchedLines,
-        List<ConciliationLineDto> lines) {
+        List<ConciliationLineDto> lines,
+        VisionQuotaDto quota) {
 }

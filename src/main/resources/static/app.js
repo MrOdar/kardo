@@ -69,7 +69,7 @@ async function request(path, options = {}) {
 
 /* ──────────────────────── navegacion por pestañas ──────────────────────── */
 
-const TABS = ['semaforo', 'alertas', 'inventario', 'excel', 'recepcion'];
+const TABS = ['semaforo', 'alertas', 'inventario', 'excel', 'recepcion', 'diagnostico'];
 
 /**
  * Muestra una pestaña.
@@ -93,6 +93,12 @@ function showTab(name) {
   if (name === 'alertas' && state.token) {
     loadAlerts();
     loadMarkdownHistory();
+  }
+  if (name === 'recepcion' && state.token) {
+    loadQuota();
+  }
+  if (name === 'diagnostico' && state.token) {
+    loadDiagnostics();
   }
 }
 
@@ -209,6 +215,7 @@ async function resetDemo() {
     renderFefoQueue(queue);
     renderWasteBatchOptions(queue);
     await loadCatalog();
+    await loadQuota();
     await loadAlerts();
     await loadMarkdownHistory();
     await loadPendingWaste();
@@ -271,7 +278,7 @@ async function switchUser(event) {
 
     // Todo lo que se ve depende de quien mira: roles, botones y tienda.
     await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches(),
-                       loadMarkdownHistory()]);
+                       loadMarkdownHistory(), loadQuota()]);
     await refreshDashboard();
     toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
   } catch (failure) {
@@ -981,7 +988,31 @@ async function sendBulkFix() {
   }
 }
 
-/* ─────────────── panel 3: recepcion documental con vision IA ─────────────── */
+/* ─────────────── panel 5: recepcion documental con vision IA ─────────────── */
+
+/**
+ * Saldo de escaneos del dia.
+ *
+ * El escaneo es lo unico que cuesta dinero fuera de nuestra infraestructura, y
+ * la cuota es una sola para todo el despliegue; decirlo por adelantado evita
+ * que el operario lo descubra con la guia ya en la mano.
+ */
+function renderQuota(quota) {
+  if (!quota) return;
+  const left = $('quota-left');
+  left.textContent = quota.remainingToday;
+  left.className = quota.remainingToday === 0
+    ? 'num font-semibold text-risk-red'
+    : quota.remainingToday <= 3 ? 'num font-semibold text-risk-amber' : 'num font-semibold text-ink';
+}
+
+async function loadQuota() {
+  try {
+    renderQuota(await request('/receipts/quota'));
+  } catch {
+    $('quota-left').textContent = '—';
+  }
+}
 
 async function uploadReceipt(file) {
   if (!state.token) {
@@ -1000,12 +1031,15 @@ async function uploadReceipt(file) {
     const scan = await request('/receipts/scan', { method: 'POST', body: form });
     state.scan = scan;
     renderScan(scan);
+    renderQuota(scan.quota);
     toast(scan.unmatchedLines
       ? `Guía leída. ${plural(scan.unmatchedLines, 'línea necesita', 'líneas necesitan')} que elijas el producto.`
       : 'Guía leída y todas las líneas mapeadas.',
       scan.unmatchedLines ? 'info' : 'ok');
   } catch (error) {
     toast(error.message, 'error');
+    // Si el rechazo fue por cupo, el saldo que se muestra ya no es el bueno.
+    await loadQuota();
   }
 }
 
@@ -1133,7 +1167,70 @@ async function confirmReceipt() {
   }
 }
 
+/* ───────────── panel 6: a quien mirar cuando algo va lento ───────────── */
+
+/**
+ * Pinta el diagnostico.
+ *
+ * El veredicto va arriba y en palabras porque es lo unico que se mira durante
+ * una incidencia; los numeros quedan debajo para comprobarlo con calma.
+ */
+function renderDiagnostics(report) {
+  $('diag-verdict').textContent = report.verdict;
+  $('diag-verdict').className = /^(El pool|Gemini|Supabase)/.test(report.verdict)
+    ? 'mt-6 border-l-4 border-risk-red bg-white px-4 py-3 text-sm font-semibold'
+    : 'mt-6 border-l-4 border-risk-green bg-white px-4 py-3 text-sm font-semibold';
+
+  const cards = report.suspects.map((suspect) => card(
+    suspect.name,
+    suspect.p95Millis === null ? '—' : `${suspect.p95Millis} ms`,
+    `p95 · p50 ${suspect.p50Millis ?? '—'} ms · máx ${suspect.maxMillis} ms`,
+    `${plural(suspect.calls, 'llamada', 'llamadas')} · ${suspect.detail}`));
+
+  // El pool es el tercero porque se confunde con la base: una espera por
+  // conexion se ve desde fuera igual que Supabase yendo lento.
+  cards.push(card(
+    'Pool de conexiones',
+    `${report.pool.acquireTypicalMillis} ms`,
+    `espera típica · ${report.pool.active}/${report.pool.max} en uso · ${report.pool.pendingThreads} esperando`,
+    // El máximo casi siempre es el arranque: abrir la primera conexión contra
+    // Supabase cuesta TCP y TLS. Decirlo evita una alarma sin motivo.
+    `Máxima ${report.pool.acquireMaxMillis} ms, normalmente al abrir la primera conexión.`));
+
+  $('diag-cards').replaceChildren(...cards);
+  $('diag-heap').textContent =
+    `Memoria del contenedor: ${report.heapUsedMb} MB en uso de ${report.heapMaxMb} MB. `
+    + 'Un “resto” alto en los tiempos con la memoria al límite suele ser el recolector, no un proveedor.';
+}
+
+function card(title, big, small, detail) {
+  const node = document.createElement('div');
+  node.className = 'border border-shell-line bg-white p-4';
+  node.innerHTML = `
+    <p class="text-sm text-ink-faint">${escapeHtml(title)}</p>
+    <p class="num mt-1 text-2xl font-bold">${escapeHtml(big)}</p>
+    <p class="num mt-1 text-xs text-ink-soft">${escapeHtml(small)}</p>
+    <p class="mt-2 text-xs text-ink-faint">${escapeHtml(detail)}</p>`;
+  return node;
+}
+
+async function loadDiagnostics() {
+  try {
+    renderDiagnostics(await request('/ops/diagnostics'));
+  } catch (error) {
+    // El operario no tiene por que ver la infraestructura; se dice, no se calla.
+    $('diag-verdict').className = 'mt-6 border-l-4 border-shell-line bg-white px-4 py-3 text-sm';
+    $('diag-verdict').textContent = state.session?.role === 'MANAGER'
+      ? `No se pudo medir: ${error.message}`
+      : 'El diagnóstico de rendimiento lo ve el gerente de tienda.';
+    $('diag-cards').replaceChildren();
+    $('diag-heap').textContent = '';
+  }
+}
+
 /* ──────────────────────────── arranque ──────────────────────────── */
+
+$('btn-diag').addEventListener('click', loadDiagnostics);
 
 $('btn-demo').addEventListener('click', resetDemo);
 $('sale-form').addEventListener('submit', registerSale);

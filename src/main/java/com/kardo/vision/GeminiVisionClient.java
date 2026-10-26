@@ -2,6 +2,10 @@ package com.kardo.vision;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kardo.diagnostics.RequestDiagnostics;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.util.concurrent.TimeUnit;
 import com.kardo.config.GeminiProperties;
 import com.kardo.dto.ExtractedReceiptDto;
 import com.kardo.exception.GeminiExtractionException;
@@ -64,15 +68,21 @@ public class GeminiVisionClient {
             - Incluye una entrada en items por cada linea de producto del documento.
             """;
 
+    /** Nombre del timer que lee el panel de diagnostico. */
+    public static final String VISION_TIMER = "kardo.vision.call";
+
     private final RestClient restClient;
+    private final MeterRegistry meterRegistry;
     private final GeminiProperties properties;
     private final ObjectMapper objectMapper;
 
     public GeminiVisionClient(RestClient.Builder restClientBuilder,
                               GeminiProperties properties,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              MeterRegistry meterRegistry) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.restClient = restClientBuilder
                 .baseUrl(properties.baseUrl())
                 .build();
@@ -143,7 +153,37 @@ public class GeminiVisionClient {
         return status.value() == 429 || status.value() == 404 || status.is5xxServerError();
     }
 
+    /**
+     * Cronometra cada intento por separado.
+     *
+     * <p>Por modelo y por resultado, porque un p95 global mezclaria el modelo
+     * primario con sus respaldos y escondería justo lo que interesa: si la
+     * lentitud viene de que el primario esta saturado y se esta cayendo al
+     * siguiente de la cadena en cada escaneo.
+     */
     private ResponseEntity<String> call(String model, String base64Jpeg) {
+        long startedAt = System.nanoTime();
+        String outcome = "error";
+        try {
+            ResponseEntity<String> response = doCall(model, base64Jpeg);
+            outcome = response.getStatusCode().is2xxSuccessful()
+                    ? "ok"
+                    : String.valueOf(response.getStatusCode().value());
+            return response;
+        } finally {
+            long elapsed = System.nanoTime() - startedAt;
+            Timer.builder(VISION_TIMER)
+                    .description("Tiempo de cada llamada a la vision multimodal")
+                    .tag("model", model)
+                    .tag("outcome", outcome)
+                    .publishPercentiles(0.5, 0.95)
+                    .register(meterRegistry)
+                    .record(elapsed, TimeUnit.NANOSECONDS);
+            RequestDiagnostics.recordVision(elapsed);
+        }
+    }
+
+    private ResponseEntity<String> doCall(String model, String base64Jpeg) {
         return restClient.post()
                 .uri("/models/{model}:generateContent", model)
                 .contentType(MediaType.APPLICATION_JSON)

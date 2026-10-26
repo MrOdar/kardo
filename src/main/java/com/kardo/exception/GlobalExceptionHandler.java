@@ -53,6 +53,18 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "No tienes permiso para realizar esta operacion.");
     }
 
+    /**
+     * Cupo diario de vision agotado.
+     *
+     * <p>429 y no 503: el servicio esta sano, es este cliente el que ya gasto lo
+     * suyo. La diferencia importa porque un 503 invita a reintentar y aqui
+     * reintentar no sirve hasta mañana.
+     */
+    @ExceptionHandler(VisionQuotaExceededException.class)
+    public ResponseEntity<ApiError> handleVisionQuota(VisionQuotaExceededException ex) {
+        return build(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+    }
+
     @ExceptionHandler({UnreadableImageException.class, InvalidReceiptLineException.class})
     public ResponseEntity<ApiError> handleBadRequest(RuntimeException ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage());

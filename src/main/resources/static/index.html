@@ -117,6 +117,11 @@
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
         Recepción con IA
       </button>
+      <button role="tab" id="tab-diagnostico" aria-controls="panel-diagnostico" aria-selected="false"
+              class="whitespace-nowrap border-b-2 border-transparent py-3 text-sm text-shell/70 hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-shell">
+        Diagnóstico
+      </button>
     </nav>
   </div>
 </header>
@@ -457,6 +462,13 @@
       tú confirmas lo que realmente llegó.
     </p>
 
+    <!-- El saldo se dice ANTES de sacar la foto: enterarse del tope con la guía
+         ya en la mano es la peor forma de descubrirlo. -->
+    <p id="scan-quota" class="mt-3 text-sm text-ink-faint">
+      Escaneos disponibles hoy: <span id="quota-left" class="num font-semibold text-ink">—</span>
+      <span class="text-ink-faint">· el cupo se renueva a medianoche</span>
+    </p>
+
     <div class="mt-6 grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
       <div>
         <div id="scan-dropzone"
@@ -514,6 +526,34 @@
       </div>
     </div>
   </section>
+  <!-- ═════════ Pestaña 6: a quién hay que mirar cuando va lento ═════════ -->
+  <section id="panel-diagnostico" role="tabpanel" aria-labelledby="tab-diagnostico" class="hidden pt-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h2 class="text-2xl font-bold tracking-tight">¿Quién va lento?</h2>
+        <p class="mt-1 max-w-prose text-sm text-ink-soft">
+          Cuando algo tarda, el sospechoso es Gemini, Supabase o el pool de conexiones. Esto los mide
+          por separado y dice a cuál mirar. Cada respuesta del backend trae además un
+          <code class="font-mono text-xs">X-Request-Id</code> que lleva directo a su línea en el log.
+        </p>
+      </div>
+      <button id="btn-diag"
+              class="rounded border border-ink px-4 py-2 text-sm font-semibold text-ink hover:bg-ink hover:text-shell
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-ink">
+        Actualizar
+      </button>
+    </div>
+
+    <p id="diag-verdict" class="mt-6 border-l-4 border-ink bg-white px-4 py-3 text-sm font-semibold">
+      Pulsa <strong>Actualizar</strong> para medir.
+    </p>
+
+    <div id="diag-cards" class="mt-6 grid gap-4 sm:grid-cols-3"></div>
+
+    <p id="diag-heap" class="mt-6 text-sm text-ink-faint"></p>
+  </section>
+
 </main>
 
 <!-- Cambio de usuario: la aprobación de mermas exige que no sea la misma persona

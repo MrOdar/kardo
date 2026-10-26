@@ -183,6 +183,7 @@ class GeminiVisionClientTest {
                 3,
                 Duration.ofSeconds(20),
                 Duration.ofSeconds(20));
-        return new GeminiVisionClient(builder, properties, new ObjectMapper().findAndRegisterModules());
+        return new GeminiVisionClient(builder, properties, new ObjectMapper().findAndRegisterModules(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 }

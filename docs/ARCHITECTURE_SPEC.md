@@ -210,6 +210,32 @@ flowchart TD
 * **Rastro:** cada decisión queda firmada con su autor y el precio sugerido de ese momento, de modo que luego puede explicarse por qué esa mercadería salió más barata. El FK es `ON DELETE CASCADE` a propósito: una rebaja no puede ser lo que impida revertir la carga del lote.
 * **Verificado en vivo:** con el escenario demo, `S/ 143.50` en riesgo y `S/ 48.40` de margen en juego; el total de riesgo coincide con el del semáforo porque sale del mismo dinero. Tras rebajar, la alerta desaparece y el riesgo **sigue contándose**: callar el aviso no saca la mercadería del anaquel.
 
+#### 🛠️ Reto 12: Tope Diario de Visión (lo único que cuesta dinero fuera de casa)
+* **Problema:** `/receipts/scan` era el único endpoint que gasta cuota de un tercero, y **la API key es una sola para todo el despliegue**. Cualquiera con un token válido podía llamarlo en bucle: una tienda distraída —o un script— dejaba sin recepción documental a todas las demás, y la factura de Google la pagaba el proyecto.
+* **Solución Arquitectónica:**
+  * **Dos topes, porque protegen cosas distintas:** el de tienda reparte (que una no se coma el cupo de las otras) y el del despliegue es el que de verdad cuida la cuota de Google.
+  * El contador está en PostgreSQL, **no en memoria**: el contenedor de Render se reinicia y hiberna, y un tope que se olvida con cada reinicio no es un tope. De paso, deja el consumo a la vista para decidir si toca pagar el tier siguiente.
+  * La reserva es un solo `INSERT … ON CONFLICT (…) DO UPDATE SET scans = scans + 1 WHERE scans < :limite RETURNING scans`. PostgreSQL bloquea la fila en conflicto, así que **la ausencia de fila devuelta —y no una lectura previa— es la señal de cupo agotado**. `VisionQuotaIT` lanza diez escaneos simultáneos contra un tope de cinco y pasan exactamente cinco.
+  * **El día es el de Lima, no el del servidor.** Supabase corre en UTC: con `CURRENT_DATE` el cupo se renovaría a las 7 de la tarde, en plena jornada, y el operario no entendería por qué a veces puede y a veces no.
+  * **Se cuentan intentos, no éxitos:** una llamada que Gemini rechaza ya gastó cuota suya. Pero el preprocesado de la imagen va **antes** de reservar, porque una foto ilegible falla sin salir del contenedor y cobrársela gastaría el día del operario por un error que el sistema detectó solo.
+  * **429 y no 503:** el servicio está sano, es este cliente el que ya gastó lo suyo; un 503 invitaría a reintentar y aquí reintentar no sirve hasta mañana. El mensaje dice *cuál* de los dos topes se alcanzó, porque con el propio agotado se puede pedir más cupo y con el global no hay nada que hacer hoy.
+  * La interfaz muestra el saldo **antes** de sacar la foto: enterarse del tope con la guía ya en la mano es la peor forma de descubrirlo.
+* **Verificado contra la API real** con el tope bajado a 2: el primer escaneo pasó, el segundo consumió cupo y aun así falló por el lado de Gemini (404 en toda la cadena de modelos) —prueba de que se cuentan intentos— y el tercero recibió `429` con el mensaje completo.
+
+#### 🛠️ Reto 13: Saber a Quién Mirar (observabilidad sin colector)
+* **Problema:** si algo iba lento en Render no había forma de saber si la culpa era de Gemini, de Supabase o del pool. Se depuraba por intuición, que en la práctica significa mirar primero lo que uno ya sospecha.
+* **Qué significa "trazas" aquí:** un sistema de trazado distribuido necesita un colector al que enviarlas, y levantarlo costaría más que el propio despliegue. La versión útil en esta infraestructura es **una línea por petición con el reparto de su tiempo**, más un `X-Request-Id` que vuelve al cliente: quien reporta un fallo trae consigo la clave para encontrar su línea, en vez de obligar a buscar por hora aproximada. Solo se escriben en INFO las peticiones lentas y las que fallan; el resto queda en DEBUG, porque un log lleno de ruido no se lee.
+* **La distinción que da sentido a todo:** esperar una conexión y una base lenta **se ven igual desde fuera**, pero una acusa al pool y la otra a Supabase. Se miden por separado:
+  ```
+  POST /api/v1/demo/reset -> 200 · 2435 ms · bd 634 ms en 6 consultas · pool 1504 ms · resto 297 ms
+  GET  /api/v1/inventory/alerts -> 200 · 115 ms · bd 101 ms en 1 consulta · resto 14 ms
+  ```
+  La primera línea es un arranque en frío: el pool se lleva un segundo y medio abriendo conexiones contra Supabase, y eso **no** es la base yendo lenta.
+* **Dónde se mide, y por qué ahí:** el primer intento fue sobrescribir los `execute` de `JdbcTemplate`. **No funciona**, y falla en silencio: Spring delega internamente en sobrecargas privadas, de modo que el cronómetro marcaba *cero consultas* con la aplicación funcionando — la peor clase de métrica, una que tranquiliza. Se descubrió al comprobarlo en vivo, no en los tests. La medición vive ahora en un `DataSource` que envuelve conexiones y sentencias con proxies dinámicos: por ahí pasa todo el SQL por construcción, venga de donde venga.
+* **El veredicto, en palabras:** `GET /api/v1/inventory/alerts` devuelve series en crudo pensadas para un recolector que aquí no existe, así que `/api/v1/ops/diagnostics` (solo MANAGER) las traduce a una frase — *"El pool: hay 2 hilos esperando conexión…"*, *"Gemini: p95 de 8400 ms por escaneo…"*. Durante una incidencia nadie va a leer un histograma.
+* **Un falso positivo que costó encontrar:** el veredicto juzgaba el pool por la espera **máxima**, y abrir la primera conexión contra Supabase cuesta ~1,5 s de TCP y TLS. En un proceso que no se reinicia, ese pico de arranque acusaba al pool para siempre. Ahora juzga por la mediana y enseña el máximo como contexto.
+* **Coste:** las métricas viven en memoria y los percentiles se calculan en la aplicación, que es lo que evita exportar histogramas completos. En el contenedor: 42 MB de heap en uso.
+
 ---
 
 ### 4. Roadmap de Desarrollo (2 Semanas / 4 Sprints con Tailwind CSS)
@@ -308,7 +334,9 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
 | `POST` | `/api/v1/inventory/sales` | OPERATOR o MANAGER |
 | `POST` | `/api/v1/inventory/waste` · `GET` lista | OPERATOR o MANAGER |
 | `POST` | `/api/v1/inventory/waste/{id}/approve` · `/reject` | **MANAGER** |
-| `POST` | `/api/v1/receipts/scan` · `/confirm` | OPERATOR o MANAGER |
+| `POST` | `/api/v1/receipts/scan` · `/confirm` | OPERATOR o MANAGER (scan descuenta cupo diario → `429`) |
+| `GET` | `/api/v1/receipts/quota` | OPERATOR o MANAGER (saldo de escaneos del día) |
+| `GET` | `/api/v1/ops/diagnostics` | **MANAGER** (quién va lento: Gemini, Supabase o el pool) |
 | `GET` | `/api/v1/products` | Autenticado (catálogo de su compañía) |
 | `GET` | `/api/v1/inventory/batches?q=&status=` | OPERATOR o MANAGER (búsqueda y filtro del inventario) |
 | `GET` | `/api/v1/inventory/alerts` · `/alerts/history` | OPERATOR o MANAGER (qué rebajar hoy y qué se decidió) |
@@ -367,13 +395,13 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **129 pruebas unitarias**.
+Cobertura automatizada tras esta ronda: **150 pruebas unitarias**.
 
 #### Pruebas de integración contra PostgreSQL real
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 52 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta 64 pruebas sobre lo que de verdad puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|
@@ -382,6 +410,8 @@ y ejecuta 52 pruebas sobre lo que de verdad puede romperse en silencio:
 | `SkuMatchingIT` | El caso insignia `"CERV PILSEN 650"` (score 0.55, que el umbral de fábrica descartaba), varias líneas en un viaje, producto nuevo sin forzar, aislamiento por compañía |
 | `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o por merma, idempotencia, y que la huella deje de bloquear tras revertir |
 | `ExpiryAlertIT` | Que el panel se pueda callar y **vuelva a hablar al bajar un peldaño**, que lo vencido no lo silencie ninguna decisión previa, cuarentena excluida, aislamiento por tienda, y que una rebaja no bloquee la reversión de su carga |
+| `VisionQuotaIT` | **Diez escaneos simultáneos contra un tope de cinco pasan exactamente cinco**, el tope global corta aunque a la tienda le sobre saldo, el cupo de una tienda no gasta el de otra, y el consumo se imputa al día de Lima |
+| `DiagnosticsIT` | Que la instrumentación **esté de verdad puesta** en el contexto real: el `DataSource` es el que mide, cada sentencia y cada `CALL` suman al cronómetro, y el pool se publica solo. Es el fallo silencioso que ya ocurrió una vez |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
@@ -393,11 +423,11 @@ Las pruebas anteriores cubrían el SQL y la lógica con dobles, de modo que **bo
 un `@PreAuthorize` dejaba la suite verde**. `EndpointSecurityTest` levanta la
 cadena de filtros real, con el filtro JWT real y tokens firmados de verdad, y
 responde desde fuera a las tres preguntas que importan —quién entra, con qué rol,
-y sobre qué tienda acaba escribiendo— en **46 pruebas**:
+y sobre qué tienda acaba escribiendo— en **50 pruebas**:
 
 | Grupo | Qué fija |
 |---|---|
-| `SinToken` | Los 20 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
+| `SinToken` | Los 22 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
 | `Publicos` | Lo que debe seguir abierto sigue abierto: `ping` por GET y HEAD (si dejara de serlo, Render apagaría el servicio), `demo/reset` y `auth/login` |
 | `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
 | `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |

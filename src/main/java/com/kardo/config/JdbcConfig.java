@@ -1,9 +1,14 @@
 package com.kardo.config;
 
+import com.kardo.diagnostics.MeasuredDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
+import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jdbc.core.dialect.JdbcPostgresDialect;
 import org.springframework.data.relational.core.dialect.Dialect;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 
 /**
  * Fija el dialecto relacional en lugar de dejar que Spring Data JDBC lo deduzca.
@@ -21,5 +26,32 @@ public class JdbcConfig {
     @Bean
     Dialect jdbcDialect() {
         return JdbcPostgresDialect.INSTANCE;
+    }
+
+    /**
+     * Envuelve el {@code DataSource} para cronometrar JDBC.
+     *
+     * <p>Se hace con un {@code BeanPostProcessor} y no declarando el bean para
+     * no perder la autoconfiguracion de Hikari, que lee una docena de
+     * propiedades. Aqui solo se envuelve lo que Spring Boot ya construyo.
+     *
+     * <p>{@code MeasuredDataSource} extiende {@code DelegatingDataSource}, que
+     * es lo que permite que las metricas del pool sigan funcionando: Boot
+     * desenvuelve hasta encontrar el {@code HikariDataSource} de dentro.
+     */
+    @Bean
+    static BeanPostProcessor dataSourceInstrumentation(ObjectProvider<MeterRegistry> registry) {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) {
+                if (bean instanceof DataSource dataSource && !(bean instanceof MeasuredDataSource)) {
+                    MeterRegistry meterRegistry = registry.getIfAvailable();
+                    if (meterRegistry != null) {
+                        return new MeasuredDataSource(dataSource, meterRegistry);
+                    }
+                }
+                return bean;
+            }
+        };
     }
 }

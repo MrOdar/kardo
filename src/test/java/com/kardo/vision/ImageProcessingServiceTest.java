@@ -20,7 +20,8 @@ import org.junit.jupiter.api.Test;
 class ImageProcessingServiceTest {
 
     private final ImageProcessingService service =
-            new ImageProcessingService(new VisionProperties(1800, 0.85f));
+            new ImageProcessingService(new VisionProperties(1800, 0.85f,
+                    new VisionProperties.Quota(40, 200)));
 
     @Test
     @DisplayName("Fija el lado mayor en 1800 px conservando la proporcion")
