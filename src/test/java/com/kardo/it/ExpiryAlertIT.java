@@ -83,6 +83,68 @@ class ExpiryAlertIT extends PostgresIntegrationTest {
     }
 
     /**
+     * Aplicar deja de ser una nota y pasa a ser el precio: es lo que convierte
+     * la recomendacion en algo comprobable despues en los libros.
+     */
+    @Test
+    @DisplayName("Aplicar la rebaja fija el precio del lote; descartarla lo retira")
+    void laDecisionLlegaAlPrecio() {
+        long batchId = fixtures.batch(storeId, productId, "LOT-PRECIO", LocalDate.now().plusDays(2), 10, "4.00");
+
+        alertService.decide(storeId, batchId, "APPLIED", "operario@kardo.pe");
+        assertThat(precio(batchId)).isEqualByComparingTo("7.00");
+
+        alertService.decide(storeId, batchId, "DISMISSED", "operario@kardo.pe");
+        assertThat(precio(batchId)).isNull();
+    }
+
+    /**
+     * Cuando el piso del costo muerde, el lote baja de peldaño pero no puede
+     * bajar de precio. Repetir la alerta solo enseña a ignorarla.
+     */
+    @Test
+    @DisplayName("Si ya esta al mejor precio posible, deja de pedir una rebaja")
+    void yaEstaAlMinimo() {
+        // Costo 9.50 sobre una lista de 10.00: casi no hay margen que ceder
+        long caro = fixtures.product(storeId, "SKU-SIN-MARGEN", "Producto caro", "9.50", "10.00");
+        long batchId = fixtures.batch(storeId, caro, "LOT-MINIMO", LocalDate.now().plusDays(2), 10, "9.50");
+
+        alertService.decide(storeId, batchId, "APPLIED", "operario@kardo.pe");
+        assertThat(precio(batchId)).isEqualByComparingTo("9.50");
+
+        // Aunque se acerque el vencimiento, no hay precio mejor que sugerir
+        jdbcTemplate.update("UPDATE inventory_batches SET expiration_date = CURRENT_DATE WHERE batch_id = ?",
+                batchId);
+
+        var board = alertService.board(storeId);
+        assertThat(board.alerts()).noneMatch(alerta -> alerta.batchCode().equals("LOT-MINIMO"));
+        assertThat(board.silenced()).isPositive();
+    }
+
+    @Test
+    @DisplayName("El panel dice a que precio esta ya el lote")
+    void elPanelMuestraLaOfertaVigente() {
+        long batchId = fixtures.batch(storeId, productId, "LOT-VIGENTE", LocalDate.now().plusDays(4), 10, "4.00");
+        alertService.decide(storeId, batchId, "APPLIED", "operario@kardo.pe");
+
+        // Se acerca el vencimiento: vuelve a pedir rebaja, ya con oferta puesta
+        jdbcTemplate.update("UPDATE inventory_batches SET expiration_date = CURRENT_DATE + 1 WHERE batch_id = ?",
+                batchId);
+
+        assertThat(alertService.board(storeId).alerts())
+                .filteredOn(alerta -> alerta.batchCode().equals("LOT-VIGENTE"))
+                .singleElement()
+                .extracting("markdownPrice")
+                .isEqualTo(new java.math.BigDecimal("8.00"));
+    }
+
+    private java.math.BigDecimal precio(long batchId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT markdown_price FROM inventory_batches WHERE batch_id = ?",
+                java.math.BigDecimal.class, batchId);
+    }
+
+    /**
      * La regla que hace que el panel siga siendo creible: lo que descartaste
      * vale para la recomendacion que viste, no para la siguiente.
      */

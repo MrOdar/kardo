@@ -272,6 +272,21 @@ flowchart TD
 * **Comprobado por mutación:** renombrar `batch-rows`, llamar a `/inventory/alertas` y añadir una pestaña sin registrarla hacen fallar la prueba correspondiente. Hay además una quinta prueba que verifica que la extracción sigue encontrando rutas e ids — si un cambio de estilo la rompiera, las otras cuatro pasarían con listas vacías y nadie se enteraría.
 * **El bug que apareció al construir el historial de mermas:** la lista de bajas acepta `?status=` opcional, pero **sin filtro devolvía 500**. La causa es la de siempre en este proyecto: un `?` suelto dentro de un `IS NULL` que PostgreSQL no puede tipar, y que hacía rechazar la sentencia entera. Nadie lo había visto porque la interfaz sólo pedía `PENDING_APPROVAL`: **el caso por defecto del endpoint nunca se había ejercitado**. Corregido con `?::varchar` y fijado en `WasteWorkflowIT`.
 
+#### 🛠️ Reto 18: Que la Rebaja Llegue al Precio (cierre del Reto 11)
+* **El agujero:** la escalera recomendaba un precio y firmaba quién lo decidió, pero `sp_process_fefo_sale` seguía cobrando el precio de lista del catálogo. El operario rebajaba la leche a S/ 3.80 en el anaquel y **Kardo la registraba vendida a S/ 5.20**. Dos consecuencias feas: el margen quedaba mal justo en los lotes que el propio sistema mandaba rebajar, y la frase con la que se justifica una rebaja —*"cedes X de margen para no perder Y de costo"*— no se podía comprobar después, porque los libros decían que no se había cedido nada.
+* **El precio vive en el lote, no en el producto**, porque eso es lo que se rebaja: el yogurt que vence el jueves, no el yogurt. Dos lotes del mismo SKU conviven a precios distintos mientras dura la oferta, y la venta emite un asiento por lote con el precio que **ese** lote tenía en el anaquel.
+* **El piso del costo deja de ser una regla de Java y pasa a ser un invariante:** `chk_markdown_not_below_cost` lo impide en la base. `DiscountLadder` ya nunca sugería por debajo del costo, pero esa era la única puerta que lo respetaba; una carga masiva de ofertas o una corrección a mano entrarían por otro lado.
+* **Retirar la oferta.** Descartar una alerta sobre un lote con oferta vigente la **quita** y devuelve el lote al precio de lista: un operario que pulsa por error no puede quedarse sin camino de vuelta. *Límite conocido:* un lote agotado o fuera del horizonte ya no es candidato, así que su oferta no puede retirarse desde el panel — es inerte, porque no queda nada que vender.
+* **Una alerta menos que ignorar:** si el lote ya está a un precio igual o mejor que el que se iba a sugerir —pasa cuando el piso muerde y el lote baja de peldaño sin poder bajar de precio— la alerta se calla. Repetirla sólo enseña a no mirarlas.
+* **Verificado en vivo, el mismo lote antes y después:**
+  | | Ingreso | Costo | Margen |
+  |---|---|---|---|
+  | Venta a precio de lista | S/ 52.00 | S/ 38.00 | S/ 14.00 |
+  | Venta tras aplicar la rebaja | **S/ 38.00** | S/ 38.00 | **S/ 0.00** |
+
+  Margen cero es lo que de verdad significa rebajar hasta el piso. Antes de este cambio, el sistema habría declarado S/ 14.00 de margen que nunca existieron.
+* `FefoSaleIT` fija el caso que distingue "precio del lote" de "precio del producto": una venta que cruza un lote en oferta y otro que no emite dos asientos con precios distintos (20 × S/ 4.00 + 5 × S/ 5.20 = S/ 106.00).
+
 #### 🛠️ Reto 17: Historial de Bajas
 * Una baja resuelta desaparecía de la cola de pendientes —correcto para trabajar— pero dejaba sin respuesta la pregunta que viene después: cuánto se perdió y quién lo autorizó. La tabla nueva filtra por estado y **sólo suma lo aprobado**: lo pendiente aún puede devolverse al stock y lo rechazado nunca fue una pérdida.
 * Cada fila muestra en una línea la segregación de funciones: *declaró `demo@kardo.pe` · aprobó `supervisor@kardo.pe`*. Verificado en el navegador de extremo a extremo: declarar, cambiar de usuario, aprobar, y ver la baja pasar de la cola al historial con `S/ 22.80 consolidados`.
@@ -441,11 +456,11 @@ Cobertura automatizada tras esta ronda: **174 pruebas unitarias**.
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 72 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta 79 pruebas sobre lo que de verdad puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|
-| `FefoSaleIT` | Orden FEFO y costo por lote, **aislamiento entre compañías con el mismo SKU**, stock insuficiente sin rastro, cantidad no positiva, lote vencido no vendible |
+| `FefoSaleIT` | Orden FEFO y costo por lote, **aislamiento entre compañías con el mismo SKU**, stock insuficiente sin rastro, cantidad no positiva, lote vencido no vendible, y que **la venta cobre el precio rebajado de cada lote** |
 | `WasteWorkflowIT` | El invariante `current + cuarentena <= inicial` paso a paso, que FEFO no venda lo reservado, aprobar/rechazar, resolución idempotente, lote de otra tienda |
 | `SkuMatchingIT` | El caso insignia `"CERV PILSEN 650"` (score 0.55, que el umbral de fábrica descartaba), varias líneas en un viaje, producto nuevo sin forzar, aislamiento por compañía |
 | `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o por merma, idempotencia, y que la huella deje de bloquear tras revertir |

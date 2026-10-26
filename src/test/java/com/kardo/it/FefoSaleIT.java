@@ -63,6 +63,78 @@ class FefoSaleIT extends PostgresIntegrationTest {
         assertThat(sale.margin()).isEqualByComparingTo("35.00");
     }
 
+    /**
+     * El agujero que cerro {@code sql/11}: la escalera recomendaba un precio y
+     * guardaba quien lo decidio, pero la venta seguia cobrando el de lista. El
+     * margen quedaba mal justo en los lotes que el propio sistema mandaba
+     * rebajar, y la rebaja no se podia comprobar despues en los libros.
+     */
+    @Test
+    @DisplayName("La venta cobra el precio rebajado del lote, no el de lista")
+    void laVentaRespetaLaRebaja() {
+        rebajar("LOTE-VENCE-PRONTO", "4.00");
+
+        SaleResponseDto sale = fefoSaleService.sell(storeId, SKU, 10, "operario@kardo.pe");
+
+        assertThat(sale.consumedBatches()).singleElement()
+                .extracting(line -> line.unitRetailPrice().stripTrailingZeros())
+                .isEqualTo(new java.math.BigDecimal("4"));
+
+        // 10 x 4.00 y no 10 x 5.20
+        assertThat(sale.revenue()).isEqualByComparingTo("40.00");
+        assertThat(sale.cogs()).isEqualByComparingTo("38.00");
+        assertThat(sale.margin()).isEqualByComparingTo("2.00");
+    }
+
+    /**
+     * Es el caso que de verdad distingue "precio del lote" de "precio del
+     * producto": la misma venta cruza un lote en oferta y otro que no, y cada
+     * asiento debe salir con el precio que ese lote tenia en el anaquel.
+     */
+    @Test
+    @DisplayName("Una venta que cruza dos lotes cobra el precio de cada uno")
+    void cadaLoteConSuPrecio() {
+        rebajar("LOTE-VENCE-PRONTO", "4.00");
+
+        SaleResponseDto sale = fefoSaleService.sell(storeId, SKU, 25, "operario@kardo.pe");
+
+        assertThat(sale.consumedBatches())
+                .extracting(line -> line.batchCode() + "@" + line.unitRetailPrice().stripTrailingZeros())
+                .containsExactly("LOTE-VENCE-PRONTO@4", "LOTE-FRESCO@5.2");
+
+        // 20 x 4.00 en oferta + 5 x 5.20 a precio de lista
+        assertThat(sale.revenue()).isEqualByComparingTo("106.00");
+    }
+
+    @Test
+    @DisplayName("Sin rebaja vigente se sigue cobrando el precio de lista")
+    void sinRebajaElPrecioEsElDeLista() {
+        SaleResponseDto sale = fefoSaleService.sell(storeId, SKU, 10, "operario@kardo.pe");
+
+        assertThat(sale.revenue()).isEqualByComparingTo("52.00");
+    }
+
+    /**
+     * El piso del costo deja de depender de que todos pasen por la escalera:
+     * lo impide la base, que es donde no se puede esquivar.
+     */
+    @Test
+    @DisplayName("La base rechaza una oferta por debajo del costo del lote")
+    void laBaseNoAdmiteVenderAPerdida() {
+        assertThatThrownBy(() -> rebajar("LOTE-VENCE-PRONTO", "3.00"))
+                .hasMessageContaining("chk_markdown_not_below_cost");
+
+        // Justo en el costo si: ahi se recupera lo pagado, que es el limite
+        rebajar("LOTE-VENCE-PRONTO", "3.80");
+        assertThat(fefoSaleService.sell(storeId, SKU, 5, "operario@kardo.pe").revenue())
+                .isEqualByComparingTo("19.00");
+    }
+
+    private void rebajar(String batchCode, String price) {
+        jdbcTemplate.update("UPDATE inventory_batches SET markdown_price = ? WHERE batch_code = ?",
+                new java.math.BigDecimal(price), batchCode);
+    }
+
     @Test
     @DisplayName("No toca el inventario de otra compania con el mismo SKU")
     void aislamientoEntreCompanias() {

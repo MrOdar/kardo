@@ -46,6 +46,7 @@ public class ExpiryAlertService {
                    (b.expiration_date - CURRENT_DATE) AS dias_restantes,
                    b.current_qty,
                    b.unit_cost,
+                   b.markdown_price,
                    p.retail_price,
                    d.decision,
                    d.step_percent,
@@ -100,6 +101,16 @@ public class ExpiryAlertService {
                 continue;
             }
 
+            // Ya esta a un precio igual o mejor que el que se iba a sugerir.
+            // Pasa cuando el piso del costo muerde: el lote baja de peldaño pero
+            // no puede bajar de precio, y repetir la alerta solo enseña a
+            // ignorarla. No hay nada que hacer, asi que no se pide nada.
+            if (c.markdownPrice() != null && suggestion.suggestedPrice() != null
+                    && c.markdownPrice().compareTo(suggestion.suggestedPrice()) <= 0) {
+                silenced++;
+                continue;
+            }
+
             marginSacrificed = marginSacrificed.add(suggestion.marginSacrificed());
             alerts.add(toDto(c, suggestion));
         }
@@ -137,9 +148,38 @@ public class ExpiryAlertService {
                     """,
                     storeId, batchId, decision, suggestion.stepPercent(),
                     suggestion.suggestedPrice(), decidedBy);
+
+            applyPrice(storeId, batchId, decision, suggestion);
         }
 
         return board(storeId);
+    }
+
+    /**
+     * Lleva la decision al precio del lote.
+     *
+     * <p>Es lo que convierte la recomendacion en un hecho: hasta que esto
+     * existio, la escalera sugeria S/ 3.80 y la venta seguia cobrando S/ 5.20,
+     * de modo que el margen quedaba mal justo en los lotes que el sistema
+     * mandaba rebajar.
+     *
+     * <p>Descartar <b>retira</b> la oferta si la habia. Un operario que pulsa
+     * por error no puede quedarse sin forma de volver al precio de lista, y
+     * "descartar la rebaja" es la lectura natural de ese boton.
+     */
+    private void applyPrice(long storeId, long batchId, String decision, MarkdownSuggestion suggestion) {
+        BigDecimal price = "APPLIED".equals(decision) ? suggestion.suggestedPrice() : null;
+
+        // Solo REBAJAR fija precio: retirar un vencido o avisar de que no hay
+        // margen no son ofertas, y escribir null en el primer caso borraria una
+        // oferta vigente sin que nadie lo haya pedido.
+        if (price == null && suggestion.action() != MarkdownAction.REBAJAR) {
+            return;
+        }
+
+        jdbcTemplate.update(
+                "UPDATE inventory_batches SET markdown_price = ? WHERE batch_id = ? AND store_id = ?",
+                price, batchId, storeId);
     }
 
     /** Historial de rebajas de la tienda: por que se vendio a ese precio. */
@@ -173,6 +213,7 @@ public class ExpiryAlertService {
                            (b.expiration_date - CURRENT_DATE) AS dias_restantes,
                            b.current_qty,
                            b.unit_cost,
+                           b.markdown_price,
                            p.retail_price,
                            NULL::varchar AS decision,
                            NULL::int AS step_percent,
@@ -191,7 +232,7 @@ public class ExpiryAlertService {
         return new ExpiryAlertDto(
                 c.batchId(), c.sku(), c.productName(), c.batchCode(),
                 c.expirationDate(), c.daysToExpiry(), c.sellableQty(),
-                c.unitCost(), c.retailPrice(),
+                c.unitCost(), c.markdownPrice(), c.retailPrice(),
                 s.action(), s.stepPercent(), s.discountPercent(), s.suggestedPrice(),
                 s.marginSacrificed(), s.valueAtRisk(), s.rationale(),
                 c.decision(), c.decidedStep(), c.decidedBy(), c.decidedAt());
@@ -201,7 +242,7 @@ public class ExpiryAlertService {
     private record Candidate(
             long batchId, String sku, String productName, String batchCode,
             LocalDate expirationDate, int daysToExpiry, int sellableQty,
-            BigDecimal unitCost, BigDecimal retailPrice,
+            BigDecimal unitCost, BigDecimal markdownPrice, BigDecimal retailPrice,
             String decision, Integer decidedStep, String decidedBy, Instant decidedAt) {
     }
 
@@ -225,6 +266,7 @@ public class ExpiryAlertService {
                 rs.getInt("dias_restantes"),
                 rs.getInt("current_qty"),
                 rs.getBigDecimal("unit_cost"),
+                rs.getBigDecimal("markdown_price"),
                 rs.getBigDecimal("retail_price"),
                 rs.getString("decision"),
                 decidedStep,

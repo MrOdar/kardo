@@ -21,6 +21,10 @@ public record ExpiryAlertDto(
         int daysToExpiry,
         int sellableQty,
         BigDecimal unitCost,
+
+        /** Oferta ya vigente para este lote, o nulo si se vende al de lista. */
+        BigDecimal markdownPrice,
+
         BigDecimal retailPrice,
 
         MarkdownAction action,

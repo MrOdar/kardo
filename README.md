@@ -97,7 +97,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/10, en orden numérico
+-- luego sql/01 … sql/11, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -106,7 +106,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 174 unitarias + 72 de integración
+mvn verify    # 174 unitarias + 79 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le

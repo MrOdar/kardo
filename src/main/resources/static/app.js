@@ -656,10 +656,14 @@ function alertRow(alert) {
   const tr = document.createElement('tr');
   tr.className = `state-${state_.key} border-l-4`;
 
-  const previo = alert.previousDecision
-    ? `<span class="text-xs text-ink-faint">· ya ${alert.previousDecision === 'APPLIED' ? 'rebajado' : 'descartado'}
-         al ${alert.decidedStep}%</span>`
-    : '';
+  // Si el lote ya está en oferta se dice el precio, no el peldaño: es lo que
+  // el operario puede ir a comprobar en la etiqueta del anaquel.
+  const previo = alert.markdownPrice
+    ? `<span class="text-xs font-semibold text-risk-amber">· en oferta a ${money(alert.markdownPrice)}</span>`
+    : alert.previousDecision
+      ? `<span class="text-xs text-ink-faint">· ya ${alert.previousDecision === 'APPLIED' ? 'rebajado' : 'descartado'}
+           al ${alert.decidedStep}%</span>`
+      : '';
 
   tr.innerHTML = `
     <td class="num px-3 py-2 font-bold ${state_.tone}">${state_.label}</td>
@@ -685,9 +689,13 @@ function alertRow(alert) {
 
 /** Cada acción lleva a una tarea concreta de anaquel, no a un aviso más. */
 function alertActions(alert) {
+  // Con una oferta vigente, descartar deja de ser "no quiero" y pasa a ser
+  // "quítala": es la única forma de volver al precio de lista desde aquí.
   const descartar = `
     <button data-alert="${alert.batchId}" data-decision="DISMISSED"
-            class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Descartar</button>`;
+            class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">${
+              alert.markdownPrice ? 'Quitar la oferta' : 'Descartar'
+            }</button>`;
 
   if (alert.action === 'RETIRAR') {
     return `
@@ -728,8 +736,8 @@ $('alert-rows').addEventListener('click', async (event) => {
     renderAlerts(board);
     await loadMarkdownHistory();
     toast(button.dataset.decision === 'APPLIED'
-      ? 'Rebaja registrada. Queda firmada con tu nombre y el precio sugerido.'
-      : 'Descartada. Volverá a avisarte si el lote baja un peldaño.', 'ok');
+      ? 'Rebaja aplicada: el lote ya se vende a ese precio y queda firmada con tu nombre.'
+      : 'Retirada. El lote vuelve al precio de lista y se avisará si baja un peldaño.', 'ok');
   } catch (error) {
     toast(error.message, 'error');
     button.disabled = false;
