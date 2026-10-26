@@ -259,6 +259,23 @@ flowchart TD
 * **Las pruebas releen el PDF generado.** Afirmar que "se generó sin excepciones" no dice nada: un documento válido y vacío también cumple eso. `InventoryPdfExportIT` lo vuelve a abrir con PDFBox y busca dentro lo que el contador buscará con el dedo —los totales, el criterio, la paginación, que no asome un lote de otra tienda—.
 * **Verificado contra Supabase:** el informe del escenario demo da `S/ 333.50` de inventario y `S/ 143.50` en riesgo, **las mismas cifras que el semáforo**, porque salen del mismo dinero.
 
+#### 🛠️ Reto 16: Un Contrato para la Interfaz (y el bug que destapó)
+* **Problema:** las pruebas cubrían el backend entero y **nada defendía la SPA**. Si alguien renombraba un `id` en `index.html` o cambiaba una ruta, el build seguía verde y la pantalla se rompía en silencio en el navegador del operario.
+* **Qué se probó y qué no, dicho sin adornos.** Un end-to-end con navegador se saltaría en la máquina de quien no lo tenga —exactamente el problema que ya tenemos con Docker— y añadiría un segundo toolchain (Node) a un proyecto que a propósito no tiene build de front. Así que `SpaContractTest` **no** comprueba que la pantalla se vea bien: comprueba lo único que en esta SPA se rompe sin avisar, porque son tres archivos sincronizados a mano.
+  | Qué fija | Rotura que evita |
+  |---|---|
+  | Todo `$('id')` existe en el HTML | Un `null` que mata el resto del guion sin que el servidor se entere |
+  | Ningún `id` duplicado | `getElementById` devuelve el primero y calla: media interfaz escribe sobre el elemento equivocado |
+  | Las pestañas del HTML, sus paneles y el array `TABS` coinciden | Una pestaña muerta que no abre nada |
+  | **Toda ruta que la SPA llama la sirve algún controlador** | Un 404 en producción por un endpoint renombrado |
+* La última se resuelve leyendo por reflexión las plantillas de los `@RestController` y cotejándolas con las rutas extraídas del guion. Corre **sin Node, sin navegador y sin base de datos**, en cualquier máquina.
+* **Comprobado por mutación:** renombrar `batch-rows`, llamar a `/inventory/alertas` y añadir una pestaña sin registrarla hacen fallar la prueba correspondiente. Hay además una quinta prueba que verifica que la extracción sigue encontrando rutas e ids — si un cambio de estilo la rompiera, las otras cuatro pasarían con listas vacías y nadie se enteraría.
+* **El bug que apareció al construir el historial de mermas:** la lista de bajas acepta `?status=` opcional, pero **sin filtro devolvía 500**. La causa es la de siempre en este proyecto: un `?` suelto dentro de un `IS NULL` que PostgreSQL no puede tipar, y que hacía rechazar la sentencia entera. Nadie lo había visto porque la interfaz sólo pedía `PENDING_APPROVAL`: **el caso por defecto del endpoint nunca se había ejercitado**. Corregido con `?::varchar` y fijado en `WasteWorkflowIT`.
+
+#### 🛠️ Reto 17: Historial de Bajas
+* Una baja resuelta desaparecía de la cola de pendientes —correcto para trabajar— pero dejaba sin respuesta la pregunta que viene después: cuánto se perdió y quién lo autorizó. La tabla nueva filtra por estado y **sólo suma lo aprobado**: lo pendiente aún puede devolverse al stock y lo rechazado nunca fue una pérdida.
+* Cada fila muestra en una línea la segregación de funciones: *declaró `demo@kardo.pe` · aprobó `supervisor@kardo.pe`*. Verificado en el navegador de extremo a extremo: declarar, cambiar de usuario, aprobar, y ver la baja pasar de la cola al historial con `S/ 22.80 consolidados`.
+
 ---
 
 ### 4. Roadmap de Desarrollo (2 Semanas / 4 Sprints con Tailwind CSS)
@@ -418,13 +435,13 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **169 pruebas unitarias**.
+Cobertura automatizada tras esta ronda: **174 pruebas unitarias**.
 
 #### Pruebas de integración contra PostgreSQL real
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 71 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta 72 pruebas sobre lo que de verdad puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|

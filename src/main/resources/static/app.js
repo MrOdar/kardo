@@ -89,6 +89,7 @@ function showTab(name) {
   // El inventario se recarga al entrar: pudo cambiar por una venta o una merma.
   if (name === 'inventario' && state.token) {
     loadBatches();
+    loadWasteHistory();
   }
   if (name === 'alertas' && state.token) {
     loadAlerts();
@@ -219,6 +220,7 @@ async function resetDemo() {
     await loadAlerts();
     await loadMarkdownHistory();
     await loadPendingWaste();
+    await loadWasteHistory();
     await loadUploadHistory();
     await loadBatches();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
@@ -278,7 +280,7 @@ async function switchUser(event) {
 
     // Todo lo que se ve depende de quien mira: roles, botones y tienda.
     await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches(),
-                       loadMarkdownHistory(), loadQuota()]);
+                       loadMarkdownHistory(), loadQuota(), loadWasteHistory()]);
     await refreshDashboard();
     toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
   } catch (failure) {
@@ -457,6 +459,7 @@ async function reportWaste(event) {
       })
     });
     renderPendingWaste(pending);
+    await loadWasteHistory();
     await refreshDashboard();
     toast('Baja declarada. Las unidades quedan en cuarentena hasta que el gerente decida.', 'ok');
   } catch (error) {
@@ -523,6 +526,7 @@ $('waste-rows').addEventListener('click', async (event) => {
   try {
     const pending = await request(`/inventory/waste/${button.dataset.waste}/${decision}`, { method: 'POST' });
     renderPendingWaste(pending);
+    await loadWasteHistory();
     await refreshDashboard();
     toast(decision === 'approve'
       ? 'Merma aprobada: la pérdida queda consolidada.'
@@ -540,6 +544,76 @@ async function loadPendingWaste() {
     renderPendingWaste([]);
   }
 }
+
+/* ───────────────────────── historial de bajas ───────────────────────── */
+
+const WASTE_STATUS = {
+  PENDING_APPROVAL: { label: 'Pendiente', tone: 'text-risk-amber' },
+  APPROVED: { label: 'Aprobada', tone: 'text-risk-red' },
+  REJECTED: { label: 'Devuelta al stock', tone: 'text-risk-green' }
+};
+
+/**
+ * Pinta el historial.
+ *
+ * Una baja resuelta desaparece de la cola de arriba, que es lo correcto para
+ * trabajar, pero deja sin respuesta la pregunta que viene después: cuánto se
+ * perdió y quién lo autorizó.
+ */
+function renderWasteHistory(entries, status) {
+  const body = $('waste-history-rows');
+  const empty = $('waste-history-empty');
+  const total = $('waste-history-total');
+
+  if (!entries.length) {
+    body.replaceChildren();
+    empty.classList.remove('hidden');
+    empty.textContent = status
+      ? 'No hay bajas con ese estado.'
+      : 'Todavía no se ha declarado ninguna baja.';
+    total.textContent = '—';
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // Solo suma lo aprobado: lo pendiente aún puede devolverse al stock y lo
+  // rechazado nunca fue una pérdida.
+  const perdida = entries
+    .filter((entry) => entry.status === 'APPROVED')
+    .reduce((sum, entry) => sum + Number(entry.totalLoss ?? 0), 0);
+
+  total.textContent = `${plural(entries.length, 'baja', 'bajas')} · ${money(perdida)} consolidados`;
+
+  body.replaceChildren(...entries.map((entry) => {
+    const estado = WASTE_STATUS[entry.status] ?? { label: entry.status, tone: 'text-ink-soft' };
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="num px-3 py-2 text-xs text-ink-faint">${new Date(entry.loggedAt).toLocaleDateString('es-PE')}</td>
+      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.productName)}</td>
+      <td class="px-3 py-2 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
+      <td class="num px-3 py-2 text-right">${entry.quantity}</td>
+      <td class="num px-3 py-2 text-right ${entry.status === 'APPROVED' ? 'text-risk-red' : 'text-ink-faint'}">${money(entry.totalLoss)}</td>
+      <td class="px-3 py-2">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
+      <td class="px-3 py-2 text-xs text-ink-soft">${escapeHtml(entry.operatorId)}</td>
+      <td class="px-3 py-2 text-xs">
+        <span class="font-semibold ${estado.tone}">${estado.label}</span>
+        ${entry.authorizedBy ? `<span class="block text-ink-faint">${escapeHtml(entry.authorizedBy)}</span>` : ''}
+      </td>`;
+    return tr;
+  }));
+}
+
+async function loadWasteHistory() {
+  const status = $('waste-history-filter').value;
+  try {
+    const query = status ? `?status=${status}&limit=100` : '?limit=100';
+    renderWasteHistory(await request(`/inventory/waste${query}`), status);
+  } catch {
+    renderWasteHistory([], status);
+  }
+}
+
+$('waste-history-filter').addEventListener('change', loadWasteHistory);
 
 /* ───────────────────── panel 2: alertas y rebajas ───────────────────── */
 

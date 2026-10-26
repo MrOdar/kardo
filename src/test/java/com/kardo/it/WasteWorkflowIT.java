@@ -64,6 +64,29 @@ class WasteWorkflowIT extends PostgresIntegrationTest {
         assertThat(masa()).isEqualTo("5/25/30");
     }
 
+    /**
+     * El historial de la interfaz pide la lista <b>sin filtro</b>, y ese camino
+     * nunca se habia ejercitado: la pantalla solo consultaba las pendientes. Un
+     * {@code ?} suelto dentro de un {@code IS NULL} hacia que PostgreSQL
+     * rechazara la sentencia entera, de modo que el endpoint respondia 500 a su
+     * propio caso por defecto.
+     */
+    @Test
+    @DisplayName("Listar sin filtro devuelve todas las bajas, resueltas o no")
+    void listarSinFiltro() {
+        wasteService.report(storeId, batchId, 4, "EXPIRATION", "operario@kardo.pe");
+        wasteService.approve(ultimaMerma(), "gerente@kardo.pe");
+        wasteService.report(storeId, batchId, 3, "DAMAGE", "operario@kardo.pe");
+
+        assertThat(wasteService.list(storeId, null, 50))
+                .hasSize(2)
+                .extracting("status")
+                .containsExactlyInAnyOrder("APPROVED", "PENDING_APPROVAL");
+
+        // Y el filtro sigue acotando cuando se usa
+        assertThat(wasteService.list(storeId, "APPROVED", 50)).hasSize(1);
+    }
+
     @Test
     @DisplayName("Aprobar consolida la perdida: las unidades no vuelven")
     void aprobarConsolida() {

@@ -369,6 +369,51 @@
           </table>
         </div>
       </div>
+
+      <!-- ───── Historial: lo resuelto deja de verse en la cola de arriba,
+                 pero es justo lo que hay que poder consultar después ───── -->
+      <div class="mt-10 border-t border-shell-line pt-6">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h4 class="font-semibold">Historial de bajas</h4>
+            <p class="mt-1 max-w-prose text-sm text-ink-soft">
+              Qué se dio de baja, quién lo declaró y quién lo resolvió.
+            </p>
+          </div>
+          <div class="flex items-end gap-3">
+            <div>
+              <label for="waste-history-filter" class="block text-sm text-ink-faint">Estado</label>
+              <select id="waste-history-filter"
+                      class="mt-1 rounded border border-shell-line bg-white px-2 py-1.5">
+                <option value="">Todas</option>
+                <option value="PENDING_APPROVAL">Pendientes</option>
+                <option value="APPROVED">Aprobadas</option>
+                <option value="REJECTED">Devueltas al stock</option>
+              </select>
+            </div>
+            <p id="waste-history-total" class="py-2 text-sm text-ink-faint">—</p>
+          </div>
+        </div>
+
+        <div class="mt-4 overflow-x-auto border border-shell-line bg-white">
+          <table class="w-full border-collapse text-sm">
+            <thead class="bg-shell text-left">
+              <tr class="text-ink-soft">
+                <th class="px-3 py-2 font-semibold">Fecha</th>
+                <th class="px-3 py-2 font-semibold">Producto</th>
+                <th class="px-3 py-2 font-semibold">Lote</th>
+                <th class="px-3 py-2 font-semibold text-right">Unid.</th>
+                <th class="px-3 py-2 font-semibold text-right">Pérdida</th>
+                <th class="px-3 py-2 font-semibold">Motivo</th>
+                <th class="px-3 py-2 font-semibold">Declaró</th>
+                <th class="px-3 py-2 font-semibold">Resolución</th>
+              </tr>
+            </thead>
+            <tbody id="waste-history-rows" class="divide-y divide-shell-line"></tbody>
+          </table>
+        </div>
+        <p id="waste-history-empty" class="hidden py-8 text-center text-sm text-ink-faint"></p>
+      </div>
     </div>
   </section>
 

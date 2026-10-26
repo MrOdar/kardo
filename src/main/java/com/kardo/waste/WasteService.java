@@ -41,7 +41,11 @@ public class WasteService {
             JOIN inventory_batches b ON b.batch_id = w.batch_id
             JOIN products p ON p.product_id = w.product_id
             WHERE w.store_id = ?
-              AND (? IS NULL OR w.approval_status = ?)
+              -- El tipo va explicito: ante un '?' suelto en un IS NULL,
+              -- PostgreSQL no puede inferirlo y rechaza la sentencia entera.
+              -- Sin filtro, este endpoint devolvia 500 y nadie lo notaba,
+              -- porque la interfaz solo lo llamaba con PENDING_APPROVAL.
+              AND (?::varchar IS NULL OR w.approval_status = ?::varchar)
             ORDER BY w.log_timestamp DESC
             LIMIT ?
             """;
