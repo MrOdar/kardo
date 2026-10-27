@@ -14,20 +14,36 @@ avisa —con un precio concreto— cuando todavía se puede recuperar la plata.
 🔗 **Demo:** [kardo.onrender.com](https://kardo.onrender.com) · pulsa
 **Restaurar tienda demo** y entras sin credenciales.
 
+![La pantalla de inicio: las prioridades del día, cada una con la acción que la resuelve](docs/img/lo-primero-de-hoy.jpg)
+
+La aplicación no abre en una tabla: abre en la lista de lo que hay que decidir,
+ordenada por lo que cuesta dejarlo para mañana.
+
 ---
 
-## Qué hace
+## El mecanismo, en dos pantallas
 
-| | |
-|---|---|
-| 📥 **Carga el inventario desde Excel** | Lee el archivo en streaming, valida fila a fila y devuelve las malas a una cuarentena editable, sin rechazar el archivo entero. Subir dos veces lo mismo no duplica nada. |
-| 📸 **Recibe mercadería con una foto** | Una foto de la guía de remisión se lee con visión multimodal y cada línea se cruza contra el catálogo; el operario confirma lo que de verdad llegó. |
-| 🔴 **Ordena la salida por vencimiento (FEFO)** | Cada venta descuenta del lote que caduca primero, con el costo real de ese lote. El margen sale de la base, no de una estimación. |
-| 🏷️ **Dice qué rebajar hoy** | Traduce los días que le quedan a un lote en un precio sugerido, que **nunca baja del costo**: por debajo de ahí, rebajar sale peor que la merma. |
-| 🗑️ **Controla las mermas** | El operario declara la baja y las unidades quedan inmovilizadas; un gerente —distinto del que la declaró— decide si la pérdida se consolida. |
-| 🏷️ **Imprime el cartel de la oferta** | Una hoja de etiquetas con el precio rebajado, el lote y la fecha. Sale de la misma columna que cobra la caja, así que el cartel y el ticket no pueden discrepar. |
-| 📈 **Explica por qué pasó** | La serie diaria del valor en riesgo, los días de cobertura de cada producto —si no da tiempo a venderlo, eso se decidió al comprar— y de qué proveedor viene lo que acaba en riesgo. |
-| 📊 **Exporta valorizado** | Excel para trabajar los datos, PDF firmable para el contador. |
+Lo que otro sistema no copia diciendo lo mismo: **la recomendación llega hasta
+el precio al que se vende.** No es un semáforo de colores, es un precio.
+
+![Qué rebajar hoy: cada lote por vencer con su precio sugerido y lo que cuesta la decisión](docs/img/que-rebajar-hoy.jpg)
+
+El yogur vence en cinco días. Rebajar un 20 % cede **S/ 20.40** de margen para
+no perder **S/ 67.50** de costo, y el precio sugerido nunca baja del costo del
+lote: por debajo de ahí, rebajar sale peor que la merma. Quien decide y a qué
+precio queda firmado abajo.
+
+Y entonces la caja cobra ese precio, no el de lista:
+
+![Semáforo FEFO: la venta descuenta del lote que vence antes y al precio rebajado](docs/img/semaforo-fefo.jpg)
+
+La salida de diez unidades se descontó de `LOT-LCH-EXP-48H` —el que caduca
+primero, no el que entró último— y se cobró al precio rebajado de **S/ 3.80**.
+Ese precio es el costo del lote: margen **S/ 0.00**, pero recupera los S/ 38.00
+que la mercadería costó, en vez de convertirlos en una merma por el mismo
+importe dos días después. La rebaja no es una etiqueta en el anaquel: cambia lo
+que entra en caja, y el procedimiento PL/pgSQL que mueve el stock es quien lo
+aplica.
 
 ---
 
@@ -52,8 +68,44 @@ nivel, y el pool de conexiones vive en 5.
 recepciones registran autor y momento. La huella SHA-256 del contenido es lo que
 hace idempotente una carga reintentada tras un corte de red.
 
-> El porqué de cada decisión, los bugs que aparecieron al probar contra
-> infraestructura real y cómo se corrigieron están en
+---
+
+## Tres fallos que sólo salieron probando contra infraestructura real
+
+Ninguno de estos lo habría encontrado leyendo el código, y ninguno hacía fallar
+la suite. Están aquí porque son la parte del proyecto que más enseñó.
+
+**1 · El instrumento que medía cero.** El diagnóstico de latencias cronometraba
+las consultas sobrescribiendo `JdbcTemplate.execute(...)`. Spring delega
+internamente en sobrecargas privadas, así que el método sobrescrito nunca se
+llamaba: con la aplicación en marcha y la base trabajando, el contador decía
+**0 consultas**. No lo detectó ninguna prueba —medir nada es consistente con no
+hacer nada—, sino mirar el panel en vivo. Se rehízo envolviendo el `DataSource`
+con un proxy sobre `Connection` y `Statement`, y ahora una prueba de integración
+comprueba que la instrumentación está realmente conectada.
+
+**2 · Un `?` que PostgreSQL no podía tipar.** La lista de mermas acepta un
+`?status=` opcional. Sin filtro devolvía **500**: un parámetro suelto dentro de
+un `IS NULL` deja a PostgreSQL sin saber de qué tipo es y rechaza la sentencia
+entera. Llevaba tiempo así porque la interfaz sólo pedía `PENDING_APPROVAL`: el
+caso por defecto del endpoint **no se había ejercitado nunca**. Corregido con
+`?::varchar` y fijado en `WasteWorkflowIT`.
+
+**3 · La rebaja que no llegaba a la caja.** El panel recomendaba un precio, el
+gerente lo aprobaba, quedaba firmado… y la venta FEFO seguía cobrando el precio
+de lista, porque el precio rebajado vivía en la tabla de decisiones y no en el
+lote. El producto entero se apoyaba en un paso que no existía. Se añadió
+`inventory_batches.markdown_price` con un `CHECK` que impide bajar del costo, y
+el procedimiento de venta pasó a registrar `COALESCE(markdown_price,
+retail_price)`.
+
+**Un falso positivo, de propina:** el diagnóstico culpaba al pool de conexiones
+para siempre, porque juzgaba por la espera **máxima** y abrir la primera
+conexión contra Supabase cuesta segundos de TCP y TLS. En un proceso que no se
+reinicia, ese pico de arranque no se olvidaba nunca. Ahora juzga por la mediana
+y enseña el máximo como contexto.
+
+> El porqué de cada decisión y el detalle de todos estos casos están en
 > **[`docs/ARCHITECTURE_SPEC.md`](docs/ARCHITECTURE_SPEC.md)**.
 
 ---
