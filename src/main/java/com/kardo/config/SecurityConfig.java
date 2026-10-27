@@ -110,8 +110,12 @@ public class SecurityConfig {
                         .contentSecurityPolicy(csp -> csp.policyDirectives(String.join("; ",
                                 "default-src 'self'",
                                 "script-src 'self'",
-                                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-                                "font-src 'self' https://fonts.gstatic.com",
+                                // Sin dominios de Google: las dos tipografias
+                                // se sirven desde este jar, de modo que ya no
+                                // queda ningun tercero del que dependa como se
+                                // ve la pagina.
+                                "style-src 'self' 'unsafe-inline'",
+                                "font-src 'self'",
                                 "img-src 'self' data:",
                                 "connect-src 'self'",
                                 // 'self' y no 'none': los formularios del SPA no
@@ -166,7 +170,7 @@ public class SecurityConfig {
                         // antes de que exista ningun token.
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/kardo.css",
                                 "/favicon.svg", "/favicon.ico",
-                                "/assets/**", "/css/**", "/js/**").permitAll()
+                                "/fonts/**", "/assets/**", "/css/**", "/js/**").permitAll()
                         // Puerta de entrada del evaluador: no tiene credenciales
                         // todavia, y esta llamada es justamente la que se las da.
                         // Solo puede tocar la tienda demo (999), nunca datos reales.

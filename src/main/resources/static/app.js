@@ -102,7 +102,46 @@ const TABS = ['inicio', 'semaforo', 'alertas', 'inventario', 'excel', 'recepcion
  * la guia escaneada vive en el DOM, y perderlo al cambiar de pestaña obligaria
  * al operario a repetir el trabajo.
  */
+/**
+ * Las ocho secciones que necesitan sesion, marcadas como tales.
+ *
+ * <p>Sin sesion estaban las nueve activas y las ocho llevaban a pantallas en
+ * cero: `VALOR EN RIESGO —`, `S/ 0.00`, `Lotes activos 0`. Explorar antes de
+ * pulsar el boton es lo que hace por defecto quien viene a juzgar el proyecto,
+ * y era justo lo que lo hundia: concluia que el producto esta vacio o roto, y
+ * de ese juicio ya no se vuelve.
+ *
+ * <p>Van con `aria-disabled` y no con `disabled`: un boton deshabilitado de
+ * verdad sale del orden de tabulacion sin decir por que, mientras que asi el
+ * lector de pantalla lo anuncia como no disponible y el `title` explica que
+ * falta. Quien lo pulse igualmente recibe la explicacion en un aviso.
+ */
+function sincronizarAccesoALasSecciones() {
+  const abierta = Boolean(state.token);
+  TABS.filter((tab) => tab !== 'inicio').forEach((tab) => {
+    const boton = $(`tab-${tab}`);
+    boton.classList.toggle('nav-item-bloqueado', !abierta);
+    if (abierta) {
+      boton.removeAttribute('aria-disabled');
+      boton.removeAttribute('title');
+      boton.removeAttribute('tabindex');
+    } else {
+      boton.setAttribute('aria-disabled', 'true');
+      boton.setAttribute('title', 'Restaura la tienda demo o inicia sesión para abrir esta sección.');
+      boton.setAttribute('tabindex', '-1');
+    }
+  });
+}
+
 function showTab(name) {
+  // Un solo portero para los tres caminos: el clic, las flechas del teclado y
+  // los saltos de una seccion a otra (irARegistrarVenta, el buscador global).
+  // Cerrar solo el clic dejaria las otras dos puertas abiertas.
+  if (!state.token && name !== 'inicio') {
+    toast('Restaura la tienda demo o inicia sesión para abrir esta sección.', 'error');
+    return;
+  }
+
   TABS.forEach((tab) => {
     const selected = tab === name;
     $(`tab-${tab}`).setAttribute('aria-selected', String(selected));
@@ -150,6 +189,10 @@ TABS.forEach((tab) => {
 
 // Flechas entre pestañas, como espera quien navega con teclado.
 $('tab-semaforo').parentElement.addEventListener('keydown', (event) => {
+  // Sin sesion solo hay una seccion a la que ir, de modo que recorrer con las
+  // flechas no haria mas que repetir el aviso en cada tecla.
+  if (!state.token) return;
+
   const current = TABS.findIndex((tab) => $(`tab-${tab}`).getAttribute('aria-selected') === 'true');
   const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
   if (!delta) return;
@@ -168,7 +211,13 @@ async function pingBackend() {
   try {
     const response = await fetch(`${api}/ping`);
     if (!response.ok) throw new Error();
-    dot.className = 'h-2 w-2 rounded-full bg-risk-green';
+    // Blanco y no verde: el verde esta reservado para un estado de riesgo
+    // resuelto -un lote sano, una merma devuelta al stock-, y gastarlo en
+    // "hay red" le quita fuerza justo en la pantalla donde el color tiene que
+    // significar vencimiento. El rojo del fallo si es un estado de riesgo, y
+    // se queda. En los dos casos el texto de al lado dice lo mismo que el
+    // color, que es lo que hace que no viaje solo.
+    dot.className = 'h-2 w-2 rounded-full bg-white/70';
     text.textContent = 'Backend en línea';
   } catch {
     dot.className = 'h-2 w-2 rounded-full bg-risk-red';
@@ -507,6 +556,10 @@ function renderToday() {
   const abierta = Boolean(state.token);
   $('today-onboarding').classList.toggle('hidden', abierta);
   $('today-body').classList.toggle('hidden', !abierta);
+  // La cabecera operativa -fecha, «Lo primero de hoy», «Actualizar»- es la
+  // agenda de quien ya entró. Sin sesión no tiene nada que decir.
+  $('today-head').classList.toggle('hidden', !abierta);
+  sincronizarAccesoALasSecciones();
   if (!abierta) {
     $('today-badge').classList.add('hidden');
     return;
@@ -708,13 +761,40 @@ async function refreshDashboard() {
 
 /* ───────────────────────── restaurar la demo ───────────────────────── */
 
+/**
+ * Siembra la tienda demo de cero.
+ *
+ * <p>Es un DELETE seguido de un INSERT sobre una tienda que PRODUCT.md define
+ * como compartida, y durante un tiempo salia sin preguntar nada desde tres
+ * botones distintos. Dos evaluadores a la vez se pisaban y ninguno entendia
+ * por que sus datos cambiaban solos.
+ *
+ * <p>La confirmacion es condicional a proposito. Al visitante que llega sin
+ * sesion no hay nada que advertirle -no tiene trabajo que perder y este boton
+ * es justamente el camino que la pantalla le propone-, asi que preguntarle
+ * seria friccion por formalidad. Con sesion abierta ya hay algo encima que se
+ * va a borrar, y ahi la pregunta vale lo que cuesta.
+ */
 async function resetDemo() {
+  if (state.session && !confirm(
+      'Esto siembra de cero la tienda demo, que es compartida.\n\n'
+      + 'Se borra lo que haya ahora, incluido lo que esté probando otra persona '
+      + 'en este momento. ¿Continuar?')) {
+    return;
+  }
+
   const button = $('btn-demo');
+  // Se retira al reintentar: dejarlo puesto mientras gira el botón hace dudar
+  // de si lo que se lee es de ahora o de hace un minuto.
+  $('demo-error').classList.add('hidden');
   button.disabled = true;
   // Los tres caminos al mismo sitio se bloquean juntos; uno de ellos activo
-  // mientras los otros giran invita a sembrar la demo dos veces.
+  // mientras los otros giran invita a sembrar la demo dos veces. El de movil
+  // faltaba, que es justo el que queda a mano mientras los otros dos estan
+  // fuera de pantalla.
   $('btn-demo-home').disabled = true;
   $('btn-demo-home').textContent = 'Restaurando…';
+  $('btn-demo-mobile').disabled = true;
   $('demo-spinner').classList.remove('hidden');
   $('demo-label').textContent = 'Restaurando…';
 
@@ -737,11 +817,19 @@ async function resetDemo() {
     await loadRiskHistory();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
   } catch (error) {
-    toast(`No se pudo restaurar la demo: ${error.message}`, 'error');
+    // El mensaje del servidor va dentro del bloque, no en un aviso que se va
+    // solo. GlobalExceptionHandler ya se encarga de que sea una frase y no el
+    // interior del fallo, asi que se puede enseñar tal cual.
+    $('demo-error-detail').textContent = error.message;
+    $('demo-error').classList.remove('hidden');
+    // jsdom no lo implementa y lanza; el aviso ya esta puesto, que es lo que
+    // importa, asi que el desplazamiento es opcional.
+    try { $('demo-error').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { }
   } finally {
     button.disabled = false;
     $('btn-demo-home').disabled = false;
     $('btn-demo-home').textContent = 'Restaurar tienda demo';
+    $('btn-demo-mobile').disabled = false;
     $('demo-spinner').classList.add('hidden');
     $('demo-label').textContent = 'Restaurar tienda demo';
   }
@@ -1819,7 +1907,7 @@ function alertRow(alert) {
     </td>
     <td class="num px-4 py-2.5 text-right">${alert.sellableQty}</td>
     <td class="num px-4 py-2.5 text-right text-ink-faint">${money(alert.retailPrice)}</td>
-    <td class="num px-4 py-2.5 text-right font-bold">${
+    <td class="num px-4 py-2.5 text-right font-semibold">${
       alert.suggestedPrice === null
         ? '—'
         : `${money(alert.suggestedPrice)} <span class="text-xs font-normal text-risk-amber">−${alert.discountPercent}%</span>`

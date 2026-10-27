@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kardo — Smart Inventory &amp; FEFO Engine</title>
+<!-- En español, como el producto entero. Es el texto de la pestaña, del
+     marcador y de lo que se ve al compartir el enlace: era el único sitio
+     donde Kardo hablaba en otro idioma. -->
+<title>Kardo — Control FEFO de inventario para minimarkets</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Las tipografías viajan en el jar (static/fonts) y se declaran en kardo.css.
+     Se pedían a fonts.googleapis.com, que era el último tercero del que
+     dependía el aspecto de la página. Se precarga sólo el subconjunto latin de
+     la cara de interfaz: es la que pinta la primera línea de texto. -->
+<link rel="preload" href="fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- El CSS se compila una vez (npm run css) y viaja en el jar. Antes se cargaba
      el compilador de Tailwind desde un CDN, de modo que si ese dominio no
      contestaba la interfaz salia entera sin estilos: el aspecto de la aplicacion
@@ -36,17 +41,19 @@
           <rect x="6"  y="22.5" width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".28"/>
         </svg>
         <div>
-          <p class="text-lg font-bold leading-none tracking-tight">Kardo</p>
+          <p class="text-lg font-semibold leading-none tracking-tight">Kardo</p>
           <p class="mt-1 text-xs text-white/80">Control FEFO de inventario</p>
         </div>
       </div>
       <p id="connection" class="flex items-center gap-1.5 text-xs text-white/80 lg:hidden">
         <span id="connection-dot" class="h-1.5 w-1.5 rounded-full bg-white/40"></span>
-        <span id="connection-text" class="sr-only sm:not-sr-only">Conectando…</span>
+        <!-- Visible siempre. Estaba oculto por debajo de sm, que es justo
+             donde el punto se quedaba comunicando el estado él solo. -->
+        <span id="connection-text">Conectando…</span>
       </p>
     </div>
 
-    <nav class="mt-4 flex gap-1 overflow-x-auto px-3 pb-2 lg:mt-6 lg:flex-col lg:overflow-visible lg:px-2 lg:pb-0"
+    <nav class="nav-corte mt-4 flex gap-1 overflow-x-auto px-3 pb-2 lg:mt-6 lg:flex-col lg:overflow-visible lg:px-2 lg:pb-0"
          role="tablist" aria-label="Secciones de Kardo" aria-orientation="vertical">
       <!-- La aplicacion no abre en una tabla, abre en una decision: el operario
            entra sabiendo que tiene que mirar hoy, no teniendo que buscarlo. -->
@@ -58,7 +65,7 @@
         </svg>
         Lo primero de hoy
         <span id="today-badge"
-              class="num ml-auto hidden rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-bold text-white">0</span>
+              class="num ml-auto hidden rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">0</span>
       </button>
 
       <p class="nav-group hidden lg:block" role="presentation" aria-hidden="true">Decidir hoy</p>
@@ -81,7 +88,7 @@
         </svg>
         Qué rebajar hoy
         <span id="alert-badge"
-              class="num ml-auto hidden rounded-full bg-risk-red px-1.5 py-0.5 text-xs font-bold text-white">0</span>
+              class="num ml-auto hidden rounded-full bg-risk-red px-1.5 py-0.5 text-xs font-semibold text-white">0</span>
       </button>
 
       <p class="nav-group hidden lg:block" role="presentation" aria-hidden="true">Operar</p>
@@ -146,9 +153,13 @@
 
     <!-- Sesión y demo al pie: son estado y acción de entorno, no navegación. -->
     <div class="mt-auto hidden border-t border-white/10 px-4 py-4 lg:block">
+      <!-- Vacíos y no con un guion. El bloque está oculto hasta que hay sesión,
+           pero si alguna vez falla la regla que lo oculta, dos guiones donde va
+           un usuario parecen un dato roto; en blanco no parece nada. Lo mismo
+           que hace ya la versión de móvil, que nació vacía. -->
       <p id="session" class="mb-3 hidden text-sm leading-tight">
-        <span id="session-user" class="block truncate font-semibold text-white">—</span>
-        <span id="session-role" class="block truncate text-xs text-white/80">—</span>
+        <span id="session-user" class="block truncate font-semibold text-white"></span>
+        <span id="session-role" class="block truncate text-xs text-white/80"></span>
       </p>
 
       <!-- Sólo aparece si trabajas en más de una tienda. Cambiarla no es un
@@ -200,13 +211,18 @@
     <label for="store-switcher-mobile" class="sr-only">Tienda sobre la que operas</label>
     <select id="store-switcher-mobile"
             class="hidden min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-sm"></select>
+    <!-- Los dos de esta barra van a 44 px, el mínimo de objetivo táctil: son
+         los que más se pulsan desde el teléfono y estaban en 30 y 28. -->
     <button id="btn-switch-mobile"
-            class="rounded-md border border-line px-2.5 py-1 text-sm text-ink-soft hover:border-ink-faint">
+            class="min-h-[44px] rounded-md border border-line px-2.5 py-1 text-sm text-ink-soft hover:border-ink-faint">
       Entrar
     </button>
+    <!-- Mismo texto que los otros dos disparadores. Abreviarlo aquí ahorraba
+         ancho y a cambio hacía que la acción más destructiva del producto se
+         llamara de dos maneras según el tamaño de la pantalla. -->
     <button id="btn-demo-mobile"
-            class="rounded-md bg-brand px-2.5 py-1 text-sm font-semibold text-white hover:bg-brand-deep">
-      Restaurar demo
+            class="min-h-[44px] rounded-md bg-brand px-2.5 py-1 text-sm font-semibold text-white hover:bg-brand-deep">
+      Restaurar tienda demo
     </button>
   </div>
 
@@ -217,7 +233,12 @@
        responder: de todo esto, ¿qué tengo que hacer? Esta pantalla responde eso
        primero y manda a la sección sólo cuando ya sabes por qué vas.        -->
   <section id="panel-inicio" role="tabpanel" aria-labelledby="tab-inicio" class="pt-8">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <!-- Esta cabecera es la agenda de alguien que ya entró: la fecha de hoy, el
+         título del turno y un botón de recargar. Sin sesión no decía nada —no
+         hay nada que actualizar— y se llevaba el tamaño más grande de la
+         pantalla, dejando el argumento del producto un nivel por debajo. Se
+         oculta hasta que hay sesión; lo hace renderToday(). -->
+    <div id="today-head" class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p id="today-date" class="text-xs font-semibold uppercase tracking-wide text-ink-faint">—</p>
         <h1 class="mt-1.5 section-title">Lo primero de hoy</h1>
@@ -238,7 +259,10 @@
          class="mt-7 grid gap-8 rounded-lg border border-line bg-surface p-6 shadow-card
                 lg:grid-cols-[minmax(0,1fr)_300px] lg:p-8">
       <div>
-        <h2 class="text-xl font-bold tracking-tight">Una tienda demo, sembrada en un clic</h2>
+        <!-- Encabezado de nivel 1 porque sin sesión ésta es la primera línea de
+             la página: el <h1> de la cabecera operativa está oculto, de modo
+             que nunca hay dos visibles a la vez. -->
+        <h1 class="section-title">Una tienda demo, sembrada en un clic</h1>
         <p class="mt-2 max-w-prose text-sm text-ink-soft">
           Kardo lleva el inventario de un minimarket por lote, vende siempre lo que vence antes
           y dice a qué precio rebajar mientras todavía se puede recuperar el dinero.
@@ -246,15 +270,18 @@
         <ol class="mt-6 space-y-4">
           <li class="flex gap-3.5">
             <span class="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full
-                         bg-brand-soft text-xs font-bold text-brand-deep">1</span>
+                         bg-brand-soft text-xs font-semibold text-brand-deep">1</span>
+            <!-- Decía «Restaura la tienda demo», que es el botón de aquí al
+                 lado dicho otra vez: el paso 1 gastaba un peldaño en repetir
+                 el gesto en vez de contar qué sale de él. -->
             <span class="text-sm">
-              <span class="block font-semibold">Restaura la tienda demo</span>
-              <span class="block text-ink-soft">Siembra productos, lotes y vencimientos reales, con dos usuarios: gerente y operario.</span>
+              <span class="block font-semibold">Una tienda ya sembrada</span>
+              <span class="block text-ink-soft">88 lotes con vencimientos reales y dos usuarios —gerente y operario— para recorrer el circuito entero.</span>
             </span>
           </li>
           <li class="flex gap-3.5">
             <span class="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full
-                         bg-brand-soft text-xs font-bold text-brand-deep">2</span>
+                         bg-brand-soft text-xs font-semibold text-brand-deep">2</span>
             <span class="text-sm">
               <span class="block font-semibold">Mira qué rebajar hoy</span>
               <span class="block text-ink-soft">Cada lote por vencer llega con un precio sugerido que nunca baja del costo.</span>
@@ -262,7 +289,7 @@
           </li>
           <li class="flex gap-3.5">
             <span class="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full
-                         bg-brand-soft text-xs font-bold text-brand-deep">3</span>
+                         bg-brand-soft text-xs font-semibold text-brand-deep">3</span>
             <span class="text-sm">
               <span class="block font-semibold">Registra una salida</span>
               <span class="block text-ink-soft">El motor FEFO descuenta del lote que caduca primero y cobra su precio rebajado.</span>
@@ -274,7 +301,81 @@
                        transition-colors hover:bg-brand-deep">
           Restaurar tienda demo
         </button>
+        <!-- El botón decía «Restaurar», que suena a recuperar algo propio, y
+             callaba lo único que importa: la demo es una sola para todo el
+             mundo y esto la siembra de cero. Quien esté probando a la vez
+             pierde lo que llevaba hecho sin enterarse de por qué. -->
+        <p class="mt-2.5 max-w-prose text-[13px] text-ink-faint">
+          Siembra de cero la tienda demo, que es compartida: borra lo que haya
+          dejado cualquier otra prueba en curso.
+        </p>
+
+        <!-- El fallo de este botón salía como aviso flotante de ocho segundos.
+             Es el único gesto de la pantalla y la primera vez que alguien toca
+             el producto: si falla y el mensaje se va solo, el visitante se
+             queda delante de una pantalla que no cambió y sin nada que leer.
+             Aquí se queda hasta que el siguiente intento lo retire. -->
+        <!-- Sin borde: con uno sería una tarjeta dentro de otra tarjeta, que
+             es lo que el detector marca como nested-cards. El fondo tintado y
+             el encabezado en rojo ya lo separan de lo que tiene alrededor. -->
+        <div id="demo-error" class="mt-4 hidden max-w-prose rounded-md bg-risk-red-tint p-4"
+             role="alert">
+          <p class="text-sm font-semibold text-risk-red">No se pudo sembrar la tienda demo</p>
+          <p id="demo-error-detail" class="mt-1 text-sm text-ink-soft"></p>
+          <p class="mt-2 text-[13px] text-ink-faint">
+            Kardo corre en capa gratuita: el servidor se duerme tras unos minutos
+            sin uso y el primer arranque tarda. Si acabas de abrir la página,
+            espera unos segundos y vuelve a pulsar el botón.
+          </p>
+        </div>
       </div>
+
+      <div class="space-y-5">
+
+        <!-- ──────────────── la tesis, enseñada ────────────────
+             El argumento del producto es que la recomendación llega hasta el
+             precio al que se vende. Estaba dicho en prosa tres veces y no
+             había en toda la pantalla un solo sol, ni un lote, ni un día
+             restante: el visitante tenía que creerlo. Esto es una línea
+             congelada, con los mismos componentes que pinta el semáforo de
+             verdad —el chip, la monoespaciada del lote, las cifras tabulares
+             a la derecha—, de modo que lo que ve aquí es lo que se va a
+             encontrar dentro.
+
+             Va en la columna derecha a propósito. En escritorio queda junto a
+             la escalera, dentro del primer pantallazo. En móvil esta columna
+             cae por debajo, así que el botón sigue naciendo sobre el pliegue:
+             ponerla antes lo hundía otra vez.                             -->
+        <figure class="rounded-lg bg-canvas p-5">
+          <figcaption class="th">Ejemplo de un lote por vencer</figcaption>
+          <div class="mt-3.5">
+            <p class="flex items-center gap-2">
+              <span class="chip chip-red">2 d</span>
+              <span class="min-w-0 flex-1 truncate text-sm font-medium">Leche Gloria Entera 400 g</span>
+            </p>
+            <p class="mt-1.5 font-mono text-xs text-ink-faint">LAC-GLO-004 · L-LEC-2611</p>
+
+            <dl class="mt-3.5 space-y-1.5 text-sm">
+              <div class="flex items-baseline justify-between gap-3">
+                <dt class="text-ink-faint">Costo del lote</dt>
+                <dd class="num text-ink-soft">S/ 3.10</dd>
+              </div>
+              <div class="flex items-baseline justify-between gap-3">
+                <dt class="text-ink-faint">Precio de lista</dt>
+                <dd class="num text-ink-faint line-through decoration-line">S/ 5.90</dd>
+              </div>
+              <div class="flex items-baseline justify-between gap-3 border-t border-line pt-1.5">
+                <dt class="font-semibold">Kardo sugiere</dt>
+                <dd class="num text-base font-semibold text-risk-red">S/ 4.20</dd>
+              </div>
+            </dl>
+
+            <p class="mt-3 text-[13px] leading-snug text-ink-soft">
+              No baja de S/ 3.10 porque es lo que costó <em>este</em> lote. La caja
+              cobra los S/ 4.20 y la rebaja queda firmada.
+            </p>
+          </div>
+        </figure>
 
       <div class="rounded-lg bg-canvas p-5">
         <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Qué hay detrás</p>
@@ -297,6 +398,20 @@
           </li>
         </ul>
       </div>
+
+      </div>
+
+      <!-- La audiencia que viene a juzgar cómo está construido esto no tenía
+           adónde ir: ni autoría, ni stack, ni código. Lo único que lo decía
+           era «Capa gratuita · Render + Supabase», a 12 px y en el rincón de
+           la barra lateral. -->
+      <p class="border-t border-line pt-5 text-[13px] text-ink-faint lg:col-span-2">
+        Java 21 · Spring Boot 4.1.2 · PostgreSQL 17 sobre Supabase · sin framework
+        de front. El código está en
+        <a href="https://github.com/MrOdar/kardo" target="_blank" rel="noopener noreferrer"
+           class="font-medium text-brand underline decoration-line underline-offset-2 hover:decoration-brand">github.com/MrOdar/kardo</a>,
+        con la arquitectura explicada en <span class="font-mono">docs/ARCHITECTURE_SPEC.md</span>.
+      </p>
     </div>
 
     <div id="today-body" class="hidden">
@@ -707,7 +822,7 @@
     <div class="mt-12 border-t border-line pt-8">
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h3 class="text-xl font-bold tracking-tight">Canje al proveedor</h3>
+          <h3 class="text-xl font-semibold tracking-tight">Canje al proveedor</h3>
           <p class="mt-1 max-w-prose text-sm text-ink-soft">
             Los distribuidores grandes canjean la mercadería próxima a vencer si se les avisa a
             tiempo: la tienda recupera el costo entero en vez de perderlo. Se declara desde
@@ -739,7 +854,7 @@
 
     <!-- ───── Mermas: se declaran sobre un lote, así que viven junto al inventario ───── -->
     <div class="mt-12 border-t border-line pt-8">
-      <h3 class="text-xl font-bold tracking-tight">Dar de baja mercadería</h3>
+      <h3 class="text-xl font-semibold tracking-tight">Dar de baja mercadería</h3>
       <p class="mt-1 max-w-prose text-sm text-ink-soft">
         El operario declara la baja y las unidades quedan inmovilizadas; el gerente decide si la
         pérdida se consolida o la mercadería vuelve al stock. Quien declara no puede aprobar.
@@ -1393,7 +1508,7 @@
      que las declaró, así que la demo necesita poder entrar con ambos roles. -->
 <dialog id="login-dialog" class="w-full max-w-sm rounded-md border border-line p-0 backdrop:bg-ink/50">
   <form id="login-form" method="dialog" class="p-6">
-    <h2 class="text-lg font-bold tracking-tight">Entrar como otro usuario</h2>
+    <h2 class="text-lg font-semibold tracking-tight">Entrar como otro usuario</h2>
     <p class="mt-1 text-sm text-ink-soft">
       En la tienda demo: <code class="font-mono text-xs">demo@kardo.pe</code> (gerente) y
       <code class="font-mono text-xs">operario@kardo.pe</code>, ambos con la contraseña
@@ -1438,7 +1553,7 @@
      y qué tienda. Todo lo demás se añade después, ya desde dentro. -->
 <dialog id="register-dialog" class="mb-auto mt-[8vh] w-full max-w-md rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
   <form id="register-form" method="dialog" class="p-6">
-    <h2 class="text-lg font-bold tracking-tight">Da de alta tu empresa</h2>
+    <h2 class="text-lg font-semibold tracking-tight">Da de alta tu empresa</h2>
     <p class="mt-1 text-sm text-ink-soft">
       Creas la empresa, su primera tienda y tu cuenta de gerente. Entras con el inventario vacío:
       desde ahí cargas tu Excel o recibes tu primera guía.
@@ -1507,7 +1622,7 @@
 <dialog id="return-dialog"
         class="mb-auto mt-[12vh] w-full max-w-md rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
   <form id="return-form" method="dialog" class="p-6">
-    <h2 class="text-lg font-bold tracking-tight">Canjear al proveedor</h2>
+    <h2 class="text-lg font-semibold tracking-tight">Canjear al proveedor</h2>
     <p class="mt-1 text-sm text-ink-soft">
       Las unidades quedan apartadas: dejan de venderse hasta que confirmes si el proveedor las
       abonó. Si no las acepta, vuelven al stock.
@@ -1537,7 +1652,7 @@
     <!-- La cifra que decide: cuánto vuelve a caja si el proveedor acepta. -->
     <p class="mt-3 flex items-baseline justify-between gap-4 border-t border-line pt-3">
       <span class="text-sm text-ink-soft">Recuperas</span>
-      <span id="return-recovers" class="num text-xl font-bold text-risk-green">—</span>
+      <span id="return-recovers" class="num text-xl font-semibold text-risk-green">—</span>
     </p>
 
     <p id="return-error" class="mt-3 hidden text-sm text-risk-red"></p>
@@ -1563,7 +1678,7 @@
 <dialog id="org-dialog" class="mb-auto mt-[8vh] w-full max-w-2xl rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
   <div class="flex items-start justify-between gap-4 border-b border-line px-6 py-4">
     <div>
-      <h2 class="text-lg font-bold tracking-tight">Tu organización</h2>
+      <h2 class="text-lg font-semibold tracking-tight">Tu organización</h2>
       <p id="org-company" class="mt-0.5 text-sm text-ink-soft">—</p>
     </div>
     <button type="button" id="org-close"

@@ -152,6 +152,47 @@ class SpaContractTest {
     }
 
     /**
+     * La pagina no pide nada fuera de su origen.
+     *
+     * <p>Es lo que sostiene que la CSP pueda tener `script-src`, `style-src` y
+     * `font-src` en {@code 'self'}, y lo que evita el fallo que ya se vivio con
+     * el CDN de Tailwind: cuando el aspecto depende de un tercero, el dia que
+     * ese tercero no contesta la interfaz no se degrada, sale entera sin
+     * estilos. Las tipografias colgaban de Google por el mismo sitio.
+     *
+     * <p>Se comprueba sobre el HTML y sobre el CSS compilado, porque una
+     * {@code @font-face} que apunte afuera no deja rastro en el HTML.
+     */
+    @Test
+    @DisplayName("Ni el HTML ni el CSS piden recursos a un tercero")
+    void nadaDeFuera() throws Exception {
+        String css = new String(new ClassPathResource("static/kardo.css")
+                .getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+        // Lo que se persigue es lo que el navegador DESCARGA solo: src= de un
+        // script o una imagen, href= de un <link>, y url() de una hoja. Un
+        // <a href> a otro dominio no es eso -no carga nada, lo pulsa quien
+        // quiere irse-, y el pie enlaza al repositorio a proposito.
+        List<String> patrones = List.of(
+                "(?i)\\ssrc\\s*=\\s*[\"'](https?://[^\"']+)",
+                "(?i)<link\\b[^>]*\\shref\\s*=\\s*[\"'](https?://[^\"']+)",
+                "(?i)url\\(\\s*[\"']?(https?://[^\"')]+)");
+
+        for (String donde : List.of("index.html", "kardo.css")) {
+            String texto = donde.equals("index.html") ? html : css;
+            for (String patron : patrones) {
+                assertThat(allMatches(texto, patron))
+                        .describedAs("""
+                                %s descarga un recurso de otro origen. La CSP lo bloquea y,
+                                si no lo hiciera, el aspecto de la pagina dependeria de que
+                                ese dominio conteste. Trae el archivo a static/ como se hizo
+                                con Tailwind y con las tipografias.""".formatted(donde))
+                        .isEmpty();
+            }
+        }
+    }
+
+    /**
      * El CSS compilado esta y es el que la pagina pide.
      *
      * <p>El aspecto de la aplicacion dependia de que {@code cdn.tailwindcss.com}

@@ -469,7 +469,10 @@ cuanto alguien toca la demo. Ya pasó una vez, y se descubrió a mano.
 exactamente `'self'`. Durante un tiempo tuvo que ser más ancho —autorizaba el
 dominio del CDN de Tailwind y, por su hash SHA-256, el bloque en línea que lo
 configuraba—. Compilar el CSS dejó sin trabajo a las dos excepciones, así que
-el jar es ahora el único origen de código de la página. La prueba falla el
+el jar es ahora el único origen de código de la página. Traer después las dos
+tipografías a `static/fonts` cerró también `style-src` y `font-src`: **la
+página no hace ni una petición fuera de su origen**, de modo que ni el aspecto
+ni el funcionamiento dependen de que conteste un tercero. La prueba falla el
 build si vuelve a aparecer un `<script>` en línea, un `<style>` o un `onclick=`:
 nada de eso rompe en una prueba de servidor —el HTML se sirve tal cual—, lo
 bloquea el navegador del operario, en producción y en silencio.

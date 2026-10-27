@@ -38,11 +38,10 @@ export function abrirPagina(respuestas = () => undefined) {
     runScripts: 'dangerously',
     pretendToBeVisual: true,
     beforeParse(window) {
-      // `index.html` lleva un bloque en linea que configura Tailwind, y el CDN
-      // que define `tailwind` no se carga aqui. Se le da el hueco desde fuera
-      // en vez de tocar el HTML: ese bloque es exactamente el que la CSP
-      // autoriza por su hash SHA-256, asi que cambiarlo para las pruebas
-      // romperia la pagina en produccion.
+      // Queda de cuando `index.html` configuraba Tailwind en un bloque en
+      // linea y el CDN que define `tailwind` no se cargaba aqui. Ese bloque ya
+      // no existe -el CSS se compila-, pero el hueco no cuesta nada y cubre el
+      // caso de que algo vuelva a buscar el objeto.
       window.tailwind = { config: {} };
     }
   });
@@ -106,6 +105,30 @@ export function abrirPagina(respuestas = () => undefined) {
      * objetos nacen dentro.
      */
     sembrar: (campos) => window.eval(`Object.assign(state, ${JSON.stringify(campos)})`),
+    /**
+     * Abre sesion sin pedirsela al servidor, y calla a los cargadores.
+     *
+     * Hace falta desde que las secciones estan cerradas mientras no hay
+     * sesion: sin token, `showTab` se queda en inicio y una prueba de
+     * navegacion mediria el portero en vez de lo que quiere medir.
+     *
+     * Lo segundo es la contrapartida de lo primero. Con token, `showTab`
+     * dispara ademas los cargadores de la seccion (`loadBatches`,
+     * `loadAlerts`...), que son asincronos y vuelven despues de que la prueba
+     * haya cerrado la ventana: para entonces `document` ya no existe y el
+     * fallo sale como un rechazo sin dueno, lejos de la prueba que lo causo.
+     * Se sustituyen por funciones vacias. Son declaraciones de funcion de un
+     * script clasico, de modo que viven en `globalThis` y se pueden reasignar
+     * desde dentro del realm.
+     */
+    conSesion: () => {
+      window.eval(`Object.assign(state, { token: 'token-de-prueba', storeId: 999 })`);
+      window.eval(`[
+        'loadBatches', 'loadWasteHistory', 'loadReturns', 'loadAlerts',
+        'loadMarkdownHistory', 'loadQuota', 'loadSalesLedger', 'loadInsights',
+        'loadRiskHistory', 'loadDiagnostics'
+      ].forEach((nombre) => { globalThis[nombre] = () => {}; })`);
+    },
     $: (id) => window.document.getElementById(id),
     cerrar: () => {
       temporizadores.forEach((id) => window.clearInterval(id));

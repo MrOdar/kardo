@@ -17,6 +17,56 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ══════════════════════ Tipografías ══════════════════════
+   Servidas desde el propio jar. Venían de fonts.googleapis.com, que era el
+   último hilo que ataba el aspecto de la aplicación a que contestara un
+   tercero: el mismo motivo por el que se sacó Tailwind de su CDN. Con esto
+   la CSP cierra font-src y style-src a self.
+
+   Instrument Sans es una fuente variable: un solo archivo cubre de 400 a 600,
+   que son los tres pesos del sistema. IBM Plex Mono va sólo en 500 porque es
+   el único peso en que se usa -SKU, códigos de lote, ids de traza-.
+
+   Ambas son SIL Open Font License 1.1; fonts/OFL.txt dice de dónde salen.
+   Los unicode-range vienen de los subconjuntos de Google: el latin-ext sólo
+   se descarga si aparece un carácter que lo necesite. */
+
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("fonts/instrument-sans-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("fonts/instrument-sans-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+
   :root { color-scheme: light; accent-color: #3F6FD0; }
   body { background: #F3F6FC; }
 
@@ -118,10 +168,32 @@
 /* Titulo de pantalla. Lo repetian ocho secciones con la misma retahila de
    cuatro clases; aqui vive una sola vez y no puede irse de una en una. */
 .section-title {
-  font-size: 1.75rem; font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
+  font-size: 1.75rem; font-weight: 600; letter-spacing: -.025em; line-height: 1.2;
 }
 
 /* Un SKU o un codigo de lote se cotejan caracter a caracter contra la etiqueta
    del envase. Partido en tres lineas -que es lo que hacia en un telefono- deja
    de servir para eso, asi que no se parte: la tabla se desplaza. */
 td.font-mono, th.font-mono { white-space: nowrap; }
+
+/* Seccion que aun no se puede abrir porque no hay sesion. Se atenua y pierde
+   el realce del cursor, pero sigue leyendose: la lista de secciones es parte
+   de lo que el visitante viene a ver, de modo que se muestra lo que hay y se
+   dice que falta un paso, en vez de esconderlo. */
+.nav-item-bloqueado { color: rgba(255,255,255,.45); cursor: not-allowed; }
+.nav-item-bloqueado:hover { background: transparent; color: rgba(255,255,255,.45); }
+
+/* ── Corte de la navegación en móvil ──
+   La tira mide 1336 px contra 375 de pantalla: seis secciones y media quedan
+   fuera y nada lo delataba, así que se veían 2,5 de 9 y parecían todas. El
+   degradado del borde derecho es la señal de que la lista sigue.
+
+   Es fijo, no atado al desplazamiento: con esa diferencia de anchos casi nunca
+   se llega al extremo, y la alternativa -animarlo con scroll-timeline- no la
+   soportan todos los navegadores a los que esto tiene que llegar. */
+@media (max-width: 1023.98px) {
+  .nav-corte {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  }
+}

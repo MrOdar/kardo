@@ -121,6 +121,66 @@ describe('escapeHtml()', () => {
   });
 });
 
+describe('sembrar la demo', () => {
+
+  /**
+   * Si falla, el motivo se queda en pantalla.
+   *
+   * <p>Salia como aviso flotante de ocho segundos. Es el unico gesto de la
+   * pantalla sin sesion y la primera vez que alguien toca el producto: cuando
+   * el aviso se va solo, el visitante queda delante de una pagina que no
+   * cambio y sin nada que leer. Y el fallo mas probable no es raro -el
+   * contenedor de la capa gratuita duerme y tarda en despertar-, de modo que
+   * le pasa justo a quien llega por primera vez.
+   */
+  it('un fallo al sembrar deja el motivo en pantalla, no un aviso que se va', async () => {
+    pagina = abrirPagina((path) => path === '/demo/reset'
+      ? { status: 503, statusText: 'Service Unavailable',
+          body: { timestamp: '2026-10-27T00:00:00Z', status: 503, error: 'Service Unavailable',
+                  message: 'El servicio de base de datos no responde.' } }
+      : undefined);
+
+    const { evaluar, $ } = pagina;
+    await evaluar('resetDemo()');
+
+    expect($('demo-error').classList.contains('hidden'),
+      'el bloque de error sigue oculto tras fallar').toBe(false);
+    expect($('demo-error').getAttribute('role')).toBe('alert');
+    expect($('demo-error-detail').textContent)
+      .toBe('El servicio de base de datos no responde.');
+
+    // Los tres disparadores vuelven a estar disponibles: un fallo que deja el
+    // boton girando obliga a recargar para reintentar.
+    for (const id of ['btn-demo', 'btn-demo-home', 'btn-demo-mobile']) {
+      expect($(id).disabled, `${id} quedo bloqueado tras el fallo`).toBe(false);
+    }
+  });
+
+  /**
+   * El reintento retira el error anterior antes de salir a la red: dejarlo
+   * puesto mientras el boton gira hace dudar de si lo que se lee es de ahora
+   * o de hace un minuto.
+   */
+  it('reintentar retira el error anterior', async () => {
+    pagina = abrirPagina((path) => path === '/demo/reset'
+      ? { status: 503, body: { message: 'No responde.' } }
+      : undefined);
+
+    const { evaluar, $ } = pagina;
+    await evaluar('resetDemo()');
+    expect($('demo-error').classList.contains('hidden')).toBe(false);
+
+    // El estado que se mira es el intermedio: `resetDemo` retira el aviso
+    // antes de su primer `await`, asi que se comprueba con la promesa todavia
+    // en vuelo. Luego se espera igualmente, o quedaria pendiente cuando la
+    // prueba cierre la ventana y el fallo saldria como un rechazo sin dueno.
+    const enVuelo = evaluar('resetDemo()');
+    expect($('demo-error').classList.contains('hidden'),
+      'el error del intento anterior sigue puesto durante el reintento').toBe(true);
+    await enVuelo;
+  });
+});
+
 describe('navegacion por pestañas', () => {
 
   /**
@@ -130,7 +190,12 @@ describe('navegacion por pestañas', () => {
    */
   it('cambiar de pestaña no destruye lo que hay en los otros paneles', () => {
     pagina = abrirPagina();
-    const { evaluar, $ } = pagina;
+    const { evaluar, $, conSesion } = pagina;
+
+    // Las secciones estan cerradas mientras no haya sesion, asi que navegar
+    // entre ellas exige una: sin esto showTab se queda en inicio y la prueba
+    // mediria el portero, no la conservacion de los paneles.
+    conSesion();
 
     evaluar("showTab('excel')");
     const panelExcel = $('panel-excel');
@@ -156,7 +221,8 @@ describe('navegacion por pestañas', () => {
    */
   it('registrar una venta lleva al formulario y deja el foco dentro', () => {
     pagina = abrirPagina();
-    const { evaluar, $, document } = pagina;
+    const { evaluar, $, document, conSesion } = pagina;
+    conSesion();
 
     evaluar("showTab('ventas')");
     $('btn-nueva-venta').click();
@@ -164,6 +230,43 @@ describe('navegacion por pestañas', () => {
     expect($('panel-semaforo').classList.contains('hidden')).toBe(false);
     expect($('panel-ventas').classList.contains('hidden')).toBe(true);
     expect(document.activeElement).toBe($('sale-sku'));
+  });
+
+  /**
+   * Sin sesion, las ocho secciones que necesitan datos estan cerradas.
+   *
+   * <p>Estaban abiertas, y llevaban a pantallas en cero: `S/ 0.00`,
+   * `Lotes activos 0`, un formulario de venta con el boton habilitado. Quien
+   * viene a juzgar el proyecto explora antes de pulsar el boton de la demo, y
+   * concluia en quince segundos que el producto esta vacio.
+   *
+   * <p>Se comprueba sobre `showTab` y no sobre el clic porque `showTab` es el
+   * portero: por ahi pasan el raton, las flechas del teclado y los saltos de
+   * una seccion a otra. Una prueba sobre el clic dejaria sin cubrir las otras
+   * dos puertas.
+   */
+  it('sin sesion solo se abre inicio, y el resto avisa de que falta un paso', () => {
+    pagina = abrirPagina();
+    const { evaluar, $ } = pagina;
+
+    for (const nombre of evaluar('TABS').filter((t) => t !== 'inicio')) {
+      evaluar(`showTab('${nombre}')`);
+      expect($(`panel-${nombre}`).classList.contains('hidden'),
+        `${nombre} se abrio sin sesion`).toBe(true);
+      expect($(`tab-${nombre}`).getAttribute('aria-disabled'),
+        `${nombre} no se anuncia como no disponible`).toBe('true');
+    }
+
+    expect($('panel-inicio').classList.contains('hidden')).toBe(false);
+
+    // Con sesion se abren las mismas ocho, y el anuncio desaparece: el cierre
+    // es un estado, no una puerta tapiada.
+    pagina.conSesion();
+    evaluar('renderToday()');
+    evaluar("showTab('semaforo')");
+
+    expect($('panel-semaforo').classList.contains('hidden')).toBe(false);
+    expect($('tab-semaforo').getAttribute('aria-disabled')).toBeNull();
   });
 
   it('no hay dos formularios de venta: el de registrar es uno solo', () => {
@@ -181,6 +284,8 @@ describe('navegacion por pestañas', () => {
     // SpaContractTest ya lo comprueba leyendo los archivos; aqui se comprueba
     // ejecutandolo, que es lo que falla si showTab cambia de convencion de
     // nombres sin que el HTML cambie.
+    pagina.conSesion();
+
     const pestanas = pagina.evaluar('TABS');
     for (const nombre of pestanas) {
       pagina.evaluar(`showTab('${nombre}')`);

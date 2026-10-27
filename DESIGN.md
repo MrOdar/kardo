@@ -63,9 +63,19 @@ Los tres de riesgo están elegidos para pasar 4.5:1 sobre su propio fondo tintad
   defecto de categoría.
 - **IBM Plex Mono** solo para identificadores que se cotejan carácter a carácter:
   SKU, código de lote, id de traza. Es dato, no disfraz técnico.
+- Las dos **se sirven desde el jar** (`static/fonts`, declaradas en
+  `kardo.css`). Se pedían a Google Fonts, que era el último tercero del que
+  dependía el aspecto de la página; con esto la carga no sale del origen y la
+  CSP cierra `font-src` y `style-src` a `'self'`. Instrument Sans es variable:
+  un archivo por subconjunto cubre de 400 a 600.
 - Cifras siempre `tabular-nums`.
-- Escala: 28/20/16/14/13/11. Saltos de peso 400 → 500 → 600; nunca 700 salvo en
-  la cifra principal de un indicador.
+- Escala: 28/20/16/14/12/11. El 12 es el escalón pequeño que usa de verdad toda
+  la interfaz; durante un tiempo aquí ponía 13, que no existía en el código, y
+  la contradicción se veía abriendo el repositorio.
+- Saltos de peso 400 → 500 → 600. **700 solo en la cifra de un indicador**,
+  que son las trece que llevan `.num` con cuerpo de 24 px o más. Lo arrastraban
+  además el logotipo, los títulos de tarjeta, los numerales de la escalera y
+  los contadores de la barra; ahí 600 ya separa lo suficiente.
 
 ## Layout
 
@@ -101,6 +111,13 @@ entre bloques, más aire encima de un encabezado que debajo.
   entera del producto dicha en 28 px, y el mismo dibujo sirve de favicon. Se
   eligió una marca dibujada y no una inicial en un cuadrado: la inicial no dice
   nada y se parece a la de cualquier otro producto.
+- **Lote de ejemplo** (solo en la pantalla sin sesión). Una línea congelada
+  —chip de días, nombre, SKU y lote en monoespaciada, y las tres cifras: costo,
+  precio de lista tachado, sugerido— con los mismos componentes que pinta el
+  semáforo de verdad. Existe porque el argumento del producto es que la
+  recomendación llega hasta el precio, y la pantalla no contenía un solo sol:
+  había que creérselo. Va en la columna derecha, no antes de la escalera, para
+  que en móvil el botón siga naciendo por encima del pliegue.
 - **Chip de estado.** Reemplaza el filete lateral de 4 px. Fondo tintado, texto
   del color de riesgo, y el dato dentro: `2 d`, `Vencido`. El color nunca viaja
   solo.
@@ -121,6 +138,12 @@ entre bloques, más aire encima de un encabezado que debajo.
 - **Serie temporal.** Eje desde cero, porque son soles: una escala recortada
   convierte una variación de céntimos en un precipicio. Con menos de dos puntos
   no se dibuja nada; una línea plana de un día parece un dato y no lo es.
+- **Error que se queda.** Para un gesto que no tiene segunda vía, el fallo no
+  va en un aviso flotante: va en un bloque tintado bajo el botón, con el
+  motivo que devolvió el servidor, lo que conviene hacer, y sin borde —uno lo
+  convertiría en una tarjeta dentro de otra—. El aviso flotante sigue valiendo
+  para lo que se puede reintentar de otra manera; aquí se iba a los ocho
+  segundos y dejaba al visitante delante de una pantalla que no cambió.
 - **Estado vacío.** Nunca una palabra sola. Distingue «ya está todo resuelto» de
   «todavía no ha pasado nada», y en el segundo caso dice qué llegará a aparecer
   ahí.
@@ -147,10 +170,16 @@ propias —`.nav-item`, `.card`, `.chip`, `.th`, `.section-title`— en
 en el jar y hay que **recompilar y versionar** tras tocar cualquiera de los
 dos: `npm run css`. El CI reconstruye y falla si lo versionado no coincide.
 
+Las tipografías están en `static/fonts` y se declaran con `@font-face` en ese
+mismo CSS fuente; `fonts/OFL.txt` dice de dónde salen y bajo qué licencia.
+
 Antes el tema vivía en un `<script>` dentro del HTML y Tailwind se cargaba
 desde su CDN, lo que ataba el aspecto de la aplicación a que un tercero
 contestara: si no lo hacía, la interfaz no se degradaba, salía entera sin
-estilos. Compilar también permitió cerrar `script-src` a `'self'`.
+estilos. Compilar también permitió cerrar `script-src` a `'self'`. Las fuentes
+seguían colgando de Google por el mismo sitio y se trajeron después, de modo
+que **la página ya no hace ni una petición fuera de su origen** y `font-src` y
+`style-src` cerraron también.
 
 ## Refuse
 
