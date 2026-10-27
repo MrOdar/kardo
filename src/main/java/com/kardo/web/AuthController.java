@@ -1,14 +1,18 @@
 package com.kardo.web;
 
 import com.kardo.dto.LoginRequestDto;
+import com.kardo.dto.RegisterRequestDto;
 import com.kardo.dto.SessionDto;
 import com.kardo.exception.InvalidCredentialsException;
 import com.kardo.security.AuthenticationService;
+import com.kardo.onboarding.OnboardingService;
 import com.kardo.throttle.LoginThrottle;
+import com.kardo.throttle.RegistrationThrottle;
 import jakarta.servlet.http.HttpServletRequest;
 import com.kardo.security.CurrentUser;
 import com.kardo.security.KardoPrincipal;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,17 +21,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Inicio de sesion y consulta de la sesion vigente. */
+/** Alta de una empresa, inicio de sesion y consulta de la sesion vigente. */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private final AuthenticationService authenticationService;
+    private final OnboardingService onboardingService;
     private final LoginThrottle loginThrottle;
+    private final RegistrationThrottle registrationThrottle;
 
-    public AuthController(AuthenticationService authenticationService, LoginThrottle loginThrottle) {
+    public AuthController(AuthenticationService authenticationService,
+                          OnboardingService onboardingService,
+                          LoginThrottle loginThrottle,
+                          RegistrationThrottle registrationThrottle) {
         this.authenticationService = authenticationService;
+        this.onboardingService = onboardingService;
         this.loginThrottle = loginThrottle;
+        this.registrationThrottle = registrationThrottle;
     }
 
     /**
@@ -51,6 +62,29 @@ public class AuthController {
             loginThrottle.recordFailure(request.email(), clientIp);
             throw fallo;
         }
+    }
+
+    /**
+     * Alta de una empresa nueva, con su primera tienda y su primer gerente.
+     *
+     * <p>Es publico por necesidad -quien se da de alta no tiene token todavia- y
+     * por eso lleva freno, igual que el login. El freno solo cuenta las altas
+     * que ocurrieron: equivocarse al teclear el RUC no gasta cupo.
+     *
+     * <p>Devuelve 201 y la sesion ya abierta: acaba de elegir la contraseña en
+     * esta misma peticion, pedirle que inicie sesion seria pedirle que repita
+     * algo que ya ha demostrado.
+     */
+    @PostMapping(value = "/register", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<SessionDto> register(@Valid @RequestBody RegisterRequestDto request,
+                                               HttpServletRequest httpRequest) {
+        String clientIp = httpRequest.getRemoteAddr();
+        registrationThrottle.checkAllowed(clientIp);
+
+        SessionDto session = onboardingService.register(request);
+        registrationThrottle.recordSuccess(clientIp);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(session);
     }
 
     /** Permite a la interfaz saber quien es el portador del token que ya tiene. */

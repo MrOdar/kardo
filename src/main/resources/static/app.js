@@ -190,6 +190,19 @@ function todayPriorities() {
   const items = [];
   const dash = state.dashboard;
 
+  // Una tienda recien creada no esta «al dia»: esta vacia, que no es lo mismo.
+  // Sin esto, lo primero que ve quien acaba de dar de alta su empresa es que no
+  // tiene nada que hacer, justo cuando tiene que hacerlo todo.
+  if (dash && dash.activeBatches === 0 && !state.uploads.length && !state.batches.length) {
+    return [{
+      tone: 'neutral', chip: 'Primer paso',
+      title: 'Tu tienda todavía no tiene inventario',
+      detail: 'Sube tu Excel de existencias o recibe una guía de remisión con la cámara. '
+            + 'A partir de ahí Kardo empieza a avisar de lo que vence.',
+      goto: 'excel', cta: 'Cargar Excel'
+    }];
+  }
+
   const vencidos = state.batches.filter((b) => b.daysToExpiry < 0 && b.currentQty > 0);
   if (vencidos.length) {
     const costo = vencidos.reduce((sum, b) => sum + Number(b.value ?? 0), 0);
@@ -725,6 +738,10 @@ function applySession(session) {
   $('session-mobile').textContent = `${session.email} · ${rol}`;
   $('btn-switch-mobile').textContent = 'Cambiar';
 
+  // Abrir tiendas y dar de alta a gente es decidir quien entra al sistema, de
+  // modo que el boton ni siquiera existe para el operario.
+  $('btn-org').classList.toggle('hidden', session.role !== 'MANAGER');
+
   // Con sesion abierta la pantalla de inicio deja de ser una invitacion y pasa
   // a ser el resumen del dia.
   renderToday();
@@ -773,6 +790,178 @@ $('btn-switch').addEventListener('click', () => {
 });
 $('login-cancel').addEventListener('click', () => $('login-dialog').close());
 $('login-form').addEventListener('submit', switchUser);
+
+/* ───────────── alta de empresa y estructura de la organizacion ─────────────
+ *
+ * Hasta aqui una empresa solo nacia del boton de restaurar la demo. Esto es la
+ * puerta por la que se sale de ella: creas tu empresa, tu primera tienda y tu
+ * cuenta, y entras con el inventario vacio.
+ */
+
+/** Deja el formulario y el boton como estaban, pase lo que pase. */
+function resetForm(formId, submitButton, label) {
+  $(formId).reset();
+  submitButton.disabled = false;
+  submitButton.textContent = label;
+}
+
+async function registerCompany(event) {
+  event.preventDefault();
+  const error = $('register-error');
+  const button = $('register-submit');
+
+  error.classList.add('hidden');
+  button.disabled = true;
+  button.textContent = 'Creando…';
+
+  try {
+    const session = await request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: $('reg-company').value.trim(),
+        taxId: $('reg-ruc').value.trim(),
+        storeName: $('reg-store').value.trim(),
+        storeAddress: $('reg-address').value.trim(),
+        fullName: $('reg-name').value.trim(),
+        email: $('reg-email').value.trim(),
+        password: $('reg-password').value
+      })
+    });
+
+    applySession(session);
+    $('register-dialog').close();
+    $('login-dialog').close();
+    resetForm('register-form', button, 'Crear empresa y entrar');
+
+    // Una tienda recien creada no tiene nada; aun asi se carga todo, porque lo
+    // que el gerente tiene que ver es el estado vacio de cada seccion, que es
+    // el que le dice por donde empezar.
+    await Promise.all([loadCatalog(), loadBatches(), loadAlerts(), loadMarkdownHistory(),
+                       loadWasteHistory(), loadUploadHistory(), loadQuota(), loadRiskHistory()]);
+    await refreshDashboard();
+    showTab('inicio');
+
+    toast(`Empresa creada. Estás en ${session.storeName}, con el inventario vacío.`, 'ok');
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.classList.remove('hidden');
+    button.disabled = false;
+    button.textContent = 'Crear empresa y entrar';
+  }
+}
+
+function renderOrgStores(stores) {
+  const list = $('org-stores');
+  const select = $('org-user-store');
+
+  list.replaceChildren(...stores.map((store) => {
+    const li = document.createElement('li');
+    li.className = 'flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5';
+    li.innerHTML = `
+      <span class="min-w-0">
+        <span class="font-medium">${escapeHtml(store.name)}</span>
+        <span class="font-mono text-xs text-ink-faint">${escapeHtml(store.code)}</span>
+        ${store.address ? `<span class="block text-xs text-ink-soft">${escapeHtml(store.address)}</span>` : ''}
+      </span>
+      <span class="num shrink-0 text-sm text-ink-soft">${plural(store.users, 'persona', 'personas')}</span>`;
+    return li;
+  }));
+
+  select.replaceChildren(...stores.map((store) => {
+    const option = document.createElement('option');
+    option.value = store.storeId;
+    option.textContent = store.name;
+    return option;
+  }));
+}
+
+async function loadStores() {
+  try {
+    renderOrgStores(await request('/stores'));
+  } catch (error) {
+    $('org-error').textContent = error.message;
+    $('org-error').classList.remove('hidden');
+  }
+}
+
+async function createStore(event) {
+  event.preventDefault();
+  const button = event.submitter;
+  const error = $('org-error');
+
+  error.classList.add('hidden');
+  button.disabled = true;
+
+  try {
+    await request('/stores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('org-store-name').value.trim(),
+        address: $('org-store-address').value.trim()
+      })
+    });
+    resetForm('org-store-form', button, 'Abrir tienda');
+    await loadStores();
+    toast('Tienda abierta. Ya puedes dar de alta a quien trabaje en ella.', 'ok');
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.classList.remove('hidden');
+    button.disabled = false;
+  }
+}
+
+async function createUser(event) {
+  event.preventDefault();
+  const button = event.submitter;
+  const error = $('org-error');
+  const email = $('org-user-email').value.trim();
+
+  error.classList.add('hidden');
+  button.disabled = true;
+
+  try {
+    await request('/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: $('org-user-name').value.trim(),
+        email,
+        password: $('org-user-password').value,
+        role: $('org-user-role').value,
+        storeId: Number($('org-user-store').value)
+      })
+    });
+    resetForm('org-user-form', button, 'Dar de alta');
+    await loadStores();
+    // Se repite el correo y no la contraseña: el correo es lo que hay que
+    // comunicarle, y la contraseña ya la sabe quien la acaba de escribir.
+    toast(`${email} ya puede entrar.`, 'ok');
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.classList.remove('hidden');
+    button.disabled = false;
+  }
+}
+
+$('btn-register').addEventListener('click', () => {
+  $('register-error').classList.add('hidden');
+  $('register-dialog').showModal();
+  $('reg-company').focus();
+});
+$('register-cancel').addEventListener('click', () => $('register-dialog').close());
+$('register-form').addEventListener('submit', registerCompany);
+
+$('btn-org').addEventListener('click', async () => {
+  $('org-error').classList.add('hidden');
+  $('org-company').textContent = `${state.session?.email ?? ''} · gerente`;
+  $('org-dialog').showModal();
+  await loadStores();
+});
+$('org-close').addEventListener('click', () => $('org-dialog').close());
+$('org-store-form').addEventListener('submit', createStore);
+$('org-user-form').addEventListener('submit', createUser);
 
 async function loadCatalog() {
   try {

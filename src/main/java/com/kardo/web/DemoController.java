@@ -3,6 +3,7 @@ package com.kardo.web;
 import com.kardo.dto.DemoDashboardDto;
 import com.kardo.dto.DemoResetResponseDto;
 import com.kardo.repository.DemoRepository;
+import com.kardo.security.CurrentUser;
 import com.kardo.security.AuthenticationService;
 import com.kardo.throttle.DemoResetThrottle;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,7 +67,7 @@ public class DemoController {
         // identidad inventada: lo que la auditoria registre sera una persona
         // que existe en la base.
         var session = authenticationService.openDemoSession(DEMO_USER_EMAIL, DemoRepository.DEMO_STORE_ID);
-        DemoDashboardDto dashboard = demoRepository.loadDashboard();
+        DemoDashboardDto dashboard = demoRepository.loadDashboard(DemoRepository.DEMO_STORE_ID);
 
         log.info("Escenario demo reiniciado: {} lotes activos, {} en alerta roja",
                 dashboard.activeBatches(), dashboard.redAlertBatches());
@@ -78,16 +79,24 @@ public class DemoController {
                 dashboard));
     }
 
-    /** Metricas del semaforo FEFO para el tablero de la tienda demo. */
+    /**
+     * Metricas del semaforo FEFO de la tienda de quien pregunta.
+     *
+     * <p>Vive bajo {@code /demo} por historia -nacio con la demo y la SPA la
+     * llama desde entonces-, pero no es un endpoint de la demo: lo usa
+     * cualquier tienda. La tienda sale del token, como en el resto de la
+     * aplicacion.
+     */
     @GetMapping("/dashboard")
     public ResponseEntity<DemoDashboardDto> dashboard() {
-        return ResponseEntity.ok(demoRepository.loadDashboard());
+        return ResponseEntity.ok(demoRepository.loadDashboard(CurrentUser.storeId()));
     }
 
-    /** Cola FEFO: el orden exacto en que se vendera la mercaderia. */
+    /** Cola FEFO: el orden exacto en que se vendera la mercaderia de esa tienda. */
     @GetMapping("/fefo-queue")
     public ResponseEntity<List<Map<String, Object>>> fefoQueue(
             @RequestParam(name = "limit", defaultValue = "10") int limit) {
-        return ResponseEntity.ok(demoRepository.loadFefoQueue(Math.clamp(limit, 1, 50)));
+        return ResponseEntity.ok(
+                demoRepository.loadFefoQueue(CurrentUser.storeId(), Math.clamp(limit, 1, 50)));
     }
 }

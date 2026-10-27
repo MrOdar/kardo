@@ -74,9 +74,17 @@ public class DemoRepository {
         jdbcTemplate.execute("CALL sp_reset_demo_environment()");
     }
 
-    public DemoDashboardDto loadDashboard() {
+    /**
+     * Metricas del semaforo de <b>una</b> tienda.
+     *
+     * <p>Recibe la tienda en lugar de dar por hecho la demo. Mientras los unicos
+     * usuarios eran los de la tienda 999 daba igual, pero desde que una empresa
+     * puede darse de alta por su cuenta, una consulta clavada a 999 le enseñaria
+     * a cada inquilino nuevo el inventario de la demo como si fuera el suyo.
+     */
+    public DemoDashboardDto loadDashboard(long storeId) {
         return jdbcTemplate.queryForObject(DASHBOARD, (rs, rowNum) -> new DemoDashboardDto(
-                DEMO_STORE_ID,
+                storeId,
                 rs.getInt("lotes_activos"),
                 rs.getInt("alerta_roja"),
                 rs.getInt("alerta_amarilla"),
@@ -84,16 +92,19 @@ public class DemoRepository {
                 rs.getBigDecimal("valor_en_riesgo").setScale(2, java.math.RoundingMode.HALF_UP),
                 rs.getBigDecimal("valor_inventario").setScale(2, java.math.RoundingMode.HALF_UP),
                 rs.getInt("guias_con_discrepancia")),
-                DEMO_STORE_ID,
+                storeId,
                 RED_ALERT_DAYS,
                 RED_ALERT_DAYS,
                 YELLOW_ALERT_DAYS,
                 YELLOW_ALERT_DAYS,
-                DEMO_STORE_ID);
+                storeId);
     }
 
-    /** Lotes activos ordenados por vencimiento: el orden exacto en que FEFO los vendera. */
-    public java.util.List<java.util.Map<String, Object>> loadFefoQueue(int limit) {
+    /**
+     * Lotes activos ordenados por vencimiento: el orden exacto en que FEFO los
+     * vendera. Tambien por tienda, y por el mismo motivo que el tablero.
+     */
+    public java.util.List<java.util.Map<String, Object>> loadFefoQueue(long storeId, int limit) {
         return jdbcTemplate.queryForList("""
                 SELECT b.batch_id,
                        p.sku,
@@ -111,6 +122,6 @@ public class DemoRepository {
                   AND b.current_qty > 0
                 ORDER BY b.expiration_date ASC
                 LIMIT ?
-                """, DEMO_STORE_ID, limit);
+                """, storeId, limit);
     }
 }

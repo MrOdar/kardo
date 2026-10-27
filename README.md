@@ -1,5 +1,6 @@
 # 📦 Kardo
 
+[![CI](https://github.com/MrOdar/kardo/actions/workflows/ci.yml/badge.svg)](https://github.com/MrOdar/kardo/actions/workflows/ci.yml)
 [![Java 21](https://img.shields.io/badge/Java-21%20LTS-orange?style=flat&logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3.4-6DB33F?style=flat&logo=springboot)](https://spring.io/projects/spring-boot)
 [![PostgreSQL 17](https://img.shields.io/badge/Database-PostgreSQL_17_(3NF)-336791?style=flat&logo=postgresql)](https://www.postgresql.org/)
@@ -51,7 +52,15 @@ aplica.
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
 tienda y el backend ignora cualquier `storeId` que llegue en el cuerpo: es lo que
-impide que un token de una tienda escriba en otra.
+impide que un token de una tienda escriba en otra. No es una intención: hay **63
+pruebas** que levantan la cadena de filtros real, con tokens firmados de verdad,
+y comprueban quién entra, con qué rol y sobre qué tienda acaba escribiendo.
+
+**Y se puede usar sin la demo.** Cualquiera da de alta su empresa desde la
+pantalla de acceso: se crean la empresa, su primera tienda y la cuenta de
+gerente en una sola transacción, y entra con el inventario vacío. Desde dentro,
+ese gerente abre más tiendas y da de alta a su equipo; la empresa sale siempre
+del token, así que nadie puede colocar un usuario en la tienda de otro.
 
 **Lo que no puede cuadrar mal, lo impide la base.** El invariante
 `current_qty + quarantined_qty <= initial_qty` es un `CHECK` del esquema, y la
@@ -180,7 +189,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 183 unitarias + 91 de integración
+mvn verify    # 193 unitarias + 104 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -188,6 +197,12 @@ aplican los mismos scripts de `sql/` que se usan en Supabase: no hay un esquema
 paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
+
+De las unitarias, **63 son de seguridad** (`EndpointSecurityTest`): 29 endpoints
+que sin token responden 401, tokens caducados y firmados con otra clave, los
+`@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
+—token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes
+de escribir nada. Borrar un `@PreAuthorize` pone la suite en rojo.
 
 El banco de rendimiento queda fuera del build a propósito —mide la máquina, no
 una regla de negocio— y se pide aparte con `mvn test -Pbench`.

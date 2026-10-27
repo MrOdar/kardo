@@ -218,6 +218,13 @@
         <span id="session-role" class="block truncate text-xs text-white/80">—</span>
       </p>
       <div class="flex flex-col gap-2">
+        <!-- Solo para gerentes: abrir tiendas y dar de alta a gente es decidir
+             quién entra al sistema. -->
+        <button id="btn-org"
+                class="hidden rounded-md border border-white/25 px-3 py-1.5 text-sm text-white/85
+                       transition-colors hover:border-white/50 hover:text-white">
+          Tu organización
+        </button>
         <!-- Visible desde el principio: la sesion vive en memoria, de modo que
              tras recargar la pagina este boton es la unica forma de volver a
              entrar sin restaurar la demo, que borraria el trabajo hecho. -->
@@ -1077,7 +1084,172 @@
         Entrar
       </button>
     </div>
+
+    <!-- La salida de la demo. Hasta ahora una empresa sólo nacía del botón de
+         restaurar, y esto es lo que responde «¿funciona sin la demo?». -->
+    <p class="mt-5 border-t border-line pt-4 text-sm text-ink-soft">
+      ¿Tu tienda no está aquí?
+      <button type="button" id="btn-register"
+              class="font-semibold text-brand underline decoration-line hover:decoration-brand">
+        Da de alta tu empresa
+      </button>
+    </p>
   </form>
+</dialog>
+
+<!-- ───── Alta de una empresa nueva ─────
+     Pide lo mínimo para que el sistema tenga sentido: quién eres, qué empresa
+     y qué tienda. Todo lo demás se añade después, ya desde dentro. -->
+<dialog id="register-dialog" class="mb-auto mt-[8vh] w-full max-w-md rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
+  <form id="register-form" method="dialog" class="p-6">
+    <h2 class="text-lg font-bold tracking-tight">Da de alta tu empresa</h2>
+    <p class="mt-1 text-sm text-ink-soft">
+      Creas la empresa, su primera tienda y tu cuenta de gerente. Entras con el inventario vacío:
+      desde ahí cargas tu Excel o recibes tu primera guía.
+    </p>
+
+    <div class="mt-5 grid gap-3 sm:grid-cols-2">
+      <div class="sm:col-span-2">
+        <label for="reg-company" class="block text-sm text-ink-faint">Razón social</label>
+        <input id="reg-company" required maxlength="150" autocomplete="organization"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="reg-ruc" class="block text-sm text-ink-faint">RUC</label>
+        <input id="reg-ruc" required inputmode="numeric" pattern="[0-9]{11}" maxlength="11"
+               title="Once dígitos" class="num mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="reg-store" class="block text-sm text-ink-faint">Nombre de la tienda</label>
+        <input id="reg-store" required maxlength="100"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div class="sm:col-span-2">
+        <label for="reg-address" class="block text-sm text-ink-faint">Dirección <span class="text-ink-faint">(opcional)</span></label>
+        <input id="reg-address" maxlength="200" autocomplete="street-address"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div class="sm:col-span-2 border-t border-line pt-3">
+        <label for="reg-name" class="block text-sm text-ink-faint">Tu nombre</label>
+        <input id="reg-name" required maxlength="120" autocomplete="name"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="reg-email" class="block text-sm text-ink-faint">Tu correo</label>
+        <input id="reg-email" type="email" required maxlength="120" autocomplete="username"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="reg-password" class="block text-sm text-ink-faint">Contraseña</label>
+        <input id="reg-password" type="password" required minlength="10" maxlength="100"
+               autocomplete="new-password"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+        <p class="mt-1 text-xs text-ink-faint">Diez caracteres o más.</p>
+      </div>
+    </div>
+
+    <p id="register-error" class="mt-3 hidden text-sm text-risk-red"></p>
+
+    <div class="mt-5 flex justify-end gap-3">
+      <button type="button" id="register-cancel"
+              class="rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-ink">
+        Cancelar
+      </button>
+      <button type="submit" id="register-submit"
+              class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white
+                     hover:bg-brand-deep disabled:opacity-60">
+        Crear empresa y entrar
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ───── La estructura de la empresa, para el gerente ─────
+     Una empresa crece abriendo tiendas y dando de alta a quien trabaja en
+     ellas. Vive en un diálogo y no en una séptima pestaña porque no es trabajo
+     de todos los días: se toca al empezar y cuando entra alguien nuevo. -->
+<dialog id="org-dialog" class="mb-auto mt-[8vh] w-full max-w-2xl rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
+  <div class="flex items-start justify-between gap-4 border-b border-line px-6 py-4">
+    <div>
+      <h2 class="text-lg font-bold tracking-tight">Tu organización</h2>
+      <p id="org-company" class="mt-0.5 text-sm text-ink-soft">—</p>
+    </div>
+    <button type="button" id="org-close"
+            class="rounded-md border border-line px-3 py-1.5 text-sm font-semibold hover:border-ink">
+      Cerrar
+    </button>
+  </div>
+
+  <div class="max-h-[70vh] overflow-y-auto px-6 py-5">
+    <h3 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Tiendas</h3>
+    <ul id="org-stores" class="mt-3 divide-y divide-line text-sm"></ul>
+
+    <form id="org-store-form" class="mt-4 flex flex-wrap items-end gap-3 rounded-lg bg-canvas p-4">
+      <div class="min-w-[12rem] flex-1">
+        <label for="org-store-name" class="block text-sm text-ink-faint">Abrir otra tienda</label>
+        <input id="org-store-name" required maxlength="100" placeholder="Nombre"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div class="min-w-[12rem] flex-1">
+        <label for="org-store-address" class="block text-sm text-ink-faint">Dirección <span class="text-ink-faint">(opcional)</span></label>
+        <input id="org-store-address" maxlength="200"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <button type="submit"
+              class="rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink
+                     shadow-sm hover:border-brand hover:text-brand disabled:opacity-60">
+        Abrir tienda
+      </button>
+    </form>
+
+    <h3 class="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-faint">Dar de alta a alguien</h3>
+    <p class="mt-1 max-w-prose text-sm text-ink-soft">
+      Tú eliges su contraseña y se la comunicas; el sistema no la guarda en claro en ningún sitio, así
+      que no podrá recordártela después. Recuerda que quien declara una merma no puede aprobarla:
+      una tienda con un solo gerente se queda sin salida.
+    </p>
+
+    <form id="org-user-form" class="mt-4 grid gap-3 rounded-lg bg-canvas p-4 sm:grid-cols-2">
+      <div>
+        <label for="org-user-name" class="block text-sm text-ink-faint">Nombre</label>
+        <input id="org-user-name" required maxlength="120"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="org-user-email" class="block text-sm text-ink-faint">Correo</label>
+        <input id="org-user-email" type="email" required maxlength="120"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div>
+        <label for="org-user-password" class="block text-sm text-ink-faint">Contraseña inicial</label>
+        <input id="org-user-password" type="password" required minlength="10" maxlength="100"
+               autocomplete="new-password"
+               class="mt-1 w-full rounded-md border border-line px-3 py-1.5">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label for="org-user-role" class="block text-sm text-ink-faint">Rol</label>
+          <select id="org-user-role" class="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5">
+            <option value="OPERATOR">Operario</option>
+            <option value="MANAGER">Gerente</option>
+          </select>
+        </div>
+        <div>
+          <label for="org-user-store" class="block text-sm text-ink-faint">Tienda</label>
+          <select id="org-user-store" class="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5"></select>
+        </div>
+      </div>
+      <div class="sm:col-span-2 flex justify-end">
+        <button type="submit"
+                class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white
+                       hover:bg-brand-deep disabled:opacity-60">
+          Dar de alta
+        </button>
+      </div>
+    </form>
+
+    <p id="org-error" class="mt-3 hidden text-sm text-risk-red"></p>
+  </div>
 </dialog>
 
 <!-- Buscador global.

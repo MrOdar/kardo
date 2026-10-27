@@ -12,4 +12,19 @@ public class ForbiddenStoreException extends RuntimeException {
         super("Intento de operar sobre la tienda " + requestedStoreId
                 + " con una sesion de la tienda " + allowedStoreId + ".");
     }
+
+    private ForbiddenStoreException(String message) {
+        super(message);
+    }
+
+    /**
+     * Alta de un usuario en una tienda ajena.
+     *
+     * <p>El limite aqui no es la tienda del token sino la <b>empresa</b>: un
+     * gerente puede dar de alta en cualquiera de sus tiendas, y en ninguna mas.
+     */
+    public static ForbiddenStoreException outsideCompany(long requestedStoreId, long companyId) {
+        return new ForbiddenStoreException("Intento de dar de alta un usuario en la tienda "
+                + requestedStoreId + ", que no pertenece a la empresa " + companyId + ".");
+    }
 }

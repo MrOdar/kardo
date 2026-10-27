@@ -33,7 +33,8 @@ class LoginThrottleTest {
         clock = new MutableClock(Instant.parse("2026-10-19T12:00:00Z"));
         throttle = new LoginThrottle(new ThrottleProperties(
                 new ThrottleProperties.Login(3, 8, Duration.ofMinutes(15)),
-                new ThrottleProperties.Demo(Duration.ofSeconds(20), 10, Duration.ofMinutes(10))),
+                new ThrottleProperties.Demo(Duration.ofSeconds(20), 10, Duration.ofMinutes(10)),
+                new ThrottleProperties.Registration(3, Duration.ofHours(1))),
                 clock);
     }
 

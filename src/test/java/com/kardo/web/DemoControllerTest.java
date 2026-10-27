@@ -18,9 +18,13 @@ import com.kardo.throttle.DemoResetThrottle;
 import java.time.Clock;
 import java.time.Duration;
 import com.kardo.security.AuthenticationService;
+import com.kardo.security.KardoPrincipal;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,16 +48,31 @@ class DemoControllerTest {
 
     private MockMvc mockMvc;
 
+    @AfterEach
+    void limpiarContexto() {
+        SecurityContextHolder.clearContext();
+    }
+
     @BeforeEach
     void setUp() {
-        when(demoRepository.loadDashboard()).thenReturn(dashboard());
+        // El tablero y la cola salen de la tienda del token. Sin sesion en el
+        // contexto, el controlador no sabria de que tienda hablar: eso es lo
+        // correcto, y aqui se le da una.
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new KardoPrincipal("demo@kardo.pe", DemoRepository.DEMO_STORE_ID,
+                                List.of("ROLE_MANAGER")),
+                        null, List.of()));
+
+        when(demoRepository.loadDashboard(anyLong())).thenReturn(dashboard());
         when(authenticationService.openDemoSession(eq("demo@kardo.pe"), anyLong())).thenReturn(session());
 
         // Freno con intervalo cero: aqui se prueba el reinicio, no el freno, que
         // tiene sus propias pruebas en DemoResetThrottleTest.
         var throttle = new DemoResetThrottle(new ThrottleProperties(
                 new ThrottleProperties.Login(5, 20, Duration.ofMinutes(15)),
-                new ThrottleProperties.Demo(Duration.ZERO, 1000, Duration.ofMinutes(10))),
+                new ThrottleProperties.Demo(Duration.ZERO, 1000, Duration.ofMinutes(10)),
+                new ThrottleProperties.Registration(3, Duration.ofHours(1))),
                 Clock.systemUTC());
 
         mockMvc = MockMvcBuilders
@@ -97,7 +116,7 @@ class DemoControllerTest {
     @Test
     @DisplayName("La cola FEFO se acota para no devolver el inventario entero")
     void colaFefoSeAcota() throws Exception {
-        when(demoRepository.loadFefoQueue(anyInt())).thenReturn(List.of(
+        when(demoRepository.loadFefoQueue(anyLong(), anyInt())).thenReturn(List.of(
                 Map.of("sku", "SKU-LECHE-UHT-1L", "batch_code", "LOT-LCH-EXP-48H", "dias_restantes", 2)));
 
         mockMvc.perform(get("/api/v1/demo/fefo-queue").param("limit", "500"))
@@ -105,7 +124,7 @@ class DemoControllerTest {
                 .andExpect(jsonPath("$[0].batch_code").value("LOT-LCH-EXP-48H"));
 
         // 500 se recorta a 50: el tablero muestra una cola, no un inventario completo
-        verify(demoRepository).loadFefoQueue(50);
+        verify(demoRepository).loadFefoQueue(DemoRepository.DEMO_STORE_ID, 50);
     }
 
     private static DemoDashboardDto dashboard() {

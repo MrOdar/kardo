@@ -25,7 +25,9 @@ class DiagnosticsServiceTest {
             new com.kardo.config.ThrottleProperties(
                     new com.kardo.config.ThrottleProperties.Login(5, 20, java.time.Duration.ofMinutes(15)),
                     new com.kardo.config.ThrottleProperties.Demo(
-                            java.time.Duration.ofSeconds(20), 10, java.time.Duration.ofMinutes(10))),
+                            java.time.Duration.ofSeconds(20), 10, java.time.Duration.ofMinutes(10)),
+                    new com.kardo.config.ThrottleProperties.Registration(
+                            3, java.time.Duration.ofHours(1))),
             java.time.Clock.systemUTC()));
 
     @Test

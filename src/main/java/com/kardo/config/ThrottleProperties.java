@@ -12,7 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * llamada.
  */
 @ConfigurationProperties(prefix = "kardo.throttle")
-public record ThrottleProperties(Login login, Demo demo) {
+public record ThrottleProperties(Login login, Demo demo, Registration registration) {
 
     /**
      * @param maxPerAccount intentos fallidos sobre un mismo correo antes de
@@ -33,5 +33,14 @@ public record ThrottleProperties(Login login, Demo demo) {
      * @param maxPerIp    reinicios por IP dentro de la ventana
      */
     public record Demo(Duration minInterval, int maxPerIp, Duration window) {
+    }
+
+    /**
+     * @param maxPerIp altas de empresa por IP dentro de la ventana; bajo a
+     *                 proposito, porque dar de alta una empresa se hace una vez
+     *                 y lo demas -tiendas, usuarios- ya va autenticado
+     * @param window   tiempo durante el que se recuerdan las altas
+     */
+    public record Registration(int maxPerIp, Duration window) {
     }
 }

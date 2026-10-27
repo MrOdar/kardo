@@ -27,6 +27,9 @@ import com.kardo.dto.DiagnosticsReportDto;
 import com.kardo.dto.ExpiryAlertBoardDto;
 import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.MarkdownDecisionRequestDto;
+import com.kardo.dto.NewStoreRequestDto;
+import com.kardo.dto.NewUserRequestDto;
+import com.kardo.dto.RegisterRequestDto;
 import com.kardo.dto.RollbackResponseDto;
 import com.kardo.dto.SaleRequestDto;
 import com.kardo.dto.SaleResponseDto;
@@ -150,6 +153,12 @@ class EndpointSecurityTest {
     private com.kardo.inventory.RiskHistoryService riskHistoryService;
 
     @MockBean
+    private com.kardo.onboarding.OnboardingService onboardingService;
+
+    @MockBean
+    private com.kardo.throttle.RegistrationThrottle registrationThrottle;
+
+    @MockBean
     private StoreRepository storeRepository;
 
     @MockBean
@@ -225,6 +234,9 @@ class EndpointSecurityTest {
                 "GET,  /api/v1/inventory/export/markdown-labels",
                 "GET,  /api/v1/inventory/insights",
                 "GET,  /api/v1/inventory/risk-history",
+                "GET,  /api/v1/stores",
+                "POST, /api/v1/stores",
+                "POST, /api/v1/users",
                 "GET,  /api/v1/inventory/ingest/history",
                 "POST, /api/v1/inventory/ingest/excel",
                 "POST, /api/v1/inventory/ingest/bulk-fix",
@@ -281,12 +293,45 @@ class EndpointSecurityTest {
         @Test
         @DisplayName("El reset de la demo responde sin token")
         void resetEsPublico() throws Exception {
-            when(demoRepository.loadDashboard()).thenReturn(dashboard());
+            when(demoRepository.loadDashboard(anyLong())).thenReturn(dashboard());
             when(authenticationService.openDemoSession(anyString(), anyLong())).thenReturn(session());
 
             mockMvc.perform(post("/api/v1/demo/reset"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.storeId").value(999));
+        }
+
+        /**
+         * Quien da de alta su empresa no tiene token todavia, y esta llamada es
+         * la que se lo da. Crea lo suyo y nada mas: no recibe ningun
+         * identificador de empresa ni de tienda que pudiera apuntar a otra.
+         */
+        @Test
+        @DisplayName("El alta de empresa responde sin token y devuelve 201")
+        void registroEsPublico() throws Exception {
+            when(onboardingService.register(any())).thenReturn(session());
+
+            mockMvc.perform(json(post("/api/v1/auth/register"), new RegisterRequestDto(
+                            "Minimarket El Sol S.A.C.", "20123456789", "Tienda Centro", "Av. Siempre Viva 123",
+                            "Ana Quispe", "ana@elsol.pe", "clave-larga-2026")))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.token").isNotEmpty());
+
+            verify(registrationThrottle).checkAllowed(anyString());
+            verify(registrationThrottle).recordSuccess(anyString());
+        }
+
+        /** Un alta mal formada no debe gastar el cupo de quien se equivoca. */
+        @Test
+        @DisplayName("Un RUC invalido se rechaza sin tocar el servicio ni el cupo")
+        void registroInvalidoNoGastaCupo() throws Exception {
+            mockMvc.perform(json(post("/api/v1/auth/register"), new RegisterRequestDto(
+                            "Minimarket El Sol S.A.C.", "123", "Tienda Centro", null,
+                            "Ana Quispe", "ana@elsol.pe", "clave-larga-2026")))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(onboardingService);
+            verify(registrationThrottle, org.mockito.Mockito.never()).recordSuccess(anyString());
         }
 
         @Test
@@ -445,6 +490,40 @@ class EndpointSecurityTest {
         }
 
         /**
+         * Abrir tiendas y dar de alta a gente es decidir quien entra al sistema:
+         * si lo pudiera hacer un operario, el circuito de mermas se podria
+         * burlar creandose un segundo usuario para aprobarse a uno mismo.
+         */
+        @Test
+        @DisplayName("Abrir tienda y dar de alta usuarios es solo del gerente")
+        void estructuraSoloGerente() throws Exception {
+            mockMvc.perform(json(post("/api/v1/stores"), new NewStoreRequestDto("Sucursal Norte", null))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isForbidden());
+
+            mockMvc.perform(json(post("/api/v1/users"), new NewUserRequestDto(
+                            "Nuevo Operario", "nuevo@tienda.pe", "clave-larga-2026", "OPERATOR", 5L))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isForbidden());
+
+            verifyNoInteractions(onboardingService);
+        }
+
+        /** Ver donde trabaja uno no es un privilegio: la lista la ven los dos. */
+        @Test
+        @DisplayName("La lista de tiendas la ve tambien el operario")
+        void listaDeTiendasParaTodos() throws Exception {
+            when(storeRepository.findCompanyIdByStore(TOKEN_STORE)).thenReturn(42L);
+            when(onboardingService.stores(42L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/v1/stores")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            verify(onboardingService).stores(42L);
+        }
+
+        /**
          * El diagnostico describe la infraestructura -pool, latencias de los
          * proveedores, memoria del contenedor-, que no le sirve al operario pero
          * si a quien quiera sondear el despliegue.
@@ -574,6 +653,30 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             verify(batchService).search(eq(TOKEN_STORE), any(), any(), anyInt());
+        }
+
+        /**
+         * El tablero vive bajo {@code /demo} por historia, y durante mucho
+         * tiempo consulto la tienda 999 a secas: mientras los unicos usuarios
+         * eran los de la demo, nadie lo noto. Desde que una empresa puede darse
+         * de alta por su cuenta, eso le enseñaria el inventario de la demo como
+         * si fuera el suyo. Esta prueba es la que no deja que vuelva.
+         */
+        @Test
+        @DisplayName("El tablero y la cola FEFO son de la tienda del token, no de la demo")
+        void elTableroNoSeQuedaEnLaTiendaDemo() throws Exception {
+            when(demoRepository.loadDashboard(anyLong())).thenReturn(dashboard());
+            when(demoRepository.loadFefoQueue(anyLong(), anyInt())).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/v1/demo/dashboard")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/v1/demo/fefo-queue")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            verify(demoRepository).loadDashboard(TOKEN_STORE);
+            verify(demoRepository).loadFefoQueue(eq(TOKEN_STORE), anyInt());
         }
 
         /**

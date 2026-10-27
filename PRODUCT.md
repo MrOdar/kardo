@@ -45,6 +45,8 @@ firmada y comprobable en los libros.
 - Motor FEFO transaccional con costo por lote y precio vigente por lote.
 - Escalera de descuentos con piso en el costo y decisiones auditadas.
 - Circuito de mermas con cuarentena y segregación de funciones.
+- Alta de empresa, tienda y usuarios sin pasar por la demo: la empresa se crea
+  con su primera tienda y su gerente, y crece desde dentro.
 - Exportación valorizada en Excel y en PDF firmable, y etiquetas de oferta
   imprimibles con el precio que cobrará la caja.
 - Serie diaria del valor en riesgo, días de cobertura por producto y reparto
@@ -58,7 +60,10 @@ firmada y comprobable en los libros.
 - La interfaz se sirve desde el mismo jar, **sin build de front**: HTML, Tailwind
   por CDN y JavaScript sin framework. Cualquier rediseño vive dentro de eso.
 - La tienda sale del token; la interfaz nunca elige sobre qué tienda escribe.
-- Una sola tienda demo compartida, restaurable con un botón.
+- Una sola tienda demo compartida, restaurable con un botón, que convive con las
+  empresas reales dadas de alta desde fuera.
+- Un usuario pertenece a una tienda. Un gerente con varias aún no puede cambiar
+  entre ellas sin volver a entrar: el modelo lo soportaría, la sesión no.
 
 ## Terminology
 

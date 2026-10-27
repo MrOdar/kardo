@@ -121,6 +121,18 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    /**
+     * El RUC o el correo ya estaban cogidos.
+     *
+     * <p>Aqui si se devuelve el mensaje tal cual, al reves que en el login: en
+     * un alta, saber que ese correo ya tiene cuenta es justo lo que necesita
+     * quien la esta creando, y no revela nada que no acabe de teclear.
+     */
+    @ExceptionHandler(DuplicateAccountException.class)
+    public ResponseEntity<ApiError> handleDuplicateAccount(DuplicateAccountException ex) {
+        return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<ApiError> handleDuplicateKey(DuplicateKeyException ex) {
         log.warn("Violacion de unicidad: {}", ex.getMessage());

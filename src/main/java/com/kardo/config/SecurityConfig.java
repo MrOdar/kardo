@@ -60,6 +60,11 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         // Emision de tokens
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        // Alta de una empresa nueva: quien se registra no tiene
+                        // token todavia, y esta llamada es la que se lo da. Crea
+                        // su propia empresa y su propia tienda, nunca toca una
+                        // existente, y lleva freno por IP.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                         // La SPA se sirve desde el mismo contenedor y debe cargar
                         // antes de que exista ningun token.
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/favicon.ico",

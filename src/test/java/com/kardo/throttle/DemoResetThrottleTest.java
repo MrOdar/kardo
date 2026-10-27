@@ -123,7 +123,8 @@ class DemoResetThrottleTest {
     private DemoResetThrottle nuevo(Duration intervalo, int porIp) {
         return new DemoResetThrottle(new ThrottleProperties(
                 new ThrottleProperties.Login(5, 20, Duration.ofMinutes(15)),
-                new ThrottleProperties.Demo(intervalo, porIp, Duration.ofMinutes(10))),
+                new ThrottleProperties.Demo(intervalo, porIp, Duration.ofMinutes(10)),
+                new ThrottleProperties.Registration(3, Duration.ofHours(1))),
                 clock);
     }
 
