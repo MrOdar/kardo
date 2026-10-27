@@ -9,9 +9,11 @@ import static org.mockito.Mockito.when;
 
 import com.kardo.config.SecurityProperties;
 import com.kardo.dto.SessionDto;
+import com.kardo.exception.ForbiddenStoreException;
 import com.kardo.exception.InvalidCredentialsException;
 import com.kardo.repository.StoreRepository;
 import com.kardo.repository.UserRepository;
+import com.kardo.repository.UserRepository.StoreMembership;
 import com.kardo.repository.UserRepository.UserAccount;
 import java.time.Duration;
 import java.util.List;
@@ -57,7 +59,7 @@ class AuthenticationServiceTest {
     @Test
     @DisplayName("La sesion lleva la tienda del usuario dentro del token firmado")
     void loginCorrecto() {
-        when(userRepository.findActiveByEmail("demo@kardo.pe")).thenReturn(Optional.of(account(999L, "MANAGER")));
+        trabajaEn("demo@kardo.pe", 999L, "MANAGER");
 
         SessionDto session = service.login("demo@kardo.pe", PASSWORD);
 
@@ -77,7 +79,7 @@ class AuthenticationServiceTest {
     @Test
     @DisplayName("Contraseña incorrecta y correo inexistente dan el mismo error")
     void credencialesInvalidas() {
-        when(userRepository.findActiveByEmail("demo@kardo.pe")).thenReturn(Optional.of(account(999L, "MANAGER")));
+        trabajaEn("demo@kardo.pe", 999L, "MANAGER");
         when(userRepository.findActiveByEmail("nadie@kardo.pe")).thenReturn(Optional.empty());
 
         String conPasswordMala = catchMessage(() -> service.login("demo@kardo.pe", "otra-cosa"));
@@ -91,12 +93,12 @@ class AuthenticationServiceTest {
     @Test
     @DisplayName("La sesion demo sin contraseña solo sirve para la tienda de demostracion")
     void sesionDemoAcotada() {
-        when(userRepository.findActiveByEmail("demo@kardo.pe")).thenReturn(Optional.of(account(999L, "MANAGER")));
+        trabajaEn("demo@kardo.pe", 999L, "MANAGER");
 
         assertThat(service.openDemoSession("demo@kardo.pe", 999L).storeId()).isEqualTo(999L);
 
         // El mismo usuario, si perteneciera a una tienda real, no abriria sesion
-        when(userRepository.findActiveByEmail("gerente@real.pe")).thenReturn(Optional.of(account(7L, "MANAGER")));
+        trabajaEn("gerente@real.pe", 7L, "MANAGER");
         assertThatThrownBy(() -> service.openDemoSession("gerente@real.pe", 999L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no pertenece a la tienda de demostracion");
@@ -112,6 +114,82 @@ class AuthenticationServiceTest {
                 .hasMessageContaining("sql/03_users_and_auth.sql");
     }
 
+    /**
+     * El cambio de tienda emite un token nuevo con el rol de <b>esa</b> tienda.
+     * Es la propiedad que paga el modelo de sql/13: la misma persona manda en
+     * una tienda y no en la otra, y el token lo dice.
+     */
+    @Test
+    @DisplayName("Cambiar de tienda trae el rol que se tiene en la tienda nueva")
+    void cambioDeTiendaTraeElRolDeAlli() {
+        trabajaEnVarias();
+
+        SessionDto enLaSegunda = service.switchStore("demo@kardo.pe", 7L);
+
+        assertThat(enLaSegunda.storeId()).isEqualTo(7L);
+        assertThat(enLaSegunda.role()).isEqualTo("OPERATOR");
+        assertThat(enLaSegunda.storeName()).isEqualTo("Sucursal Norte");
+
+        var claims = jwtService.parseToken(enLaSegunda.token());
+        assertThat(claims.get(JwtService.CLAIM_STORE_ID, Number.class).longValue()).isEqualTo(7L);
+        assertThat(claims.get(JwtService.CLAIM_ROLES, List.class)).containsExactly("ROLE_OPERATOR");
+    }
+
+    /**
+     * Sin esto, el cambio de tienda seria una via para emitirse un token de
+     * cualquier tienda del sistema conociendo su numero.
+     */
+    @Test
+    @DisplayName("No se puede cambiar a una tienda en la que no se trabaja")
+    void noSeCambiaAUnaTiendaAjena() {
+        trabajaEnVarias();
+
+        assertThatThrownBy(() -> service.switchStore("demo@kardo.pe", 1234L))
+                .isInstanceOf(ForbiddenStoreException.class)
+                .hasMessageContaining("sin trabajar en ella");
+    }
+
+    @Test
+    @DisplayName("Se abre sesion en la tienda de origen cuando se trabaja en varias")
+    void elLoginEntraPorLaTiendaDeOrigen() {
+        trabajaEnVarias();
+
+        SessionDto session = service.login("demo@kardo.pe", PASSWORD);
+
+        assertThat(session.storeId()).isEqualTo(999L);
+        assertThat(session.role()).isEqualTo("MANAGER");
+    }
+
+    /**
+     * Puede pasar: a alguien se le retira de la ultima tienda y su cuenta sigue
+     * activa. Un token sin tienda no podria pedir nada, asi que es mejor no
+     * emitirlo que explicar despues por que todo responde 403.
+     */
+    @Test
+    @DisplayName("Quien no trabaja en ninguna tienda no abre sesion")
+    void sinTiendasNoHaySesion() {
+        when(userRepository.findActiveByEmail("exoperario@kardo.pe")).thenReturn(Optional.of(
+                new UserAccount(77L, 999L, 999L, "exoperario@kardo.pe", "Ex Operario",
+                        new BCryptPasswordEncoder().encode(PASSWORD), "OPERATOR")));
+        when(userRepository.findMemberships(77L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.login("exoperario@kardo.pe", PASSWORD))
+                .isInstanceOf(InvalidCredentialsException.class);
+    }
+
+    /** Gerente en su tienda de origen y operario en la segunda. */
+    private void trabajaEnVarias() {
+        when(userRepository.findActiveByEmail("demo@kardo.pe")).thenReturn(Optional.of(
+                new UserAccount(42L, 999L, 999L, "demo@kardo.pe", "Gerente Demo",
+                        new BCryptPasswordEncoder().encode(PASSWORD), "MANAGER")));
+        when(userRepository.findMemberships(42L)).thenReturn(List.of(
+                new StoreMembership(999L, "Tienda Demo Miraflores", "MANAGER"),
+                new StoreMembership(7L, "Sucursal Norte", "OPERATOR")));
+        when(userRepository.findMembership(42L, 7L)).thenReturn(
+                Optional.of(new StoreMembership(7L, "Sucursal Norte", "OPERATOR")));
+        when(userRepository.findMembership(42L, 1234L)).thenReturn(Optional.empty());
+    }
+
     private static String catchMessage(Runnable action) {
         try {
             action.run();
@@ -121,8 +199,18 @@ class AuthenticationServiceTest {
         }
     }
 
-    private static UserAccount account(long storeId, String role) {
-        return new UserAccount(42L, 999L, storeId, "demo@kardo.pe", "Gerente Demo",
-                new BCryptPasswordEncoder().encode(PASSWORD), role);
+    /**
+     * Deja preparado un usuario que existe y trabaja en una tienda.
+     *
+     * <p>Desde sql/13 son dos lecturas: la cuenta dice quien es y la membresia
+     * con que tienda y rol entra. Se preparan juntas y en su propia linea, no
+     * dentro de otro {@code when(...)}: Mockito no admite anidar stubs.
+     */
+    private void trabajaEn(String email, long storeId, String role) {
+        when(userRepository.findActiveByEmail(email)).thenReturn(Optional.of(
+                new UserAccount(42L, 999L, storeId, email, "Gerente Demo",
+                        new BCryptPasswordEncoder().encode(PASSWORD), role)));
+        when(userRepository.findMemberships(42L)).thenReturn(
+                List.of(new StoreMembership(storeId, "Tienda Demo Miraflores", role)));
     }
 }

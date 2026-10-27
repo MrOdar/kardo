@@ -27,4 +27,15 @@ public class ForbiddenStoreException extends RuntimeException {
         return new ForbiddenStoreException("Intento de dar de alta un usuario en la tienda "
                 + requestedStoreId + ", que no pertenece a la empresa " + companyId + ".");
     }
+
+    /**
+     * Intento de cambiar a una tienda en la que no se trabaja.
+     *
+     * <p>Es lo unico que separa el cambio de tienda de una via para emitirse un
+     * token de cualquier tienda: sin membresia, no hay token.
+     */
+    public static ForbiddenStoreException notAMember(long requestedStoreId, String email) {
+        return new ForbiddenStoreException("El usuario " + email
+                + " intento operar sobre la tienda " + requestedStoreId + " sin trabajar en ella.");
+    }
 }

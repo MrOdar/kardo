@@ -35,6 +35,7 @@ import com.kardo.dto.SaleRequestDto;
 import com.kardo.dto.SaleResponseDto;
 import com.kardo.dto.SessionDto;
 import com.kardo.dto.SpreadsheetRowDto;
+import com.kardo.dto.SwitchStoreRequestDto;
 import com.kardo.dto.VisionQuotaDto;
 import com.kardo.dto.WasteReportRequestDto;
 import com.kardo.ingest.BulkFixService;
@@ -237,6 +238,8 @@ class EndpointSecurityTest {
                 "GET,  /api/v1/stores",
                 "POST, /api/v1/stores",
                 "POST, /api/v1/users",
+                "GET,  /api/v1/auth/stores",
+                "POST, /api/v1/auth/store",
                 "GET,  /api/v1/inventory/ingest/history",
                 "POST, /api/v1/inventory/ingest/excel",
                 "POST, /api/v1/inventory/ingest/bulk-fix",
@@ -653,6 +656,27 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             verify(batchService).search(eq(TOKEN_STORE), any(), any(), anyInt());
+        }
+
+        /**
+         * Cambiar de tienda es la unica llamada que acepta un identificador de
+         * tienda del cliente, asi que es la que hay que vigilar: lo que pide no
+         * es escribir en esa tienda, sino un token para ella. El servicio
+         * decide, y lo unico que el controlador puede hacer mal es pasarle el
+         * correo de otro.
+         */
+        @Test
+        @DisplayName("El cambio de tienda se pide siempre con el correo del token")
+        void elCambioDeTiendaUsaElCorreoDelToken() throws Exception {
+            when(authenticationService.switchStore(anyString(), anyLong())).thenReturn(session());
+
+            mockMvc.perform(json(post("/api/v1/auth/store"), new SwitchStoreRequestDto(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            // El correo sale del token; el cuerpo solo dice a que tienda ir, y
+            // quien comprueba que sea suya es el servicio.
+            verify(authenticationService).switchStore(OPERATOR, OTHER_STORE);
         }
 
         /**

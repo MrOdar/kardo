@@ -26,7 +26,8 @@ const state = {
   markdowns: [],
   uploads: [],
   quota: null,
-  riskSeries: []
+  riskSeries: [],
+  memberships: []
 };
 
 /* ─────────────────────────── utilidades ─────────────────────────── */
@@ -739,8 +740,13 @@ function applySession(session) {
   $('btn-switch-mobile').textContent = 'Cambiar';
 
   // Abrir tiendas y dar de alta a gente es decidir quien entra al sistema, de
-  // modo que el boton ni siquiera existe para el operario.
+  // modo que el boton ni siquiera existe para el operario. El rol es el de
+  // ESTA tienda: la misma persona puede verlo aqui y no verlo en la de al lado.
   $('btn-org').classList.toggle('hidden', session.role !== 'MANAGER');
+
+  // Las tiendas en las que trabaja no cambian al moverse entre ellas, pero si
+  // al entrar con otra persona.
+  loadMyStores();
 
   // Con sesion abierta la pantalla de inicio deja de ser una invitacion y pasa
   // a ser el resumen del dia.
@@ -790,6 +796,72 @@ $('btn-switch').addEventListener('click', () => {
 });
 $('login-cancel').addEventListener('click', () => $('login-dialog').close());
 $('login-form').addEventListener('submit', switchUser);
+
+/* ─────────────────────── cambio de tienda ───────────────────────
+ *
+ * Una persona puede trabajar en varias tiendas con un rol distinto en cada una
+ * (sql/13). Cambiar de tienda no es filtrar la pantalla: se pide un token nuevo
+ * con esa tienda y ese rol, y se recarga todo, porque todo lo que se ve depende
+ * de la tienda del token.
+ */
+
+function renderStoreSwitcher(memberships) {
+  const varias = memberships.length > 1;
+
+  [$('store-switcher'), $('store-switcher-mobile')].forEach((select) => {
+    select.classList.toggle('hidden', !varias);
+    if (!varias) return;
+
+    select.replaceChildren(...memberships.map((membership) => {
+      const option = document.createElement('option');
+      option.value = membership.storeId;
+      // El rol va en la etiqueta porque cambia con la tienda: quien elige
+      // tiene que saber que deja de ser gerente al moverse.
+      option.textContent = `${membership.storeName} · ${
+        membership.role === 'MANAGER' ? 'gerente' : 'operario'}`;
+      option.selected = membership.storeId === state.session?.storeId;
+      return option;
+    }));
+  });
+
+  // Con varias tiendas, el selector ya dice quien eres y donde estas.
+  $('session-mobile').classList.toggle('hidden', varias || !state.token);
+}
+
+async function loadMyStores() {
+  try {
+    state.memberships = await request('/auth/stores');
+  } catch {
+    state.memberships = [];
+  }
+  renderStoreSwitcher(state.memberships);
+}
+
+async function switchStore(storeId) {
+  try {
+    const session = await request('/auth/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId: Number(storeId) })
+    });
+    applySession(session);
+
+    // Todo lo cargado es de la tienda anterior: no se filtra, se vuelve a pedir.
+    await Promise.all([loadCatalog(), loadBatches(), loadAlerts(), loadMarkdownHistory(),
+                       loadPendingWaste(), loadWasteHistory(), loadUploadHistory(),
+                       loadQuota(), loadRiskHistory()]);
+    await refreshDashboard();
+    toast(`Ahora operas ${session.storeName} como ${
+      session.role === 'MANAGER' ? 'gerente' : 'operario'}.`, 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+    // El selector se quedo donde no debia: se devuelve a la tienda real.
+    renderStoreSwitcher(state.memberships);
+  }
+}
+
+$('store-switcher').addEventListener('change', (event) => switchStore(event.target.value));
+$('store-switcher-mobile').addEventListener('change', (event) => switchStore(event.target.value));
 
 /* ───────────── alta de empresa y estructura de la organizacion ─────────────
  *
@@ -935,6 +1007,9 @@ async function createUser(event) {
     });
     resetForm('org-user-form', button, 'Dar de alta');
     await loadStores();
+    // Puede haberse añadido a si mismo a la tienda nueva: sin esto, el selector
+    // no aparece hasta que vuelva a entrar.
+    await loadMyStores();
     // Se repite el correo y no la contraseña: el correo es lo que hay que
     // comunicarle, y la contraseña ya la sabe quien la acaba de escribir.
     toast(`${email} ya puede entrar.`, 'ok');

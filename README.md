@@ -52,7 +52,7 @@ aplica.
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
 tienda y el backend ignora cualquier `storeId` que llegue en el cuerpo: es lo que
-impide que un token de una tienda escriba en otra. No es una intención: hay **63
+impide que un token de una tienda escriba en otra. No es una intención: hay **66
 pruebas** que levantan la cadena de filtros real, con tokens firmados de verdad,
 y comprueban quién entra, con qué rol y sobre qué tienda acaba escribiendo.
 
@@ -61,6 +61,14 @@ pantalla de acceso: se crean la empresa, su primera tienda y la cuenta de
 gerente en una sola transacción, y entra con el inventario vacío. Desde dentro,
 ese gerente abre más tiendas y da de alta a su equipo; la empresa sale siempre
 del token, así que nadie puede colocar un usuario en la tienda de otro.
+
+**Una persona, varias tiendas, un rol en cada una.** La pertenencia vive en
+`user_stores`, no en una columna del usuario: se puede ser gerente en un local y
+operario en el de al lado. Cambiar de tienda no filtra la pantalla, **emite un
+token nuevo** con esa tienda y ese rol, y sólo si existe la membresía. Que una
+membresía no pueda cruzar empresas tampoco depende de que el servicio se acuerde
+de comprobarlo: las dos claves foráneas de la tabla comparten la columna
+`company_id`, así que la fila no se puede ni insertar.
 
 **Lo que no puede cuadrar mal, lo impide la base.** El invariante
 `current_qty + quarantined_qty <= initial_qty` es un `CHECK` del esquema, y la
@@ -180,7 +188,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/12, en orden numérico
+-- luego sql/01 … sql/13, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -189,7 +197,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 193 unitarias + 104 de integración
+mvn verify    # 200 unitarias + 110 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -198,7 +206,7 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
-De las unitarias, **63 son de seguridad** (`EndpointSecurityTest`): 29 endpoints
+De las unitarias, **66 son de seguridad** (`EndpointSecurityTest`): 31 endpoints
 que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes

@@ -62,8 +62,9 @@ firmada y comprobable en los libros.
 - La tienda sale del token; la interfaz nunca elige sobre qué tienda escribe.
 - Una sola tienda demo compartida, restaurable con un botón, que convive con las
   empresas reales dadas de alta desde fuera.
-- Un usuario pertenece a una tienda. Un gerente con varias aún no puede cambiar
-  entre ellas sin volver a entrar: el modelo lo soportaría, la sesión no.
+- Una persona puede trabajar en varias tiendas con un rol distinto en cada una,
+  y cambia entre ellas sin volver a entrar. La tienda activa sigue viajando
+  firmada en el token: cambiarla es pedir otro.
 
 ## Terminology
 

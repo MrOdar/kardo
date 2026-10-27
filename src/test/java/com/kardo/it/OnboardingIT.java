@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * Que una empresa pueda nacer fuera de la demo.
@@ -244,6 +245,123 @@ class OnboardingIT extends PostgresIntegrationTest {
                 .singleElement()
                 .extracting("users")
                 .isEqualTo(2);
+    }
+
+    // ------------------------------------------------------------------
+    // Una persona en varias tiendas (sql/13)
+    // ------------------------------------------------------------------
+
+    /**
+     * El caso que motivo todo el modelo: el gerente abria su segunda tienda y
+     * no podia verla. Ahora se añade a si mismo y cambia entre las dos.
+     */
+    @Test
+    @DisplayName("Quien trabaja en dos tiendas cambia entre ellas sin volver a entrar")
+    void elGerenteSeMueveEntreSusTiendas() {
+        SessionDto session = onboarding.register(alta("Dos Locales S.A.C.", "Local Uno"));
+        long companyId = companyOf(session.storeId());
+
+        long segunda = onboarding.addStore(companyId, new NewStoreRequestDto("Local Dos", null));
+        onboarding.addUser(companyId, new NewUserRequestDto(
+                "Ana Quispe", session.email(), "clave-larga-2026", "MANAGER", segunda));
+
+        assertThat(authentication.memberships(session.email()))
+                .extracting("storeName")
+                .containsExactly("Local Uno", "Local Dos");
+
+        SessionDto enLaSegunda = authentication.switchStore(session.email(), segunda);
+        assertThat(enLaSegunda.storeId()).isEqualTo(segunda);
+        assertThat(enLaSegunda.storeName()).isEqualTo("Local Dos");
+    }
+
+    /**
+     * Antes de sql/13, trabajar en dos tiendas exigia dos cuentas con dos
+     * correos, porque el correo es unico en toda la base. Dar de alta a alguien
+     * que ya esta en la empresa ahora le añade la tienda, no le crea otra
+     * cuenta.
+     */
+    @Test
+    @DisplayName("Dar de alta a quien ya esta no duplica su cuenta")
+    void elAltaRepetidaAñadeTiendaEnVezDeCuenta() {
+        SessionDto session = onboarding.register(alta("Sin Duplicados S.A.C.", "Primera"));
+        long companyId = companyOf(session.storeId());
+        long segunda = onboarding.addStore(companyId, new NewStoreRequestDto("Segunda", null));
+
+        long mismoUsuario = onboarding.addUser(companyId, new NewUserRequestDto(
+                "Ana Quispe", session.email(), "otra-clave-larga", "OPERATOR", segunda));
+
+        Integer cuentas = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM users WHERE email = ?", Integer.class, session.email());
+        assertThat(cuentas).isEqualTo(1);
+        assertThat(authentication.memberships(session.email())).hasSize(2);
+
+        // Y la contraseña sigue siendo la primera: añadir una tienda no es una
+        // via para cambiarle la clave a nadie.
+        assertThat(authentication.login(session.email(), "clave-larga-2026").email())
+                .isEqualTo(session.email());
+        assertThat(mismoUsuario).isPositive();
+    }
+
+    @Test
+    @DisplayName("Se puede ser gerente en una tienda y operario en otra")
+    void elRolEsDeCadaTienda() {
+        SessionDto session = onboarding.register(alta("Roles Mixtos S.A.C.", "Donde mando"));
+        long companyId = companyOf(session.storeId());
+        long otra = onboarding.addStore(companyId, new NewStoreRequestDto("Donde ayudo", null));
+
+        onboarding.addUser(companyId, new NewUserRequestDto(
+                "Ana Quispe", session.email(), "clave-larga-2026", "OPERATOR", otra));
+
+        assertThat(authentication.login(session.email(), "clave-larga-2026").role())
+                .isEqualTo("MANAGER");
+        assertThat(authentication.switchStore(session.email(), otra).role())
+                .isEqualTo("OPERATOR");
+    }
+
+    @Test
+    @DisplayName("No se cambia a una tienda en la que no se trabaja")
+    void noSeSaltaAUnaTiendaAjena() {
+        SessionDto propia = onboarding.register(alta("La Mia S.A.C.", "Mi local"));
+        SessionDto ajena = onboarding.register(alta("La Suya S.A.C.", "Su local"));
+
+        assertThatThrownBy(() -> authentication.switchStore(propia.email(), ajena.storeId()))
+                .isInstanceOf(ForbiddenStoreException.class);
+    }
+
+    /**
+     * La afirmacion mas fuerte de sql/13: una membresia que cruce empresas no
+     * se puede escribir ni saltandose el servicio, porque las dos claves
+     * foraneas de {@code user_stores} comparten la columna {@code company_id}.
+     */
+    @Test
+    @DisplayName("La base impide una membresia entre empresas distintas")
+    void laBaseImpideCruzarEmpresas() {
+        SessionDto propia = onboarding.register(alta("Inquilino A S.A.C.", "Local A"));
+        SessionDto ajena = onboarding.register(alta("Inquilino B S.A.C.", "Local B"));
+
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT user_id FROM users WHERE email = ?", Long.class, propia.email());
+        long miEmpresa = companyOf(propia.storeId());
+
+        // SQL directo, sin pasar por ningun servicio ni comprobacion nuestra.
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO user_stores (user_id, store_id, company_id, role)
+                VALUES (?, ?, ?, 'MANAGER')
+                """, userId, ajena.storeId(), miEmpresa))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("Cada usuario nace con la membresia de su tienda")
+    void elAltaCreaLaMembresia() {
+        SessionDto session = onboarding.register(alta("Con Membresia S.A.C.", "Tienda"));
+
+        Integer membresias = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM user_stores us
+                  JOIN users u USING (user_id)
+                 WHERE u.email = ? AND us.store_id = ? AND us.role = 'MANAGER'
+                """, Integer.class, session.email(), session.storeId());
+        assertThat(membresias).isEqualTo(1);
     }
 
     // ------------------------------------------------------------------

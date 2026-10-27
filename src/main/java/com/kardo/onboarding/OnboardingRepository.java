@@ -6,6 +6,7 @@ import java.security.SecureRandom;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -68,10 +69,18 @@ public class OnboardingRepository {
         throw new IllegalStateException("No se pudo asignar un codigo de tienda libre.");
     }
 
+    /**
+     * Crea la persona y su primera membresia.
+     *
+     * <p>Las dos cosas o ninguna: un usuario sin membresia no podria abrir
+     * sesion -no hay tienda con la que entrar- y seria una cuenta fantasma que
+     * ademas ocuparia su correo para siempre.
+     */
     public long createUser(long companyId, long storeId, String email, String fullName,
                            String passwordHash, String role) {
+        long userId;
         try {
-            return jdbcTemplate.queryForObject("""
+            userId = jdbcTemplate.queryForObject("""
                     INSERT INTO users (company_id, store_id, email, full_name, password_hash, role)
                     VALUES (?, ?, ?, ?, ?, ?) RETURNING user_id
                     """, Long.class, companyId, storeId, email, fullName, passwordHash, role);
@@ -79,15 +88,55 @@ public class OnboardingRepository {
             throw new DuplicateAccountException(
                     "El correo " + email + " ya tiene cuenta. Entra con el o usa otro.");
         }
+
+        addMembership(userId, storeId, companyId, role);
+        return userId;
     }
 
-    /** Tiendas de la empresa, con cuanta gente trabaja ya en cada una. */
+    /**
+     * Pone a alguien a trabajar en una tienda.
+     *
+     * <p>No comprueba que la tienda sea de su empresa porque no puede fallar:
+     * las dos claves foraneas de {@code user_stores} comparten la columna
+     * {@code company_id}, asi que una membresia que cruce empresas no se puede
+     * insertar. Lo que llega aqui como {@code DataIntegrityViolationException}
+     * es exactamente ese intento.
+     */
+    public void addMembership(long userId, long storeId, long companyId, String role) {
+        try {
+            jdbcTemplate.update("""
+                    INSERT INTO user_stores (user_id, store_id, company_id, role)
+                    VALUES (?, ?, ?, ?)
+                    """, userId, storeId, companyId, role);
+        } catch (DuplicateKeyException ex) {
+            throw new DuplicateAccountException("Esa persona ya trabaja en esa tienda.");
+        }
+    }
+
+    /** La persona de esta empresa que tiene ese correo, si existe. */
+    public Optional<Long> findUserInCompany(String email, long companyId) {
+        return jdbcTemplate.query("""
+                SELECT user_id FROM users WHERE email = ? AND company_id = ? AND is_active
+                """, (rs, rowNum) -> rs.getLong("user_id"), email, companyId)
+                .stream().findFirst();
+    }
+
+    /**
+     * Tiendas de la empresa, con cuanta gente trabaja ya en cada una.
+     *
+     * <p>Se cuenta por membresias y no por {@code users.store_id}: desde sql/13
+     * una persona puede estar en varias, y contar por la tienda de origen
+     * dejaria a la mitad del equipo sin aparecer en ninguna parte.
+     */
     public List<StoreDto> storesOfCompany(long companyId) {
         return jdbcTemplate.query("""
                 SELECT s.store_id, s.store_code, s.name, s.address,
-                       count(u.user_id) FILTER (WHERE u.is_active) AS users
+                       -- Se cuenta la columna de `users`: una membresia de
+                       -- alguien dado de baja deja NULL y no suma.
+                       count(u.user_id) AS users
                   FROM stores s
-                  LEFT JOIN users u ON u.store_id = s.store_id
+                  LEFT JOIN user_stores us ON us.store_id = s.store_id
+                  LEFT JOIN users u ON u.user_id = us.user_id AND u.is_active
                  WHERE s.company_id = ?
                  GROUP BY s.store_id
                  ORDER BY s.created_at

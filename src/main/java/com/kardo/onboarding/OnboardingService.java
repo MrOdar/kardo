@@ -98,11 +98,23 @@ public class OnboardingService {
         if (!repository.storeBelongsToCompany(request.storeId(), companyId)) {
             throw ForbiddenStoreException.outsideCompany(request.storeId(), companyId);
         }
+        String email = normalize(request.email());
+
+        // Quien ya trabaja en la empresa no se duplica: se le añade la tienda
+        // nueva con el rol que tenga ahi. Crear una segunda cuenta era lo que
+        // habia que hacer antes de sql/13, y es justo lo que se quiere evitar.
+        var existente = repository.findUserInCompany(email, companyId);
+        if (existente.isPresent()) {
+            repository.addMembership(existente.get(), request.storeId(), companyId, request.role());
+            log.info("{} pasa a trabajar tambien en la tienda {} como {}",
+                    email, request.storeId(), request.role());
+            return existente.get();
+        }
 
         long userId = repository.createUser(
                 companyId,
                 request.storeId(),
-                normalize(request.email()),
+                email,
                 request.fullName().trim(),
                 passwordEncoder.encode(request.password()),
                 request.role());

@@ -3,6 +3,9 @@ package com.kardo.web;
 import com.kardo.dto.LoginRequestDto;
 import com.kardo.dto.RegisterRequestDto;
 import com.kardo.dto.SessionDto;
+import com.kardo.dto.SwitchStoreRequestDto;
+import com.kardo.repository.UserRepository;
+import java.util.List;
 import com.kardo.exception.InvalidCredentialsException;
 import com.kardo.security.AuthenticationService;
 import com.kardo.onboarding.OnboardingService;
@@ -85,6 +88,29 @@ public class AuthController {
         registrationThrottle.recordSuccess(clientIp);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(session);
+    }
+
+    /**
+     * Cambia la tienda sobre la que opera quien ya tiene sesion.
+     *
+     * <p>Devuelve una sesion nueva porque eso es literalmente lo que pasa: otro
+     * token, con otra tienda y con el rol que esa persona tiene alli. Se puede
+     * ser gerente en una tienda y operario en otra, y el token lo refleja.
+     *
+     * <p>No lleva {@code @PreAuthorize} de rol a proposito: cambiar de tienda
+     * no es un privilegio de gerente, es moverse a donde uno trabaja. Lo que
+     * autoriza es la membresia, y eso lo comprueba el servicio.
+     */
+    @PostMapping(value = "/store", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<SessionDto> switchStore(@Valid @RequestBody SwitchStoreRequestDto request) {
+        return ResponseEntity.ok(
+                authenticationService.switchStore(CurrentUser.require().email(), request.storeId()));
+    }
+
+    /** Las tiendas en las que trabaja, para poder elegir entre ellas. */
+    @GetMapping("/stores")
+    public ResponseEntity<List<UserRepository.StoreMembership>> myStores() {
+        return ResponseEntity.ok(authenticationService.memberships(CurrentUser.require().email()));
     }
 
     /** Permite a la interfaz saber quien es el portador del token que ya tiene. */

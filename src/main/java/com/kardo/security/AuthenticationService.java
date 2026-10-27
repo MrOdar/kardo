@@ -2,6 +2,7 @@ package com.kardo.security;
 
 import com.kardo.config.SecurityProperties;
 import com.kardo.dto.SessionDto;
+import com.kardo.exception.ForbiddenStoreException;
 import com.kardo.exception.InvalidCredentialsException;
 import com.kardo.repository.StoreRepository;
 import com.kardo.repository.UserRepository;
@@ -59,7 +60,7 @@ public class AuthenticationService {
         }
 
         userRepository.touchLastLogin(account.userId());
-        return toSession(account);
+        return toSession(account, defaultMembership(account));
     }
 
     /**
@@ -79,23 +80,83 @@ public class AuthenticationService {
                 });
 
         userRepository.touchLastLogin(account.userId());
-        return toSession(account);
+        return toSession(account, defaultMembership(account));
     }
 
-    private SessionDto toSession(UserRepository.UserAccount account) {
-        // La tienda del usuario entra en el token; a partir de aqui es la unica
-        // que el backend aceptara para ese portador.
-        String token = jwtService.issueToken(account.email(), account.storeId(), List.of(account.authority()));
+    /**
+     * Cambia la tienda sobre la que opera quien ya tiene sesion.
+     *
+     * <p>No es un ajuste de interfaz: emite un token nuevo, con otra tienda y
+     * con el rol que esa persona tiene <b>en esa tienda</b>. Lo unico que lo
+     * autoriza es la membresia; sin ella no hay token, y por tanto no hay
+     * manera de pedirle nada al backend sobre esa tienda.
+     *
+     * <p>El invariante de siempre no cambia: la tienda sigue saliendo del
+     * token. Lo que cambia es a quien se le puede emitir cual.
+     */
+    @Transactional(readOnly = true)
+    public SessionDto switchStore(String email, long storeId) {
+        var account = userRepository.findActiveByEmail(email)
+                .orElseThrow(InvalidCredentialsException::new);
 
-        log.info("Sesion iniciada: {} ({}) en la tienda {}", account.email(), account.role(), account.storeId());
+        var membership = userRepository.findMembership(account.userId(), storeId)
+                .orElseThrow(() -> {
+                    log.warn("{} intento operar sobre la tienda {} sin trabajar en ella", email, storeId);
+                    return ForbiddenStoreException.notAMember(storeId, email);
+                });
+
+        log.info("{} pasa a operar la tienda {} como {}", email, storeId, membership.role());
+        return toSession(account, membership);
+    }
+
+    /** Las tiendas en las que esta persona trabaja, para poder elegir. */
+    @Transactional(readOnly = true)
+    public List<UserRepository.StoreMembership> memberships(String email) {
+        return userRepository.findActiveByEmail(email)
+                .map(account -> userRepository.findMemberships(account.userId()))
+                .orElseGet(List::of);
+    }
+
+    /**
+     * Con que tienda se abre sesion.
+     *
+     * <p>La de origen si sigue siendo suya, y si no la primera en la que
+     * trabaje. Quedarse sin ninguna es posible -a alguien se le retira de todas
+     * las tiendas- y entonces no hay sesion que abrir: un token sin tienda no
+     * podria pedir nada, y seria peor explicarlo despues que ahora.
+     */
+    private UserRepository.StoreMembership defaultMembership(UserRepository.UserAccount account) {
+        List<UserRepository.StoreMembership> memberships =
+                userRepository.findMemberships(account.userId());
+
+        if (memberships.isEmpty()) {
+            log.warn("El usuario {} no trabaja en ninguna tienda", account.email());
+            throw new InvalidCredentialsException();
+        }
+        return memberships.stream()
+                .filter(membership -> membership.storeId() == account.storeId())
+                .findFirst()
+                .orElseGet(memberships::getFirst);
+    }
+
+    private SessionDto toSession(UserRepository.UserAccount account,
+                                 UserRepository.StoreMembership membership) {
+        // La tienda activa entra en el token junto con el rol que esta persona
+        // tiene en ella; a partir de aqui es la unica que el backend aceptara
+        // para ese portador, y con esos permisos.
+        String token = jwtService.issueToken(
+                account.email(), membership.storeId(), List.of(membership.authority()));
+
+        log.info("Sesion iniciada: {} ({}) en la tienda {}",
+                account.email(), membership.role(), membership.storeId());
 
         return new SessionDto(
                 token,
                 securityProperties.jwt().expiration().toSeconds(),
                 account.email(),
                 account.fullName(),
-                account.role(),
-                account.storeId(),
-                storeRepository.findNameById(account.storeId()));
+                membership.role(),
+                membership.storeId(),
+                membership.storeName());
     }
 }
