@@ -141,6 +141,15 @@ class EndpointSecurityTest {
     private com.kardo.ingest.InventoryPdfExportService pdfExportService;
 
     @MockBean
+    private com.kardo.ingest.MarkdownLabelPdfService labelPdfService;
+
+    @MockBean
+    private com.kardo.inventory.InventoryInsightsService insightsService;
+
+    @MockBean
+    private com.kardo.inventory.RiskHistoryService riskHistoryService;
+
+    @MockBean
     private StoreRepository storeRepository;
 
     @MockBean
@@ -213,6 +222,9 @@ class EndpointSecurityTest {
                 "POST, /api/v1/inventory/alerts/7/decision",
                 "GET,  /api/v1/inventory/export",
                 "GET,  /api/v1/inventory/export/pdf",
+                "GET,  /api/v1/inventory/export/markdown-labels",
+                "GET,  /api/v1/inventory/insights",
+                "GET,  /api/v1/inventory/risk-history",
                 "GET,  /api/v1/inventory/ingest/history",
                 "POST, /api/v1/inventory/ingest/excel",
                 "POST, /api/v1/inventory/ingest/bulk-fix",
@@ -562,6 +574,26 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             verify(batchService).search(eq(TOKEN_STORE), any(), any(), anyInt());
+        }
+
+        /**
+         * El analisis agrega dinero de toda la tienda, de modo que una fuga aqui
+         * seria peor que en una consulta de detalle: una sola cifra ya delata
+         * cuanto factura el vecino.
+         */
+        @Test
+        @DisplayName("El analisis solo agrega la tienda del token")
+        void analisisSeCineALaTiendaDelToken() throws Exception {
+            when(insightsService.coverage(anyLong())).thenReturn(List.of());
+            when(insightsService.bySupplier(anyLong())).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/v1/inventory/insights")
+                            .param("storeId", String.valueOf(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            verify(insightsService).coverage(TOKEN_STORE);
+            verify(insightsService).bySupplier(TOKEN_STORE);
         }
 
         @Test

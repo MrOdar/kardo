@@ -12,7 +12,21 @@ const state = {
   storeId: 999,
   quarantine: [],   // filas devueltas por la ingesta, editables en la tabla
   scan: null,       // ultima guia leida por la IA
-  catalog: []       // productos para el selector de SKU
+  catalog: [],      // productos para el selector de SKU
+
+  // Lo que cada seccion ya trajo del servidor. La pantalla de inicio se arma
+  // con esto y no con llamadas propias: es un resumen, no una septima fuente de
+  // verdad que pueda contradecir a las demas.
+  dashboard: null,
+  alerts: null,
+  fefoQueue: [],
+  batches: [],
+  pendingWaste: [],
+  wasteHistory: [],
+  markdowns: [],
+  uploads: [],
+  quota: null,
+  riskSeries: []
 };
 
 /* ─────────────────────────── utilidades ─────────────────────────── */
@@ -33,12 +47,12 @@ function plural(count, singular, many) {
 
 function toast(message, tone = 'info') {
   const colors = {
-    info: 'bg-ink text-shell',
+    info: 'bg-ink text-white',
     ok: 'bg-risk-green text-white',
     error: 'bg-risk-red text-white'
   };
   const node = document.createElement('p');
-  node.className = `pointer-events-auto max-w-md rounded px-4 py-3 text-sm font-medium shadow-lg ${colors[tone]}`;
+  node.className = `pointer-events-auto max-w-md rounded-lg px-4 py-3 text-sm font-medium shadow-lift ${colors[tone]}`;
   node.textContent = message;
   $('toast').replaceChildren(node);
   window.setTimeout(() => node.remove(), tone === 'error' ? 8000 : 4000);
@@ -69,7 +83,7 @@ async function request(path, options = {}) {
 
 /* ──────────────────────── navegacion por pestañas ──────────────────────── */
 
-const TABS = ['semaforo', 'alertas', 'inventario', 'excel', 'recepcion', 'diagnostico'];
+const TABS = ['inicio', 'semaforo', 'alertas', 'inventario', 'excel', 'recepcion', 'analisis', 'diagnostico'];
 
 /**
  * Muestra una pestaña.
@@ -82,9 +96,16 @@ function showTab(name) {
   TABS.forEach((tab) => {
     const selected = tab === name;
     $(`tab-${tab}`).setAttribute('aria-selected', String(selected));
-    $(`tab-${tab}`).classList.toggle('text-shell', selected);
+    // El resto del aspecto de la pestaña activa lo lleva el CSS, atado a
+    // aria-selected: el estado visual no puede depender de que alguien se
+    // acuerde de añadir una clase aquí.
+    $(`tab-${tab}`).classList.toggle('text-white', selected);
     $(`panel-${tab}`).classList.toggle('hidden', !selected);
   });
+
+  // La pantalla de inicio se repinta con lo ya cargado, sin pedir nada: es un
+  // resumen de lo que las demas secciones ya trajeron.
+  if (name === 'inicio') renderToday();
 
   // El inventario se recarga al entrar: pudo cambiar por una venta o una merma.
   if (name === 'inventario' && state.token) {
@@ -97,6 +118,10 @@ function showTab(name) {
   }
   if (name === 'recepcion' && state.token) {
     loadQuota();
+  }
+  if (name === 'analisis' && state.token) {
+    loadInsights();
+    loadRiskHistory();
   }
   if (name === 'diagnostico' && state.token) {
     loadDiagnostics();
@@ -135,9 +160,422 @@ async function pingBackend() {
   }
 }
 
+/* ──────────────────── panel 0: lo primero de hoy ────────────────────
+ *
+ * Esta pantalla no consulta nada: se arma con lo que las demas secciones ya
+ * trajeron (state.dashboard, state.alerts, state.batches…). Es deliberado. Un
+ * resumen con llamadas propias acabaria contando una cifra distinta de la que
+ * muestra la seccion de al lado, y entonces no se puede confiar en ninguna.
+ */
+
+const fechaLarga = new Intl.DateTimeFormat('es-PE', {
+  weekday: 'long', day: 'numeric', month: 'long'
+});
+
+/** Las tres cosas que mueven dinero, cada una con su icono de trazo. */
+const ACTIVITY_ICONS = {
+  carga: '<path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+  rebaja: '<path d="M7 10h10M7 14h6"/><path d="M4 5h16v14l-3-2H4z"/>',
+  baja: '<path d="M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"/>'
+};
+
+/**
+ * Lo que hay que mirar hoy, en orden de lo que cuesta no mirarlo.
+ *
+ * El orden no es decorativo: arriba va lo que ya es perdida (un lote vencido
+ * con stock), luego lo que lo sera en horas, y al final lo que solo es
+ * conveniente. Una lista por fecha de creacion no serviria para nada.
+ */
+function todayPriorities() {
+  const items = [];
+  const dash = state.dashboard;
+
+  const vencidos = state.batches.filter((b) => b.daysToExpiry < 0 && b.currentQty > 0);
+  if (vencidos.length) {
+    const costo = vencidos.reduce((sum, b) => sum + Number(b.value ?? 0), 0);
+    items.push({
+      tone: 'expired', chip: plural(vencidos.length, 'lote', 'lotes'),
+      title: 'Mercadería vencida que sigue en el anaquel',
+      detail: `${money(costo)} que ya no se puede vender. Dar de baja antes de que se venda por error.`,
+      goto: 'inventario', cta: 'Dar de baja'
+    });
+  }
+
+  if (dash?.redAlertBatches > 0) {
+    items.push({
+      tone: 'red', chip: plural(dash.redAlertBatches, 'lote', 'lotes'),
+      title: 'Vencen en menos de 48 horas',
+      detail: 'Es la última ventana para rebajar o mover la mercadería con algo de margen.',
+      goto: 'semaforo', cta: 'Ver la cola'
+    });
+  }
+
+  const alertas = state.alerts?.alerts?.length ?? 0;
+  if (alertas) {
+    // La primera rebaja aplicable se puede resolver sin salir de aquí: llevar
+    // al operario a otra pantalla para pulsar un botón que cabe en esta linea
+    // es trabajo que le cobramos sin motivo.
+    const primera = state.alerts.alerts.find(
+      (alerta) => alerta.action === 'REBAJAR' && alerta.suggestedPrice !== null);
+
+    items.push({
+      tone: 'red', chip: plural(alertas, 'decisión', 'decisiones'),
+      title: 'Rebajas sugeridas sin resolver',
+      detail: primera
+        ? `La primera: ${primera.productName} a ${money(primera.suggestedPrice)} (−${
+            primera.discountPercent}%). En total, ${money(state.alerts.valueAtRisk)} de costo en riesgo.`
+        : `${money(state.alerts.valueAtRisk)} de costo en riesgo frente a ${
+            money(state.alerts.marginSacrificed)} de margen que cuesta rebajar.`,
+      goto: 'alertas', cta: 'Ver todas',
+      quick: primera
+        ? { batchId: primera.batchId, label: `Rebajar a ${money(primera.suggestedPrice)}` }
+        : null
+    });
+  }
+
+  if (state.pendingWaste.length) {
+    const esGerente = state.session?.role === 'MANAGER';
+    const perdida = state.pendingWaste.reduce((sum, e) => sum + Number(e.totalLoss ?? 0), 0);
+    items.push({
+      tone: 'amber', chip: plural(state.pendingWaste.length, 'baja', 'bajas'),
+      title: esGerente ? 'Bajas esperando tu decisión' : 'Bajas esperando al gerente',
+      detail: `${money(perdida)} inmovilizados. ${esGerente
+        ? 'Consolidar la pérdida o devolver la mercadería al stock.'
+        : 'Las unidades no se venden hasta que alguien resuelva.'}`,
+      goto: 'inventario', cta: esGerente ? 'Resolver' : 'Ver'
+    });
+  }
+
+  if (state.quarantine.length) {
+    items.push({
+      tone: 'amber', chip: plural(state.quarantine.length, 'fila', 'filas'),
+      title: 'Filas de la última carga sin corregir',
+      detail: 'No entraron al inventario. Se arreglan en la propia tabla, sin volver a subir el archivo.',
+      goto: 'excel', cta: 'Corregir'
+    });
+  }
+
+  if (dash?.linesWithDiscrepancy > 0) {
+    items.push({
+      tone: 'amber', chip: plural(dash.linesWithDiscrepancy, 'línea', 'líneas'),
+      title: 'Guías con lo facturado distinto de lo recibido',
+      detail: 'Un descuadre que no se reclama al proveedor lo paga la tienda.',
+      goto: 'recepcion', cta: 'Revisar'
+    });
+  }
+
+  if (dash?.yellowAlertBatches > 0) {
+    items.push({
+      tone: 'amber', chip: plural(dash.yellowAlertBatches, 'lote', 'lotes'),
+      title: 'Vencen esta semana',
+      detail: 'Todavía se venden a precio de lista; es el momento más barato para actuar.',
+      goto: 'semaforo', cta: 'Ver la cola'
+    });
+  }
+
+  if (state.quota && state.quota.remainingToday <= 3) {
+    items.push({
+      tone: 'neutral', chip: `${state.quota.remainingToday} escaneos`,
+      title: 'Queda poco cupo de lectura de guías',
+      detail: 'La visión multimodal tiene un tope diario por tienda; se renueva a medianoche.',
+      goto: 'recepcion', cta: 'Ver cupo'
+    });
+  }
+
+  return items;
+}
+
+const PRIORITY_CHIPS = {
+  expired: 'chip-expired', red: 'chip-red', amber: 'chip-amber', neutral: 'chip-neutral'
+};
+
+function priorityItem(item) {
+  const li = document.createElement('li');
+  // En el movil el boton baja a su propia linea en vez de estrujar el titulo
+  // hasta una palabra por renglon: `basis-48` es el ancho por debajo del cual
+  // el texto deja de ser legible y prefiere envolver.
+  li.className = 'flex flex-wrap items-start gap-x-4 gap-y-3 px-5 py-4';
+  li.innerHTML = `
+    <span class="shrink-0 pt-0.5 sm:w-24"><span class="chip ${PRIORITY_CHIPS[item.tone]}">${item.chip}</span></span>
+    <span class="min-w-0 flex-1 basis-48">
+      <span class="block font-semibold">${escapeHtml(item.title)}</span>
+      <span class="block text-sm text-ink-soft">${escapeHtml(item.detail)}</span>
+    </span>
+    <span class="ml-auto flex shrink-0 gap-2">
+      ${item.quick ? `
+        <button type="button" data-quick="${item.quick.batchId}"
+                class="rounded-md bg-brand px-3 py-1.5 text-sm font-semibold text-white
+                       transition-colors hover:bg-brand-deep disabled:opacity-60">
+          ${escapeHtml(item.quick.label)}
+        </button>` : ''}
+      <button type="button" data-goto="${item.goto}"
+              class="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-semibold
+                     text-ink transition-colors hover:border-brand hover:text-brand">
+        ${escapeHtml(item.cta)}
+      </button>
+    </span>`;
+  return li;
+}
+
+/** Reparto de los lotes con existencias por lo que les queda de vida. */
+function expiryBuckets() {
+  const buckets = [
+    { key: 'expired', label: 'Vencidos, con stock', bar: 'bg-ink', dot: 'bg-ink', count: 0, value: 0 },
+    { key: 'red', label: 'Vencen en 48 h', bar: 'bg-risk-red', dot: 'bg-risk-red', count: 0, value: 0 },
+    { key: 'amber', label: 'Vencen en 5 días', bar: 'bg-risk-amber', dot: 'bg-risk-amber', count: 0, value: 0 },
+    { key: 'green', label: 'Con holgura', bar: 'bg-risk-green', dot: 'bg-risk-green', count: 0, value: 0 }
+  ];
+  const index = { expired: 0, red: 1, amber: 2, green: 3 };
+
+  state.batches.filter((b) => b.currentQty > 0).forEach((batch) => {
+    const bucket = buckets[index[batchState(batch.daysToExpiry).key]];
+    bucket.count += 1;
+    bucket.value += Number(batch.value ?? 0);
+  });
+  return buckets;
+}
+
+function renderExpiryBar() {
+  const buckets = expiryBuckets();
+  const total = buckets.reduce((sum, b) => sum + b.count, 0);
+  const bar = $('expiry-bar');
+  const legend = $('expiry-legend');
+
+  if (!total) {
+    bar.replaceChildren();
+    legend.innerHTML = '<p class="py-2 text-ink-faint">Sin lotes con existencias.</p>';
+    return;
+  }
+
+  bar.replaceChildren(...buckets.filter((b) => b.count).map((b) => {
+    const span = document.createElement('span');
+    span.className = b.bar;
+    span.style.width = `${(b.count / total) * 100}%`;
+    span.title = `${b.label}: ${b.count}`;
+    return span;
+  }));
+
+  legend.replaceChildren(...buckets.map((b) => {
+    const row = document.createElement('div');
+    row.className = `flex items-baseline justify-between gap-4 ${b.count ? '' : 'text-ink-faint'}`;
+    row.innerHTML = `
+      <dt class="flex items-center gap-2">
+        <span class="h-2 w-2 shrink-0 rounded-full ${b.dot}" aria-hidden="true"></span>
+        ${b.label}
+      </dt>
+      <dd class="num shrink-0">
+        <span class="font-semibold">${b.count}</span>
+        <span class="text-ink-faint">· ${money(b.value)}</span>
+      </dd>`;
+    return row;
+  }));
+}
+
+/**
+ * Las tres historias en una sola linea de tiempo.
+ *
+ * Cada una vive en su seccion, y ahi es donde se trabaja; juntas y en orden son
+ * lo que responde «que ha pasado en la tienda desde ayer».
+ */
+function recentActivity() {
+  const eventos = [];
+
+  state.uploads.forEach((entry) => eventos.push({
+    kind: 'carga', at: new Date(entry.createdAt), who: entry.uploadedBy,
+    text: `Carga de <span class="font-mono text-xs">${escapeHtml(entry.fileName)}</span>: ${
+      plural(entry.insertedRows, 'lote creado', 'lotes creados')}${
+      entry.quarantinedRows ? `, ${entry.quarantinedRows} en cuarentena` : ''}`
+  }));
+
+  state.markdowns.forEach((row) => eventos.push({
+    kind: 'rebaja', at: new Date(row.decided_at), who: row.decided_by,
+    text: row.decision === 'APPLIED'
+      ? `<span class="font-semibold">${escapeHtml(row.product_name)}</span> rebajado a ${
+          money(row.suggested_price)} (peldaño ${row.step_percent}%)`
+      : `Rebaja descartada en <span class="font-semibold">${escapeHtml(row.product_name)}</span>`
+  }));
+
+  state.wasteHistory.forEach((entry) => eventos.push({
+    kind: 'baja', at: new Date(entry.loggedAt), who: entry.authorizedBy || entry.operatorId,
+    text: `<span class="font-semibold">${escapeHtml(entry.productName)}</span>: baja de ${
+      entry.quantity} u · ${(WASTE_STATUS[entry.status] ?? { label: entry.status }).label.toLowerCase()}`
+  }));
+
+  return eventos.sort((a, b) => b.at - a.at).slice(0, 7);
+}
+
+/** Las cinco primeras de la cola FEFO, que es lo que cabe antes de despachar. */
+function renderTodayQueue() {
+  const list = $('today-queue');
+  const rows = state.fefoQueue.slice(0, 5);
+
+  if (!rows.length) {
+    list.innerHTML = '<li class="px-5 py-8 text-center text-sm text-ink-faint">No hay lotes activos con stock.</li>';
+    return;
+  }
+
+  list.replaceChildren(...rows.map((row, index) => {
+    const li = document.createElement('li');
+    li.className = 'flex items-center gap-x-3 px-4 py-2.5 sm:px-5';
+    li.innerHTML = `
+      <span class="num w-5 shrink-0 text-xs text-ink-faint">${index + 1}</span>
+      <span class="shrink-0 sm:w-16">${stateChip(Number(row.dias_restantes))}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block truncate font-medium">${escapeHtml(row.name)}</span>
+        <span class="num block text-xs text-ink-faint sm:hidden">${row.current_qty} u</span>
+      </span>
+      <span class="hidden w-40 shrink-0 truncate text-right font-mono text-xs text-ink-faint lg:inline">${escapeHtml(row.batch_code)}</span>
+      <span class="num hidden w-16 shrink-0 text-right text-sm text-ink-soft sm:inline">${row.current_qty} u</span>
+      <span class="num w-20 shrink-0 text-right text-sm font-semibold sm:w-24">${money(row.valor)}</span>`;
+    return li;
+  }));
+}
+
+$('btn-queue-all').addEventListener('click', () => {
+  showTab('semaforo');
+  $('tab-semaforo').focus();
+});
+
+function renderActivity() {
+  const list = $('activity-list');
+  const eventos = recentActivity();
+
+  if (!eventos.length) {
+    // Decir «nada» y callarse deja la mitad de la pantalla muerta sin explicar
+    // qué llegará a aparecer aquí.
+    list.innerHTML = `
+      <li class="py-3 text-ink-soft">
+        Todavía no se ha movido nada. Aquí quedará registrado, con autor y hora:
+      </li>
+      <li class="py-2 text-ink-faint">· cada carga de Excel y los lotes que creó</li>
+      <li class="py-2 text-ink-faint">· cada rebaja decidida y a qué precio</li>
+      <li class="py-2 text-ink-faint">· cada baja declarada y quién la resolvió</li>`;
+    return;
+  }
+
+  list.replaceChildren(...eventos.map((evento) => {
+    const li = document.createElement('li');
+    li.className = 'flex items-start gap-3 py-3';
+    li.innerHTML = `
+      <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-tint">
+        <svg class="h-3.5 w-3.5 text-brand-deep" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          ${ACTIVITY_ICONS[evento.kind]}
+        </svg>
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="block">${evento.text}</span>
+        <span class="num block text-xs text-ink-faint">${
+          fechaHora.format(evento.at)} · ${escapeHtml(evento.who ?? '—')}</span>
+      </span>`;
+    return li;
+  }));
+}
+
+function renderToday() {
+  $('today-date').textContent = fechaLarga.format(new Date());
+
+  const abierta = Boolean(state.token);
+  $('today-onboarding').classList.toggle('hidden', abierta);
+  $('today-body').classList.toggle('hidden', !abierta);
+  if (!abierta) {
+    $('today-badge').classList.add('hidden');
+    return;
+  }
+
+  const dash = state.dashboard;
+  $('t-risk').textContent = money(dash?.valueAtRisk);
+  $('t-risk-note').textContent = dash
+    ? `${plural(dash.redAlertBatches, 'lote', 'lotes')} en 48 h · ${
+        plural(dash.yellowAlertBatches, 'lote', 'lotes')} en 5 días`
+    : '—';
+  $('t-decisions').textContent = state.alerts?.alerts?.length ?? '—';
+  $('t-inventory').textContent = money(dash?.inventoryValue);
+  $('t-active').textContent = plural(dash?.activeBatches ?? 0, 'lote activo', 'lotes activos');
+  $('t-loss').textContent = money(state.wasteHistory
+    .filter((entry) => entry.status === 'APPROVED')
+    .reduce((sum, entry) => sum + Number(entry.totalLoss ?? 0), 0));
+
+  const items = todayPriorities();
+  const list = $('priority-list');
+  const badge = $('today-badge');
+
+  badge.textContent = items.length;
+  badge.classList.toggle('hidden', items.length === 0);
+  $('priority-count').textContent = items.length
+    ? plural(items.length, 'cosa por mirar', 'cosas por mirar')
+    : 'todo resuelto';
+
+  if (!items.length) {
+    // Un panel vacio porque esta todo resuelto no dice lo mismo que uno vacio
+    // porque nadie ha cargado nada: aqui se sabe cual de los dos es.
+    list.innerHTML = `
+      <li class="flex items-start gap-3 px-5 py-8">
+        <span class="chip chip-green">Al día</span>
+        <span class="text-sm text-ink-soft">
+          Nada vence en los próximos días, no hay bajas pendientes y la última carga entró limpia.
+        </span>
+      </li>`;
+  } else {
+    list.replaceChildren(...items.map(priorityItem));
+  }
+
+  renderTodayTrend();
+  renderExpiryBar();
+  renderActivity();
+  renderTodayQueue();
+}
+
+// Un clic en la prioridad abre la seccion donde se resuelve: la lista no es un
+// informe, es el indice de lo que hay que hacer.
+$('priority-list').addEventListener('click', async (event) => {
+  // Aplicar la rebaja aqui usa el mismo endpoint que el panel de alertas; lo
+  // que cambia es donde esta el boton, no lo que queda firmado en los libros.
+  const rebajar = event.target.closest('[data-quick]');
+  if (rebajar) {
+    rebajar.disabled = true;
+    try {
+      const board = await request(`/inventory/alerts/${rebajar.dataset.quick}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'APPLIED' })
+      });
+      renderAlerts(board);
+      await loadMarkdownHistory();
+      await loadBatches();
+      toast('Rebaja aplicada. El lote ya se vende a ese precio.', 'ok');
+    } catch (error) {
+      rebajar.disabled = false;
+      toast(error.message, 'error');
+    }
+    return;
+  }
+
+  const destino = event.target.closest('[data-goto]');
+  if (!destino) return;
+  showTab(destino.dataset.goto);
+  $(`tab-${destino.dataset.goto}`).focus();
+});
+
+$('btn-today-refresh').addEventListener('click', () => {
+  if (!state.token) {
+    toast('Restaura la tienda demo para tener algo que mirar.');
+    return;
+  }
+  refreshDashboard();
+  loadBatches();
+  loadPendingWaste();
+  loadWasteHistory();
+  loadMarkdownHistory();
+  loadUploadHistory();
+  loadRiskHistory();
+});
+
 /* ──────────────────────── panel 1: semaforo FEFO ──────────────────────── */
 
 function renderDashboard(dashboard) {
+  state.dashboard = dashboard;
+  renderToday();
   $('m-red').textContent = dashboard.redAlertBatches;
   $('m-amber').textContent = dashboard.yellowAlertBatches;
   $('m-value').textContent = money(dashboard.valueAtRisk);
@@ -149,32 +587,52 @@ function renderDashboard(dashboard) {
 
 /** El estado se deriva de los dias restantes, igual que el semaforo del DDL. */
 function batchState(days) {
-  if (days < 0) return { key: 'expired', label: 'Vencido', tone: 'text-ink' };
-  if (days <= 2) return { key: 'red', label: days === 0 ? 'Vence hoy' : `${days} d`, tone: 'text-risk-red' };
-  if (days <= 5) return { key: 'amber', label: `${days} d`, tone: 'text-risk-amber' };
-  return { key: 'green', label: `${days} d`, tone: 'text-ink-soft' };
+  if (days < 0) return { key: 'expired', label: 'Vencido', chip: 'chip-expired', tone: 'text-ink' };
+  if (days <= 2) {
+    return { key: 'red', label: days === 0 ? 'Hoy' : `${days} d`, chip: 'chip-red', tone: 'text-risk-red' };
+  }
+  if (days <= 5) return { key: 'amber', label: `${days} d`, chip: 'chip-amber', tone: 'text-risk-amber' };
+  return { key: 'green', label: `${days} d`, chip: 'chip-neutral', tone: 'text-ink-soft' };
+}
+
+/**
+ * El estado como etiqueta y no como filete de color.
+ *
+ * Un filete lateral obliga a saber de antemano qué significa cada color. El
+ * chip lleva el dato dentro —"2 d", "Vencido"—, así que el color refuerza pero
+ * nunca comunica solo.
+ */
+function stateChip(days) {
+  const state_ = batchState(days);
+  return `<span class="chip ${state_.chip}">${state_.label}</span>`;
 }
 
 function renderFefoQueue(rows) {
   const list = $('fefo-queue');
+  state.fefoQueue = rows;
+  renderToday();
   if (!rows.length) {
-    list.innerHTML = '<li class="py-10 text-center text-sm text-ink-faint">No hay lotes activos con stock.</li>';
+    list.innerHTML =
+      '<li class="px-5 py-14 text-center text-sm text-ink-faint">No hay lotes activos con stock.</li>';
     return;
   }
-  list.replaceChildren(...rows.map((row) => {
+  list.replaceChildren(...rows.map((row, index) => {
     const days = Number(row.dias_restantes);
-    const state_ = batchState(days);
     const item = document.createElement('li');
     // En pantallas estrechas se ocultan lote y fecha: lo que no puede faltar es
     // cuanto le queda al lote, que producto es y cuanto dinero hay en juego.
-    item.className = `state-${state_.key} flex items-baseline gap-x-3 gap-y-1 border-l-4 py-3 pl-4`;
+    item.className = 'flex items-center gap-x-3 px-4 py-3 sm:px-5';
     item.innerHTML = `
-      <span class="num w-14 shrink-0 font-bold ${state_.tone}">${state_.label}</span>
-      <span class="min-w-0 flex-1 truncate font-semibold" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>
-      <span class="hidden font-mono text-xs text-ink-faint sm:inline">${escapeHtml(row.batch_code)}</span>
-      <span class="num w-16 shrink-0 text-right text-sm text-ink-soft">${row.current_qty} u</span>
-      <span class="num w-24 shrink-0 text-right text-sm">${money(row.valor)}</span>
-      <span class="num hidden w-28 shrink-0 text-right text-sm text-ink-faint sm:inline">${row.expiration_date}</span>`;
+      <span class="num w-5 shrink-0 text-xs text-ink-faint">${index + 1}</span>
+      <span class="shrink-0 sm:w-16">${stateChip(days)}</span>
+      <span class="min-w-0 flex-1" title="${escapeHtml(row.name)}">
+        <span class="block truncate font-medium">${escapeHtml(row.name)}</span>
+        <span class="num block text-xs text-ink-faint sm:hidden">${row.current_qty} u</span>
+      </span>
+      <span class="hidden font-mono text-xs text-ink-faint lg:inline">${escapeHtml(row.batch_code)}</span>
+      <span class="num hidden w-16 shrink-0 text-right text-sm text-ink-soft sm:inline">${row.current_qty} u</span>
+      <span class="num w-20 shrink-0 text-right text-sm font-semibold sm:w-24">${money(row.valor)}</span>
+      <span class="num hidden w-24 shrink-0 text-right text-sm text-ink-faint lg:inline">${row.expiration_date}</span>`;
     return item;
   }));
 }
@@ -205,6 +663,10 @@ async function refreshDashboard() {
 async function resetDemo() {
   const button = $('btn-demo');
   button.disabled = true;
+  // Los tres caminos al mismo sitio se bloquean juntos; uno de ellos activo
+  // mientras los otros giran invita a sembrar la demo dos veces.
+  $('btn-demo-home').disabled = true;
+  $('btn-demo-home').textContent = 'Restaurando…';
   $('demo-spinner').classList.remove('hidden');
   $('demo-label').textContent = 'Restaurando…';
 
@@ -223,11 +685,14 @@ async function resetDemo() {
     await loadWasteHistory();
     await loadUploadHistory();
     await loadBatches();
+    await loadRiskHistory();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
   } catch (error) {
     toast(`No se pudo restaurar la demo: ${error.message}`, 'error');
   } finally {
     button.disabled = false;
+    $('btn-demo-home').disabled = false;
+    $('btn-demo-home').textContent = 'Restaurar tienda demo';
     $('demo-spinner').classList.add('hidden');
     $('demo-label').textContent = 'Restaurar tienda demo';
   }
@@ -245,13 +710,24 @@ function applySession(session) {
   state.session = session;
 
   const roles = { MANAGER: 'Gerente de tienda', OPERATOR: 'Operario' };
+  const rol = roles[session.role] ?? session.role;
+
   $('session').classList.remove('hidden');
   // Con sesion abierta el boton deja de invitar a entrar y pasa a ofrecer el
   // cambio de persona, que es lo que hace falta para recorrer el circuito de
   // mermas: quien declara no puede resolver.
   $('btn-switch').textContent = 'Cambiar de usuario';
   $('session-user').textContent = session.email;
-  $('session-role').textContent = `${roles[session.role] ?? session.role} · ${session.storeName}`;
+  $('session-role').textContent = `${rol} · ${session.storeName}`;
+
+  // En movil la barra lateral esta colapsada y la sesion vive arriba.
+  $('session-mobile').classList.remove('hidden');
+  $('session-mobile').textContent = `${session.email} · ${rol}`;
+  $('btn-switch-mobile').textContent = 'Cambiar';
+
+  // Con sesion abierta la pantalla de inicio deja de ser una invitacion y pasa
+  // a ser el resumen del dia.
+  renderToday();
 }
 
 /* ───────────────────────── cambio de usuario ───────────────────────── */
@@ -280,7 +756,7 @@ async function switchUser(event) {
 
     // Todo lo que se ve depende de quien mira: roles, botones y tienda.
     await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches(),
-                       loadMarkdownHistory(), loadQuota(), loadWasteHistory()]);
+                       loadMarkdownHistory(), loadQuota(), loadWasteHistory(), loadRiskHistory()]);
     await refreshDashboard();
     toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
   } catch (failure) {
@@ -335,7 +811,7 @@ async function registerSale(event) {
 
   const button = event.submitter ?? $('sale-form').querySelector('button[type="submit"]');
   button.disabled = true;
-  $('sale-result').textContent = '';
+  $('sale-result').classList.add('hidden');
 
   try {
     const sale = await request('/inventory/sales', {
@@ -348,11 +824,12 @@ async function registerSale(event) {
       .map((line) => `${line.batchCode} (vence en ${plural(line.daysToExpiry, 'día', 'días')}): ${line.quantity} u`)
       .join(' · ');
     $('sale-result').textContent = `${desglose} — margen ${money(sale.margin)}`;
+    $('sale-result').classList.remove('hidden');
 
     await refreshDashboard();
     toast(`Salida registrada: ${plural(quantity, 'unidad', 'unidades')} de ${sale.productName}.`, 'ok');
   } catch (error) {
-    $('sale-result').textContent = '';
+    $('sale-result').classList.add('hidden');
     toast(error.message, 'error');
   } finally {
     button.disabled = false;
@@ -385,6 +862,14 @@ async function loadBatches() {
 
 function renderBatches(batches, query) {
   const body = $('batch-rows');
+
+  // El reparto de vencimientos de la pantalla de inicio necesita el inventario
+  // completo; una lista ya filtrada por el buscador lo contaria mal.
+  if (!query && $('batch-filter').value === 'TODOS') {
+    state.batches = batches;
+    renderToday();
+  }
+
   $('batch-count').textContent = batches.length
     ? `${plural(batches.length, 'lote', 'lotes')}`
     : 'Sin resultados';
@@ -397,18 +882,16 @@ function renderBatches(batches, query) {
   }
 
   body.replaceChildren(...batches.map((batch) => {
-    const state_ = batchState(batch.daysToExpiry);
     const tr = document.createElement('tr');
-    tr.className = `state-${state_.key} border-l-4`;
     tr.innerHTML = `
-      <td class="num px-3 py-2 ${state_.tone} font-semibold">${state_.label}</td>
-      <td class="px-3 py-2 font-semibold">${escapeHtml(batch.productName)}</td>
-      <td class="px-3 py-2 font-mono text-xs text-ink-soft">${escapeHtml(batch.sku)}</td>
-      <td class="px-3 py-2 font-mono text-xs text-ink-soft">${escapeHtml(batch.batchCode)}</td>
-      <td class="num px-3 py-2 text-right">${batch.currentQty}</td>
-      <td class="num px-3 py-2 text-right ${batch.quarantinedQty ? 'text-risk-amber font-semibold' : 'text-ink-faint'}">${batch.quarantinedQty}</td>
-      <td class="num px-3 py-2 text-right">${money(batch.value)}</td>
-      <td class="px-3 py-2 text-ink-soft">${escapeHtml(batch.status)}</td>`;
+      <td class="px-4 py-2.5">${stateChip(batch.daysToExpiry)}</td>
+      <td class="px-4 py-2.5 font-medium">${escapeHtml(batch.productName)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs text-ink-soft">${escapeHtml(batch.sku)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs text-ink-soft">${escapeHtml(batch.batchCode)}</td>
+      <td class="num px-4 py-2.5 text-right">${batch.currentQty}</td>
+      <td class="num px-4 py-2.5 text-right ${batch.quarantinedQty ? 'text-risk-amber font-semibold' : 'text-ink-faint'}">${batch.quarantinedQty}</td>
+      <td class="num px-4 py-2.5 text-right font-semibold">${money(batch.value)}</td>
+      <td class="px-4 py-2.5 text-xs text-ink-soft">${escapeHtml(batch.status)}</td>`;
     return tr;
   }));
 }
@@ -473,6 +956,9 @@ function renderPendingWaste(entries) {
   const panel = $('waste-pending');
   const body = $('waste-rows');
 
+  state.pendingWaste = entries;
+  renderToday();
+
   if (!entries.length) {
     panel.classList.add('hidden');
     body.replaceChildren();
@@ -489,13 +975,13 @@ function renderPendingWaste(entries) {
   body.replaceChildren(...entries.map((entry) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.productName)}</td>
-      <td class="px-3 py-2 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
-      <td class="num px-3 py-2">${entry.quantity}</td>
-      <td class="num px-3 py-2 text-risk-red">${money(entry.totalLoss)}</td>
-      <td class="px-3 py-2">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
-      <td class="px-3 py-2 text-ink-soft">${escapeHtml(entry.operatorId)}</td>
-      <td class="px-3 py-2">${decisionCell(entry, isManager, me)}</td>`;
+      <td class="px-4 py-2.5 font-medium">${escapeHtml(entry.productName)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
+      <td class="num px-4 py-2.5">${entry.quantity}</td>
+      <td class="num px-4 py-2.5 text-risk-red">${money(entry.totalLoss)}</td>
+      <td class="px-4 py-2.5">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
+      <td class="px-4 py-2.5 text-ink-soft">${escapeHtml(entry.operatorId)}</td>
+      <td class="px-4 py-2.5">${decisionCell(entry, isManager, me)}</td>`;
     return tr;
   }));
 }
@@ -511,9 +997,9 @@ function decisionCell(entry, isManager, me) {
   return `
     <span class="flex gap-2">
       <button data-waste="${entry.wasteId}" data-decision="approve"
-              class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Aprobar</button>
+              class="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-deep">Aprobar</button>
       <button data-waste="${entry.wasteId}" data-decision="reject"
-              class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">Devolver al stock</button>
+              class="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft transition-colors hover:border-ink-faint hover:text-ink">Devolver al stock</button>
     </span>`;
 }
 
@@ -565,6 +1051,11 @@ function renderWasteHistory(entries, status) {
   const empty = $('waste-history-empty');
   const total = $('waste-history-total');
 
+  if (!status) {
+    state.wasteHistory = entries;
+    renderToday();
+  }
+
   if (!entries.length) {
     body.replaceChildren();
     empty.classList.remove('hidden');
@@ -588,14 +1079,14 @@ function renderWasteHistory(entries, status) {
     const estado = WASTE_STATUS[entry.status] ?? { label: entry.status, tone: 'text-ink-soft' };
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="num px-3 py-2 text-xs text-ink-faint">${new Date(entry.loggedAt).toLocaleDateString('es-PE')}</td>
-      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.productName)}</td>
-      <td class="px-3 py-2 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
-      <td class="num px-3 py-2 text-right">${entry.quantity}</td>
-      <td class="num px-3 py-2 text-right ${entry.status === 'APPROVED' ? 'text-risk-red' : 'text-ink-faint'}">${money(entry.totalLoss)}</td>
-      <td class="px-3 py-2">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
-      <td class="px-3 py-2 text-xs text-ink-soft">${escapeHtml(entry.operatorId)}</td>
-      <td class="px-3 py-2 text-xs">
+      <td class="num px-4 py-2.5 text-xs text-ink-faint">${new Date(entry.loggedAt).toLocaleDateString('es-PE')}</td>
+      <td class="px-4 py-2.5 font-medium">${escapeHtml(entry.productName)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs">${escapeHtml(entry.batchCode)}</td>
+      <td class="num px-4 py-2.5 text-right">${entry.quantity}</td>
+      <td class="num px-4 py-2.5 text-right ${entry.status === 'APPROVED' ? 'text-risk-red' : 'text-ink-faint'}">${money(entry.totalLoss)}</td>
+      <td class="px-4 py-2.5">${WASTE_REASONS[entry.reason] ?? escapeHtml(entry.reason)}</td>
+      <td class="px-4 py-2.5 text-xs text-ink-soft">${escapeHtml(entry.operatorId)}</td>
+      <td class="px-4 py-2.5 text-xs">
         <span class="font-semibold ${estado.tone}">${estado.label}</span>
         ${entry.authorizedBy ? `<span class="block text-ink-faint">${escapeHtml(entry.authorizedBy)}</span>` : ''}
       </td>`;
@@ -629,6 +1120,9 @@ function renderAlerts(board) {
   const empty = $('alert-empty');
   const badge = $('alert-badge');
 
+  state.alerts = board;
+  renderToday();
+
   $('a-risk').textContent = money(board.valueAtRisk);
   $('a-margin').textContent = money(board.marginSacrificed);
   $('a-silenced').textContent = board.silenced;
@@ -652,9 +1146,7 @@ function renderAlerts(board) {
 }
 
 function alertRow(alert) {
-  const state_ = batchState(alert.daysToExpiry);
   const tr = document.createElement('tr');
-  tr.className = `state-${state_.key} border-l-4`;
 
   // Si el lote ya está en oferta se dice el precio, no el peldaño: es lo que
   // el operario puede ir a comprobar en la etiqueta del anaquel.
@@ -666,23 +1158,23 @@ function alertRow(alert) {
       : '';
 
   tr.innerHTML = `
-    <td class="num px-3 py-2 font-bold ${state_.tone}">${state_.label}</td>
-    <td class="px-3 py-2">
+    <td class="px-4 py-3 align-top">${stateChip(alert.daysToExpiry)}</td>
+    <td class="px-4 py-3">
       <span class="font-semibold">${escapeHtml(alert.productName)}</span>
       <span class="font-mono text-xs text-ink-faint">${escapeHtml(alert.batchCode)}</span> ${previo}
       <span class="block text-xs text-ink-soft">${escapeHtml(alert.rationale)}</span>
     </td>
-    <td class="num px-3 py-2 text-right">${alert.sellableQty}</td>
-    <td class="num px-3 py-2 text-right text-ink-faint">${money(alert.retailPrice)}</td>
-    <td class="num px-3 py-2 text-right font-bold">${
+    <td class="num px-4 py-2.5 text-right">${alert.sellableQty}</td>
+    <td class="num px-4 py-2.5 text-right text-ink-faint">${money(alert.retailPrice)}</td>
+    <td class="num px-4 py-2.5 text-right font-bold">${
       alert.suggestedPrice === null
         ? '—'
         : `${money(alert.suggestedPrice)} <span class="text-xs font-normal text-risk-amber">−${alert.discountPercent}%</span>`
     }</td>
-    <td class="num px-3 py-2 text-right text-xs text-ink-soft">
+    <td class="num px-4 py-2.5 text-right text-xs text-ink-soft">
       cede ${money(alert.marginSacrificed)}<br>riesgo ${money(alert.valueAtRisk)}
     </td>
-    <td class="px-3 py-2">${alertActions(alert)}</td>`;
+    <td class="px-4 py-2.5">${alertActions(alert)}</td>`;
 
   return tr;
 }
@@ -693,7 +1185,7 @@ function alertActions(alert) {
   // "quítala": es la única forma de volver al precio de lista desde aquí.
   const descartar = `
     <button data-alert="${alert.batchId}" data-decision="DISMISSED"
-            class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">${
+            class="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft transition-colors hover:border-ink-faint hover:text-ink">${
               alert.markdownPrice ? 'Quitar la oferta' : 'Descartar'
             }</button>`;
 
@@ -711,7 +1203,7 @@ function alertActions(alert) {
   return `
     <span class="flex gap-2">
       <button data-alert="${alert.batchId}" data-decision="APPLIED"
-              class="rounded bg-ink px-3 py-1 text-xs font-semibold text-shell hover:bg-ink-soft">Rebajar a ${money(alert.suggestedPrice)}</button>
+              class="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-deep">Rebajar a ${money(alert.suggestedPrice)}</button>
       ${descartar}
     </span>`;
 }
@@ -778,6 +1270,8 @@ async function loadAlerts() {
 
 function renderMarkdownHistory(rows) {
   const list = $('alert-history');
+  state.markdowns = rows;
+  renderToday();
   if (!rows.length) {
     list.innerHTML = '<li class="py-6 text-center text-ink-faint">Todavía no se ha decidido ninguna rebaja.</li>';
     return;
@@ -855,6 +1349,9 @@ async function uploadExcel(file) {
     $('s-quarantined').textContent = summary.totalQuarantined;
     $('ingest-summary').classList.remove('hidden');
     $('ingest-summary').classList.add('grid');
+    // La explicación de qué espera el archivo deja sitio al resultado: una vez
+    // cargado, lo que importa es cuántas filas entraron.
+    $('ingest-hint').classList.add('hidden');
 
     state.quarantine = summary.quarantinedRows.map((row) => ({ ...row, values: { ...row.originalValues } }));
     renderQuarantine();
@@ -884,6 +1381,9 @@ async function loadUploadHistory() {
     return;
   }
 
+  state.uploads = history;
+  renderToday();
+
   const panel = $('upload-history');
   if (!history.length) {
     panel.classList.add('hidden');
@@ -894,14 +1394,14 @@ async function loadUploadHistory() {
   $('history-rows').replaceChildren(...history.map((entry) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="px-3 py-2 font-semibold">${escapeHtml(entry.fileName)}</td>
-      <td class="px-3 py-2 text-ink-soft">${escapeHtml(entry.uploadedBy)}</td>
-      <td class="num px-3 py-2 text-ink-soft">${fechaHora.format(new Date(entry.createdAt))}</td>
-      <td class="num px-3 py-2">${entry.totalRows}</td>
-      <td class="num px-3 py-2 text-risk-green">${entry.insertedRows}</td>
-      <td class="num px-3 py-2 ${entry.quarantinedRows ? 'text-risk-red' : 'text-ink-faint'}">${entry.quarantinedRows}</td>
-      <td class="px-3 py-2 font-mono text-xs text-ink-faint" title="SHA-256 del contenido">${entry.fileHash.slice(0, 12)}…</td>
-      <td class="px-3 py-2">${revertAction(entry)}</td>`;
+      <td class="px-4 py-2.5 font-mono text-xs">${escapeHtml(entry.fileName)}</td>
+      <td class="px-4 py-2.5 text-ink-soft">${escapeHtml(entry.uploadedBy)}</td>
+      <td class="num px-4 py-2.5 text-ink-soft">${fechaHora.format(new Date(entry.createdAt))}</td>
+      <td class="num px-4 py-2.5">${entry.totalRows}</td>
+      <td class="num px-4 py-2.5 text-risk-green">${entry.insertedRows}</td>
+      <td class="num px-4 py-2.5 ${entry.quarantinedRows ? 'text-risk-red' : 'text-ink-faint'}">${entry.quarantinedRows}</td>
+      <td class="px-4 py-2.5 font-mono text-xs text-ink-faint" title="SHA-256 del contenido">${entry.fileHash.slice(0, 12)}…</td>
+      <td class="px-4 py-2.5">${revertAction(entry)}</td>`;
     return tr;
   }));
 }
@@ -915,7 +1415,7 @@ function revertAction(entry) {
     return '<span class="text-sm text-ink-faint">—</span>';
   }
   return `<button data-upload="${entry.uploadId}"
-                  class="rounded border border-shell-line px-3 py-1 text-xs font-semibold hover:border-ink">
+                  class="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft transition-colors hover:border-ink-faint hover:text-ink">
             Revertir
           </button>`;
 }
@@ -969,6 +1469,162 @@ async function exportInventory(format) {
   }
 }
 
+/**
+ * Hoja de etiquetas de los lotes que estan en oferta.
+ *
+ * <p>Va aparte de las otras dos exportaciones porque no es un informe: no lo
+ * lee nadie, se recorta y se pega en el anaquel.
+ */
+async function downloadMarkdownLabels() {
+  const button = $('btn-labels');
+  button.disabled = true;
+  try {
+    const response = await fetch(`${api}/inventory/export/markdown-labels`, { headers: headers() });
+    if (!response.ok) {
+      throw new Error('No se pudieron generar las etiquetas.');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `etiquetas-rebaja-${new Date().toISOString().slice(0, 10)}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast('Etiquetas generadas. El precio impreso es el que cobrará la caja.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* ─────────────────────── buscador global (Ctrl+K) ───────────────────────
+ *
+ * Con ocho secciones, llegar a un SKU obligaba a elegir seccion primero y
+ * despues escribir. El indice se arma con lo que ya esta en memoria -catalogo,
+ * lotes y las propias secciones-, de modo que el buscador no añade ni una
+ * llamada al servidor.
+ */
+
+const FINDER_SECTIONS = [
+  { tab: 'inicio', label: 'Lo primero de hoy', hint: 'Prioridades del día' },
+  { tab: 'semaforo', label: 'Semáforo FEFO', hint: 'Cola de salida y venta rápida' },
+  { tab: 'alertas', label: 'Qué rebajar hoy', hint: 'Precios sugeridos y etiquetas' },
+  { tab: 'inventario', label: 'Inventario y lotes', hint: 'Buscador, exportación y mermas' },
+  { tab: 'excel', label: 'Excel y versionado', hint: 'Cargas, cuarentena y reversión' },
+  { tab: 'recepcion', label: 'Recepción con IA', hint: 'Guías de remisión por foto' },
+  { tab: 'analisis', label: 'Análisis', hint: 'Tendencia, cobertura y proveedores' },
+  { tab: 'diagnostico', label: 'Diagnóstico', hint: 'Quién va lento' }
+];
+
+let finderIndex = 0;
+
+function finderMatches(query) {
+  const term = query.trim().toLowerCase();
+
+  const secciones = FINDER_SECTIONS
+    .filter((section) => !term || section.label.toLowerCase().includes(term))
+    .map((section) => ({ kind: 'Sección', title: section.label, detail: section.hint, tab: section.tab }));
+
+  if (!term) {
+    return secciones;
+  }
+
+  const productos = state.catalog
+    .filter((product) => `${product.name} ${product.sku}`.toLowerCase().includes(term))
+    .slice(0, 6)
+    .map((product) => ({
+      kind: 'Producto', title: product.name, detail: product.sku,
+      tab: 'inventario', search: product.sku
+    }));
+
+  const lotes = state.batches
+    .filter((batch) => `${batch.batchCode} ${batch.productName}`.toLowerCase().includes(term))
+    .slice(0, 6)
+    .map((batch) => ({
+      kind: 'Lote', title: batch.batchCode,
+      detail: `${batch.productName} · ${batch.currentQty} u · vence en ${
+        plural(batch.daysToExpiry, 'día', 'días')}`,
+      tab: 'inventario', search: batch.batchCode
+    }));
+
+  return [...productos, ...lotes, ...secciones].slice(0, 12);
+}
+
+function renderFinder() {
+  const list = $('finder-results');
+  const resultados = finderMatches($('finder-input').value);
+  finderIndex = Math.min(finderIndex, Math.max(resultados.length - 1, 0));
+
+  if (!resultados.length) {
+    list.innerHTML = '<li class="px-4 py-8 text-center text-sm text-ink-faint">Nada coincide.</li>';
+    return;
+  }
+
+  list.replaceChildren(...resultados.map((item, i) => {
+    const li = document.createElement('li');
+    li.className = `flex cursor-pointer items-baseline gap-3 px-4 py-2.5 ${
+      i === finderIndex ? 'bg-brand-tint' : ''}`;
+    li.dataset.tab = item.tab;
+    if (item.search) li.dataset.search = item.search;
+    li.innerHTML = `
+      <span class="w-16 shrink-0 text-xs text-ink-faint">${item.kind}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block truncate font-medium">${escapeHtml(item.title)}</span>
+        <span class="block truncate text-xs text-ink-soft">${escapeHtml(item.detail)}</span>
+      </span>`;
+    return li;
+  }));
+}
+
+function openFinder() {
+  finderIndex = 0;
+  $('finder-input').value = '';
+  renderFinder();
+  $('finder-dialog').showModal();
+  $('finder-input').focus();
+}
+
+/** Abrir un resultado deja la busqueda hecha, no solo la seccion abierta. */
+function runFinder(target) {
+  if (!target) return;
+  $('finder-dialog').close();
+  showTab(target.dataset.tab);
+
+  if (target.dataset.search) {
+    $('batch-search').value = target.dataset.search;
+    loadBatches();
+  }
+}
+
+$('finder-input').addEventListener('input', () => {
+  finderIndex = 0;
+  renderFinder();
+});
+
+$('finder-dialog').addEventListener('keydown', (event) => {
+  const items = [...$('finder-results').children].filter((node) => node.dataset.tab);
+  if (!items.length) return;
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    finderIndex = (finderIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    renderFinder();
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    runFinder(items[finderIndex]);
+  }
+});
+
+$('finder-results').addEventListener('click', (event) => runFinder(event.target.closest('[data-tab]')));
+
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    openFinder();
+  }
+});
+
 /** Campos editables de la cuarentena, en el orden de la tabla. */
 const QUARANTINE_FIELDS = [
   'sku', 'name', 'category', 'unit_cost', 'retail_price', 'batch_code', 'expiration_date', 'initial_qty'
@@ -977,6 +1633,8 @@ const QUARANTINE_FIELDS = [
 function renderQuarantine() {
   const panel = $('quarantine');
   const body = $('quarantine-rows');
+
+  renderToday();
 
   if (!state.quarantine.length) {
     panel.classList.add('hidden');
@@ -989,7 +1647,7 @@ function renderQuarantine() {
     const tr = document.createElement('tr');
     tr.className = 'align-top';
     const cells = QUARANTINE_FIELDS.map((field) => `
-      <td class="px-3 py-2">
+      <td class="px-4 py-2.5">
         <span contenteditable="true" data-row="${index}" data-field="${field}"
               class="block min-w-[5rem] rounded px-1 ${fieldIsCulprit(row.errorCode, field)
                 ? 'bg-risk-red/10 ring-1 ring-risk-red/40'
@@ -997,9 +1655,9 @@ function renderQuarantine() {
       </td>`).join('');
 
     tr.innerHTML = `
-      <td class="num px-3 py-2 text-ink-faint">${row.rowNumber}</td>
+      <td class="num px-4 py-2.5 text-ink-faint">${row.rowNumber}</td>
       ${cells}
-      <td class="px-3 py-2 text-risk-red">${escapeHtml(row.message)}</td>`;
+      <td class="px-4 py-2.5 text-risk-red">${escapeHtml(row.message)}</td>`;
     return tr;
   }));
 }
@@ -1089,6 +1747,8 @@ async function sendBulkFix() {
  */
 function renderQuota(quota) {
   if (!quota) return;
+  state.quota = quota;
+  renderToday();
   const left = $('quota-left');
   left.textContent = quota.remainingToday;
   left.className = quota.remainingToday === 0
@@ -1151,30 +1811,30 @@ function renderScan(scan) {
     const score = line.matchScore == null ? null : Math.round(line.matchScore * 100);
 
     tr.innerHTML = `
-      <td class="px-3 py-2">
+      <td class="px-4 py-2.5">
         <span class="font-semibold">${escapeHtml(line.descriptionRaw)}</span>
       </td>
-      <td class="px-3 py-2">
+      <td class="px-4 py-2.5">
         <select data-line="${index}" data-field="productId"
-                class="w-56 rounded border px-2 py-1 ${matched ? 'border-shell-line' : 'border-risk-red bg-risk-red/5'}">
+                class="w-56 rounded-md border px-2 py-1 ${matched ? 'border-line' : 'border-risk-red bg-risk-red/5'}">
           <option value="">Sin asignar</option>
           ${options}
         </select>
       </td>
-      <td class="num px-3 py-2 ${scoreTone(score)}">${score == null ? 'sin candidato' : score + '%'}</td>
-      <td class="num px-3 py-2">${line.invoicedQty ?? '—'}</td>
-      <td class="px-3 py-2">
+      <td class="num px-4 py-2.5 ${scoreTone(score)}">${score == null ? 'sin candidato' : score + '%'}</td>
+      <td class="num px-4 py-2.5">${line.invoicedQty ?? '—'}</td>
+      <td class="px-4 py-2.5">
         <input type="number" min="0" step="1" data-line="${index}" data-field="receivedQty"
                value="${line.invoicedQty ?? 0}"
-               class="num w-24 rounded border border-shell-line px-2 py-1 text-right">
+               class="num w-24 rounded-md border border-line px-2 py-1 text-right">
       </td>
-      <td class="px-3 py-2">
+      <td class="px-4 py-2.5">
         <input type="text" data-line="${index}" data-field="batchCode" value="${escapeHtml(line.batchCode ?? '')}"
-               placeholder="SIN-LOTE" class="w-32 rounded border border-shell-line px-2 py-1 font-mono text-xs">
+               placeholder="SIN-LOTE" class="w-32 rounded-md border border-line px-2 py-1 font-mono text-xs">
       </td>
-      <td class="px-3 py-2">
+      <td class="px-4 py-2.5">
         <input type="date" data-line="${index}" data-field="expirationDate" value="${line.expirationDate ?? ''}"
-               class="num rounded border border-shell-line px-2 py-1">
+               class="num rounded-md border border-line px-2 py-1">
       </td>`;
 
     tr.querySelector('select').value = matched ? String(line.productId) : '';
@@ -1257,6 +1917,198 @@ async function confirmReceipt() {
   }
 }
 
+/* ─────────────────── panel 7: por que pasa lo que pasa ───────────────────
+ *
+ * Las tres preguntas que el resto de la aplicacion no responde: si la cosa va a
+ * mejor, por que se compro de mas, y de quien viene lo que acaba en riesgo.
+ */
+
+const diaCorto = new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' });
+
+/** Convierte "2026-10-20" en una fecha local sin que la zona la corra un dia. */
+function parseDay(value) {
+  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+/** "20-oct." abrevia con punto; dentro de una frase eso deja dos seguidos. */
+function diaEnFrase(value) {
+  return diaCorto.format(parseDay(value)).replace(/\.$/, '');
+}
+
+async function loadRiskHistory() {
+  try {
+    state.riskSeries = await request('/inventory/risk-history?days=30');
+  } catch {
+    state.riskSeries = [];
+  }
+  renderTrend();
+  renderToday();
+}
+
+/**
+ * La serie del valor en riesgo.
+ *
+ * <p>Con menos de dos puntos no se dibuja nada. Una linea plana de un solo dia
+ * parece un dato y no lo es: la tabla empieza a llenarse el dia del despliegue
+ * y hasta mañana no hay nada que comparar. Decirlo cuesta una frase.
+ */
+function renderTrend() {
+  const chart = $('trend-chart');
+  const note = $('trend-note');
+  const delta = $('trend-delta');
+  const serie = state.riskSeries;
+
+  delta.textContent = '';
+
+  if (serie.length < 2) {
+    chart.replaceChildren();
+    note.textContent = serie.length
+      ? 'Hay una sola foto, la de hoy. Mañana ya habrá con qué compararla.'
+      : 'Todavía no hay fotos. Se toma una al cierre de cada día.';
+    return;
+  }
+
+  const valores = serie.map((punto) => Number(punto.value_at_risk));
+  const techo = Math.max(...valores, 1);
+  const ancho = 100;
+  const alto = 32;
+  const paso = ancho / (valores.length - 1);
+  const puntos = valores.map((valor, i) => `${(i * paso).toFixed(2)},${
+    (alto - (valor / techo) * (alto - 2) - 1).toFixed(2)}`);
+
+  note.textContent = `${plural(serie.length, 'día medido', 'días medidos')}, del ${
+    diaEnFrase(serie[0].snapshot_date)} al ${
+    diaEnFrase(serie.at(-1).snapshot_date)}. Máximo ${money(techo)}.`;
+
+  const cambio = valores.at(-1) - valores.at(-2);
+  if (cambio !== 0) {
+    // Que el riesgo baje es la buena noticia, al reves que en casi cualquier
+    // otra grafica: por eso el verde va con el signo negativo.
+    delta.className = `num text-right text-sm font-semibold ${
+      cambio < 0 ? 'text-risk-green' : 'text-risk-red'}`;
+    delta.textContent = `${cambio < 0 ? '−' : '+'}${money(Math.abs(cambio))} desde el día anterior`;
+  }
+
+  chart.innerHTML = `
+    <svg viewBox="0 0 ${ancho} ${alto}" preserveAspectRatio="none" class="h-28 w-full"
+         role="img" aria-label="Valor en riesgo de los últimos ${serie.length} días">
+      <polygon points="0,${alto} ${puntos.join(' ')} ${ancho},${alto}" fill="#DBE6FA"></polygon>
+      <polyline points="${puntos.join(' ')}" fill="none" stroke="#3F6FD0" stroke-width="1.5"
+                vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+    </svg>
+    <p class="num mt-2 flex justify-between text-xs text-ink-faint">
+      <span>${money(valores[0])}</span>
+      <span class="font-semibold text-ink">${money(valores.at(-1))} hoy</span>
+    </p>`;
+}
+
+/** La misma serie, resumida en una linea, junto a la cifra de la pantalla de inicio. */
+function renderTodayTrend() {
+  const line = $('t-risk-trend');
+  const serie = state.riskSeries;
+
+  if (serie.length < 2) {
+    line.classList.add('hidden');
+    return;
+  }
+  const cambio = Number(serie.at(-1).value_at_risk) - Number(serie.at(-2).value_at_risk);
+  line.classList.remove('hidden');
+  if (cambio === 0) {
+    line.className = 'mt-1.5 text-sm font-semibold text-ink-soft';
+    line.textContent = 'Igual que el día anterior.';
+    return;
+  }
+  line.className = `mt-1.5 text-sm font-semibold ${cambio < 0 ? 'text-risk-green' : 'text-risk-red'}`;
+  line.textContent = `${cambio < 0 ? 'Baja' : 'Sube'} ${money(Math.abs(cambio))} desde el día anterior.`;
+}
+
+async function loadInsights() {
+  try {
+    const insights = await request('/inventory/insights');
+    $('coverage-window').textContent = insights.salesWindowDays;
+    renderCoverage(insights.coverage, insights.salesWindowDays);
+    renderSuppliers(insights.suppliers);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+/**
+ * Dias de venta que hay en el anaquel.
+ *
+ * El veredicto es la columna que paga la tabla: comparar cobertura con dias
+ * restantes es lo que convierte dos numeros en una decision de compra.
+ */
+function renderCoverage(rows, ventana) {
+  const body = $('coverage-rows');
+
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center text-sm text-ink-faint">
+      No hay productos con existencias.</td></tr>`;
+    return;
+  }
+
+  body.replaceChildren(...rows.map((row) => {
+    const cobertura = row.dias_cobertura === null ? null : Number(row.dias_cobertura);
+    const restantes = Number(row.dias_hasta_vencer);
+    const tr = document.createElement('tr');
+
+    let veredicto = `<span class="chip chip-neutral">Sin ventas aún</span>`;
+    if (cobertura !== null && restantes >= 0) {
+      veredicto = cobertura > restantes
+        ? `<span class="chip chip-red">No da tiempo</span>`
+        : cobertura > restantes * 0.7
+          ? `<span class="chip chip-amber">Justo</span>`
+          : `<span class="chip chip-green">Sale a tiempo</span>`;
+    } else if (restantes < 0) {
+      veredicto = `<span class="chip chip-expired">Vencido</span>`;
+    }
+
+    tr.innerHTML = `
+      <td class="px-4 py-2.5 font-medium">${escapeHtml(row.name)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs text-ink-soft">${escapeHtml(row.sku)}</td>
+      <td class="num px-4 py-2.5 text-right">${row.unidades}</td>
+      <td class="num px-4 py-2.5 text-right text-ink-soft" title="En los últimos ${ventana} días">${
+        Number(row.vendidas_ventana)}</td>
+      <td class="num px-4 py-2.5 text-right font-semibold">${
+        cobertura === null ? '—' : `${cobertura} d`}</td>
+      <td class="num px-4 py-2.5 text-right ${restantes <= 5 ? 'text-risk-red font-semibold' : 'text-ink-soft'}">${
+        restantes} d</td>
+      <td class="px-4 py-2.5">${veredicto}</td>`;
+    return tr;
+  }));
+}
+
+function renderSuppliers(rows) {
+  const body = $('supplier-rows');
+
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="6" class="px-4 py-10 text-center text-sm text-ink-faint">
+      No hay lotes que agrupar todavía.</td></tr>`;
+    return;
+  }
+
+  body.replaceChildren(...rows.map((row) => {
+    const enRiesgo = Number(row.en_riesgo);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="px-4 py-2.5">
+        <span class="font-medium">${escapeHtml(row.proveedor)}</span>
+        ${row.con_guia ? '' : '<span class="block text-xs text-ink-faint">Sin trazabilidad de proveedor</span>'}
+      </td>
+      <td class="num px-4 py-2.5 text-right">${row.lotes}</td>
+      <td class="num px-4 py-2.5 text-right">${money(row.valor)}</td>
+      <td class="num px-4 py-2.5 text-right ${enRiesgo > 0 ? 'font-semibold text-risk-red' : 'text-ink-faint'}">${
+        money(enRiesgo)}</td>
+      <td class="num px-4 py-2.5 text-right ${Number(row.vencido) > 0 ? 'text-risk-red' : 'text-ink-faint'}">${
+        money(row.vencido)}</td>
+      <td class="num px-4 py-2.5 text-right ${Number(row.merma) > 0 ? 'text-risk-red' : 'text-ink-faint'}">${
+        money(row.merma)}</td>`;
+    return tr;
+  }));
+}
+
 /* ───────────── panel 6: a quien mirar cuando algo va lento ───────────── */
 
 /**
@@ -1266,10 +2118,13 @@ async function confirmReceipt() {
  * una incidencia; los numeros quedan debajo para comprobarlo con calma.
  */
 function renderDiagnostics(report) {
+  // El veredicto se tiñe entero según haya culpable o no: el color del aviso es
+  // el propio aviso, no un filete a un lado que hay que saber interpretar.
+  const hayCulpable = /^(El pool|Gemini|Supabase)/.test(report.verdict);
   $('diag-verdict').textContent = report.verdict;
-  $('diag-verdict').className = /^(El pool|Gemini|Supabase)/.test(report.verdict)
-    ? 'mt-6 border-l-4 border-risk-red bg-white px-4 py-3 text-sm font-semibold'
-    : 'mt-6 border-l-4 border-risk-green bg-white px-4 py-3 text-sm font-semibold';
+  $('diag-verdict').className = hayCulpable
+    ? 'mt-6 rounded-lg border border-risk-red/30 bg-risk-red-tint px-4 py-3 text-sm font-semibold text-risk-red'
+    : 'mt-6 rounded-lg border border-risk-green/30 bg-risk-green-tint px-4 py-3 text-sm font-semibold text-risk-green';
 
   const cards = report.suspects.map((suspect) => card(
     suspect.name,
@@ -1301,7 +2156,7 @@ function renderDiagnostics(report) {
 
 function card(title, big, small, detail) {
   const node = document.createElement('div');
-  node.className = 'border border-shell-line bg-white p-4';
+  node.className = 'border border-line bg-white p-4';
   node.innerHTML = `
     <p class="text-sm text-ink-faint">${escapeHtml(title)}</p>
     <p class="num mt-1 text-2xl font-bold">${escapeHtml(big)}</p>
@@ -1315,7 +2170,7 @@ async function loadDiagnostics() {
     renderDiagnostics(await request('/ops/diagnostics'));
   } catch (error) {
     // El operario no tiene por que ver la infraestructura; se dice, no se calla.
-    $('diag-verdict').className = 'mt-6 border-l-4 border-shell-line bg-white px-4 py-3 text-sm';
+    $('diag-verdict').className = 'mt-6 rounded-lg border border-line bg-surface px-4 py-3 text-sm shadow-card';
     $('diag-verdict').textContent = state.session?.role === 'MANAGER'
       ? `No se pudo medir: ${error.message}`
       : 'El diagnóstico de rendimiento lo ve el gerente de tienda.';
@@ -1329,15 +2184,24 @@ async function loadDiagnostics() {
 $('btn-diag').addEventListener('click', loadDiagnostics);
 
 $('btn-demo').addEventListener('click', resetDemo);
+
+// En movil la barra lateral esta colapsada, asi que las dos acciones de entorno
+// se repiten arriba. Reusan el mismo manejador: un segundo camino al mismo sitio,
+// no una segunda implementacion.
+$('btn-demo-mobile').addEventListener('click', resetDemo);
+$('btn-demo-home').addEventListener('click', resetDemo);
+$('btn-switch-mobile').addEventListener('click', () => $('btn-switch').click());
 $('sale-form').addEventListener('submit', registerSale);
 $('waste-form').addEventListener('submit', reportWaste);
 $('btn-export').addEventListener('click', () => exportInventory('xlsx'));
 $('btn-export-pdf').addEventListener('click', () => exportInventory('pdf'));
+$('btn-labels').addEventListener('click', downloadMarkdownLabels);
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 
 wireDropzone('dropzone', 'file-excel', uploadExcel);
 wireDropzone('scan-dropzone', 'file-scan', uploadReceipt);
 
+renderToday();
 pingBackend();
 window.setInterval(pingBackend, 60_000);

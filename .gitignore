@@ -18,6 +18,7 @@ logs/
 .classpath
 .project
 .settings/
+.claude/
 
 # Archivos de configuración local y secretos (NUNCA subir a Git)
 application-local.properties

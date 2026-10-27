@@ -25,6 +25,8 @@ avisa —con un precio concreto— cuando todavía se puede recuperar la plata.
 | 🔴 **Ordena la salida por vencimiento (FEFO)** | Cada venta descuenta del lote que caduca primero, con el costo real de ese lote. El margen sale de la base, no de una estimación. |
 | 🏷️ **Dice qué rebajar hoy** | Traduce los días que le quedan a un lote en un precio sugerido, que **nunca baja del costo**: por debajo de ahí, rebajar sale peor que la merma. |
 | 🗑️ **Controla las mermas** | El operario declara la baja y las unidades quedan inmovilizadas; un gerente —distinto del que la declaró— decide si la pérdida se consolida. |
+| 🏷️ **Imprime el cartel de la oferta** | Una hoja de etiquetas con el precio rebajado, el lote y la fecha. Sale de la misma columna que cobra la caja, así que el cartel y el ticket no pueden discrepar. |
+| 📈 **Explica por qué pasó** | La serie diaria del valor en riesgo, los días de cobertura de cada producto —si no da tiempo a venderlo, eso se decidió al comprar— y de qué proveedor viene lo que acaba en riesgo. |
 | 📊 **Exporta valorizado** | Excel para trabajar los datos, PDF firmable para el contador. |
 
 ---
@@ -69,8 +71,11 @@ hace idempotente una carga reintentada tras un corte de red.
 | Interfaz | **HTML + Tailwind (CDN) + JS sin framework** | Se sirve desde el mismo jar; no hay build de front |
 | Despliegue | **Render** (backend) · **Supabase** (datos) | Capa gratuita, con heartbeat para que ninguno hiberne |
 
-Seis pestañas: semáforo FEFO, qué rebajar hoy, inventario y lotes, Excel y
-versionado, recepción con IA, y diagnóstico de rendimiento.
+La aplicación abre en **lo primero de hoy**: las prioridades de la tienda
+ordenadas por lo que cuesta dejarlas para mañana, cada una con el botón que
+lleva adonde se resuelve. Detrás, siete secciones: semáforo FEFO, qué rebajar
+hoy, inventario y lotes, Excel y versionado, recepción con IA, análisis y
+diagnóstico de rendimiento. `Ctrl+K` abre el buscador global.
 
 ---
 
@@ -97,7 +102,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/11, en orden numérico
+-- luego sql/01 … sql/12, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -106,7 +111,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 174 unitarias + 79 de integración
+mvn verify    # 183 unitarias + 91 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -127,6 +132,7 @@ verdad sobre Linux.
 | Qué | Cómo |
 |---|---|
 | Render despierto | `GET /api/v1/ping` desde UptimeRobot cada 5 min, sin tocar la base |
+| Serie del riesgo | `@Scheduled` a las 23:50 de Lima: una foto diaria por tienda en `risk_snapshots` |
 | Supabase activo | `@Scheduled` interno con un `SELECT 1` diario |
 | ¿Quién va lento? | `GET /api/v1/ops/diagnostics` responde si es Gemini, Supabase o el pool |
 

@@ -2,6 +2,7 @@ package com.kardo.web;
 
 import com.kardo.ingest.InventoryExportService;
 import com.kardo.ingest.InventoryPdfExportService;
+import com.kardo.ingest.MarkdownLabelPdfService;
 import com.kardo.repository.StoreRepository;
 import com.kardo.security.CurrentUser;
 import java.time.LocalDate;
@@ -25,13 +26,16 @@ public class InventoryExportController {
 
     private final InventoryExportService exportService;
     private final InventoryPdfExportService pdfExportService;
+    private final MarkdownLabelPdfService labelPdfService;
     private final StoreRepository storeRepository;
 
     public InventoryExportController(InventoryExportService exportService,
                                      InventoryPdfExportService pdfExportService,
+                                     MarkdownLabelPdfService labelPdfService,
                                      StoreRepository storeRepository) {
         this.exportService = exportService;
         this.pdfExportService = pdfExportService;
+        this.labelPdfService = labelPdfService;
         this.storeRepository = storeRepository;
     }
 
@@ -74,6 +78,31 @@ public class InventoryExportController {
 
         StreamingResponseBody body = output ->
                 pdfExportService.writeTo(user.storeId(), storeName, user.email(), output);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(fileName).build().toString())
+                .body(body);
+    }
+
+    /**
+     * Etiquetas de los lotes que estan hoy en oferta.
+     *
+     * <p>Cierra el ultimo tramo que quedaba fuera del sistema: entre decidir la
+     * rebaja y que el cliente la vea hay un cartel que hasta ahora se escribia
+     * a mano. Sale de la misma columna que cobra la venta FEFO, asi que el
+     * cartel y la caja no pueden decir precios distintos.
+     */
+    @GetMapping("/markdown-labels")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<StreamingResponseBody> markdownLabels() {
+        long storeId = CurrentUser.storeId();
+        String storeName = storeRepository.findNameById(storeId);
+        String fileName = "etiquetas-rebaja-" + storeId + "-" + LocalDate.now() + ".pdf";
+
+        StreamingResponseBody body = output ->
+                labelPdfService.writeTo(storeId, storeName, output);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
