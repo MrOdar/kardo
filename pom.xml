@@ -23,6 +23,11 @@
         <fastexcel.version>0.18.4</fastexcel.version>
         <jjwt.version>0.12.6</jjwt.version>
         <pdfbox.version>3.0.3</pdfbox.version>
+
+        <!-- El banco de pruebas queda fuera por defecto; lo enciende -Pbench. -->
+        <surefire.excluded.groups>bench</surefire.excluded.groups>
+        <surefire.groups></surefire.groups>
+        <bench.heap>64</bench.heap>
     </properties>
 
     <dependencies>
@@ -172,6 +177,20 @@
             </plugin>
 
             <!--
+                El banco de pruebas de la ingesta mide un entorno, no una regla:
+                en una maquina cargada da otro numero sin que el codigo cambie.
+                Queda fuera del build y se pide a proposito con `mvn test -Pbench`.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${surefire.excluded.groups}</excludedGroups>
+                    <groups>${surefire.groups}</groups>
+                </configuration>
+            </plugin>
+
+            <!--
                 Las pruebas de integracion (*IT) corren en la fase verify, no en
                 test: necesitan Docker para levantar PostgreSQL. Donde no lo hay
                 se saltan solas (ver DockerAvailable), de modo que `mvn verify`
@@ -191,5 +210,32 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Solo el banco de pruebas, con el numero de filas que se le pida:
+             mvn test -Pbench [-Dbench.rows=100000] -->
+        <profile>
+            <id>bench</id>
+            <properties>
+                <surefire.excluded.groups></surefire.excluded.groups>
+                <surefire.groups>bench</surefire.groups>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- El limite ES la prueba: con 64 MB no cabe un
+                                 archivo de decenas de miles de filas, asi que
+                                 si la ingesta no fuera en streaming, aqui
+                                 reventaria con OutOfMemoryError. -->
+                            <argLine>-Xmx${bench.heap}m</argLine>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

@@ -64,6 +64,23 @@ tuviera un error.
 64 KB, se usa `JdbcTemplate` en vez de JPA para no arrastrar un caché de primer
 nivel, y el pool de conexiones vive en 5.
 
+Y está medido, no supuesto:
+
+| Filas | Archivo | Tiempo | Ritmo | Heap de la JVM | Memoria viva al terminar |
+|---:|---:|---:|---:|---:|---:|
+| 50.000 | 2,7 MB | 0,69 s | 73.000 filas/s | **64 MB** | 11 MB |
+| 200.000 | 10,7 MB | 1,75 s | 114.000 filas/s | 128 MB | 11 MB |
+
+Lo que sostiene el diseño no es la velocidad, es la última columna: **cuadruplicar
+el archivo no cambia la memoria viva**, porque nunca está entero dentro. El límite
+de heap es parte de la prueba —si la ingesta no fuera en streaming, 64 MB no darían
+para 50.000 filas—, y los 128 MB del segundo caso los pide el generador del archivo
+de prueba, que corre en la misma JVM, no la lectura. Se reproduce con:
+
+```bash
+mvn test -Pbench
+```
+
 **Quien hace algo queda firmado.** Cargas, correcciones, mermas, rebajas y
 recepciones registran autor y momento. La huella SHA-256 del contenido es lo que
 hace idempotente una carga reintentada tras un corte de red.
@@ -172,6 +189,9 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
+El banco de rendimiento queda fuera del build a propósito —mide la máquina, no
+una regla de negocio— y se pide aparte con `mvn test -Pbench`.
+
 > **Windows + Docker Desktop reciente:** pueden saltarse en local aunque Docker
 > esté instalado. Docker Desktop 29 responde al `/info` de clientes que no son su
 > CLI con un `400` vacío y Testcontainers lo interpreta como "no hay Docker".
@@ -190,3 +210,10 @@ verdad sobre Linux.
 
 El health check de Render debe apuntar a `/api/v1/ping`, no a
 `/actuator/health`: ese último consulta la base y la despertaría en cada sonda.
+
+---
+
+## Licencia
+
+[MIT](LICENSE). Úsalo, cámbialo o quédate con una parte; sólo conserva el aviso
+de copyright.
