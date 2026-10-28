@@ -2,12 +2,15 @@ package com.kardo.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kardo.config.SecurityConfig;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -120,6 +123,60 @@ class SpaContractTest {
         assertThat(huerfanas)
                 .describedAs("rutas que la SPA llama y ningun controlador sirve")
                 .isEmpty();
+    }
+
+    /**
+     * El hash de la CSP y el bloque que autoriza, sincronizados.
+     *
+     * <p>Es la contrapartida de haber quitado {@code 'unsafe-inline'} de
+     * {@code script-src}. Si alguien toca el {@code tailwind.config} -cambiar un
+     * color de la paleta basta-, el hash deja de cuadrar, el navegador se niega a
+     * ejecutar el bloque y la interfaz sale sin estilos. Eso no se descubre en
+     * una prueba de servidor ni en una revision: se descubre en produccion.
+     * Aqui se recalcula desde el mismo archivo que se sirve, de modo que el
+     * build cae antes.
+     */
+    @Test
+    @DisplayName("El hash de la CSP corresponde al script en linea del HTML")
+    void elHashDeLaCspCuadra() throws Exception {
+        String esperado = "sha256-" + Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-256")
+                        .digest(inlineScript().getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(SecurityConfig.TAILWIND_CONFIG_HASH)
+                .describedAs("""
+                        El <script> en linea de index.html cambio y el hash de la CSP no.
+                        Con el hash viejo el navegador bloquea ese bloque y la interfaz
+                        sale sin estilos. Pon este valor en SecurityConfig.TAILWIND_CONFIG_HASH:
+                        %s""".formatted(esperado))
+                .isEqualTo(esperado);
+    }
+
+    /**
+     * Un hash autoriza un bloque, no la practica de escribir codigo en el HTML.
+     *
+     * <p>Un segundo {@code <script>} en linea, o un {@code onclick=}, quedaria
+     * bloqueado por la CSP y romperia esa parte de la interfaz en silencio. Y si
+     * la respuesta fuera devolver {@code 'unsafe-inline'}, se habria desandado
+     * el arreglo entero. Mejor que falle aqui.
+     */
+    @Test
+    @DisplayName("Sigue habiendo un solo script en linea y ningun manejador onclick=")
+    void nadaMasEnLinea() {
+        assertThat(allMatches(html, "(?s)<script>(.*?)</script>"))
+                .describedAs("bloques <script> sin src en index.html")
+                .hasSize(1);
+
+        assertThat(matches(html, "\\s(on[a-z]+)=\""))
+                .describedAs("manejadores en linea; usa addEventListener en app.js")
+                .isEmpty();
+    }
+
+    /** El contenido exacto del bloque, que es sobre lo que el navegador calcula el hash. */
+    private static String inlineScript() {
+        Matcher bloque = Pattern.compile("(?s)<script>(.*?)</script>").matcher(html);
+        assertThat(bloque.find()).describedAs("el <script> en linea de index.html").isTrue();
+        return bloque.group(1);
     }
 
     @Test

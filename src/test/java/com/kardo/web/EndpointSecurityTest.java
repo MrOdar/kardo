@@ -924,6 +924,16 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk())
                     .andExpect(header().string("Content-Security-Policy",
                             org.hamcrest.Matchers.containsString("connect-src 'self'")))
+                    // Un 'unsafe-inline' en script-src anula la politica entera:
+                    // deja correr cualquier script inyectado. El bloque legitimo
+                    // del HTML va autorizado por su hash, no por una barra libre.
+                    .andExpect(header().string("Content-Security-Policy",
+                            org.hamcrest.Matchers.containsString(
+                                    "script-src 'self' '" + com.kardo.config.SecurityConfig
+                                            .TAILWIND_CONFIG_HASH + "'")))
+                    .andExpect(header().string("Content-Security-Policy",
+                            org.hamcrest.Matchers.not(
+                                    org.hamcrest.Matchers.containsString("script-src 'self' 'unsafe-inline'"))))
                     .andExpect(header().string("Content-Security-Policy",
                             org.hamcrest.Matchers.containsString("frame-ancestors 'none'")))
                     .andExpect(header().string("Content-Security-Policy",

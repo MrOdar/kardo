@@ -1,0 +1,30 @@
+# Finales de linea fijados a LF en todas las maquinas.
+#
+# POR QUE AHORA IMPORTA. Desde que `script-src` autoriza el bloque en linea de
+# index.html por su hash SHA-256 (SecurityConfig.TAILWIND_CONFIG_HASH), los
+# bytes exactos de ese archivo son parte de la configuracion de seguridad. Un
+# `\r` de mas cambia el hash.
+#
+# Sin esto, con `core.autocrlf=true` -lo habitual en Windows- un clon nuevo
+# recibiria index.html con CRLF mientras CI y el contenedor de Render, que son
+# Linux, lo tienen con LF. El mismo commit daria dos hashes distintos: el
+# contrato del hash fallaria en la maquina de Windows y pasaria en CI, y quien
+# lo "arreglara" poniendo el hash de CRLF romperia la interfaz en produccion.
+#
+# Con `eol=lf` el archivo llega igual a todas partes, y la pregunta no se
+# plantea.
+* text=auto eol=lf
+
+# Los lanzadores de Windows son la excepcion: cmd.exe necesita CRLF para
+# interpretarlos. `mvnw` (sin extension) es un guion de shell y se queda en LF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binarios: que Git no les busque finales de linea.
+*.xlsx binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.jar  binary

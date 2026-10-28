@@ -210,7 +210,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 218 unitarias + 121 de integración
+mvn verify    # 220 unitarias + 121 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -224,6 +224,15 @@ que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes
 de escribir nada. Borrar un `@PreAuthorize` pone la suite en rojo.
+
+`SpaContractTest` cubre un caso distinto: la CSP prohíbe `'unsafe-inline'` en
+`script-src` y autoriza el único `<script>` en línea del HTML —la configuración
+de Tailwind— por su **hash SHA-256**, de modo que un script inyectado no se
+ejecuta aunque llegue a la página. Como el hash depende de los bytes exactos de
+ese bloque, la prueba lo recalcula desde `index.html` y falla el build si se ha
+ido, diciendo cuál es el nuevo; sin eso, el cambio se descubriría en producción
+con la interfaz sin estilos. Por lo mismo, `.gitattributes` fija los finales de
+línea en LF: con CRLF el hash sería otro en Windows que en CI.
 
 El banco de rendimiento queda fuera del build a propósito —mide la máquina, no
 una regla de negocio— y se pide aparte con `mvn test -Pbench`.

@@ -35,6 +35,22 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    /**
+     * SHA-256 del unico {@code <script>} en linea de {@code index.html}: el
+     * bloque que configura Tailwind.
+     *
+     * <p>Es lo que permite prohibir {@code 'unsafe-inline'} en {@code script-src}
+     * sin montar un paso de compilacion. El navegador calcula el hash del
+     * contenido del bloque y solo lo ejecuta si coincide con este.
+     *
+     * <p><b>Cuidado al tocar ese bloque.</b> Cambiar un color de la paleta
+     * cambia el hash, y con el hash viejo el navegador bloquea el script y la
+     * interfaz sale sin estilos. Para que eso no se descubra en produccion,
+     * {@code SpaContractTest} lo recalcula desde el HTML y falla el build si se
+     * ha ido; ese test dice ademas como obtener el nuevo.
+     */
+    public static final String TAILWIND_CONFIG_HASH = "sha256-ZNdZBTDiZkureDfGJHpfF5WHQ+JJ4VjNhMhwjhp0j28=";
+
     private final SecurityProperties securityProperties;
 
     public SecurityConfig(SecurityProperties securityProperties) {
@@ -58,15 +74,26 @@ public class SecurityConfig {
                         // token. `frame-ancestors 'none'` impide el
                         // clickjacking sobre los botones que aprueban mermas.
                         //
-                        // 'unsafe-inline' esta ahi a disgusto y por una razon
-                        // concreta: Tailwind por CDN se configura con un
-                        // <script> en linea e inyecta <style> en tiempo de
-                        // ejecucion. Quitarlo exige compilar el CSS, que es
-                        // justo el paso de build que este proyecto no tiene.
-                        // Queda anotado como deuda, no como decision.
+                        // Los dos 'unsafe-inline' no son el mismo problema, asi
+                        // que no reciben la misma respuesta.
+                        //
+                        // En script-src, 'unsafe-inline' anula la CSP entera:
+                        // deja que se ejecute cualquier <script> inyectado, que
+                        // es precisamente lo que la politica venia a impedir.
+                        // El SPA tiene un solo script en linea -la configuracion
+                        // de Tailwind, en index.html- y ningun manejador
+                        // onclick=, de modo que basta autorizar ese bloque por
+                        // su hash. Un script que no sea exactamente ese no corre.
+                        // No hace falta compilar nada.
+                        //
+                        // En style-src se queda, y esta vez como decision. La
+                        // version CDN de Tailwind inyecta <style> en tiempo de
+                        // ejecucion, asi que quitarlo exige compilar el CSS -el
+                        // paso de build que este proyecto evita a proposito- y
+                        // lo que compra es poco: inyectar CSS no ejecuta codigo.
                         .contentSecurityPolicy(csp -> csp.policyDirectives(String.join("; ",
                                 "default-src 'self'",
-                                "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+                                "script-src 'self' '" + TAILWIND_CONFIG_HASH + "' https://cdn.tailwindcss.com",
                                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                                 "font-src 'self' https://fonts.gstatic.com",
                                 "img-src 'self' data:",
