@@ -23,6 +23,7 @@
         <fastexcel.version>0.18.4</fastexcel.version>
         <jjwt.version>0.12.6</jjwt.version>
         <pdfbox.version>3.0.3</pdfbox.version>
+        <springdoc.version>2.6.0</springdoc.version>
 
         <!-- El banco de pruebas queda fuera por defecto; lo enciende -Pbench. -->
         <surefire.excluded.groups>bench</surefire.excluded.groups>
@@ -147,6 +148,18 @@
             <artifactId>spring-boot-testcontainers</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Contrato de la API navegable. No es documentacion que alguien tenga
+            que mantener al dia: sale de los propios controladores y de las
+            anotaciones de validacion, asi que si el codigo cambia y la pagina
+            no, es que no cambio nada.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>

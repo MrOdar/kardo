@@ -14,6 +14,9 @@ avisa —con un precio concreto— cuando todavía se puede recuperar la plata.
 
 🔗 **Demo:** [kardo.onrender.com](https://kardo.onrender.com) · pulsa
 **Restaurar tienda demo** y entras sin credenciales.
+🔌 **API:** [`/swagger-ui.html`](https://kardo.onrender.com/swagger-ui.html) ·
+inicia sesión con `demo@kardo.pe` / `kardo-demo-2026`, pega el token en
+**Authorize** y pruébala desde ahí.
 
 ![La pantalla de inicio: las prioridades del día, cada una con la acción que la resuelve](docs/img/lo-primero-de-hoy.jpg)
 
@@ -52,7 +55,7 @@ aplica.
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
 tienda y el backend ignora cualquier `storeId` que llegue en el cuerpo: es lo que
-impide que un token de una tienda escriba en otra. No es una intención: hay **66
+impide que un token de una tienda escriba en otra. No es una intención: hay **67
 pruebas** que levantan la cadena de filtros real, con tokens firmados de verdad,
 y comprueban quién entra, con qué rol y sobre qué tienda acaba escribiendo.
 
@@ -155,6 +158,7 @@ y enseña el máximo como contexto.
 | PDF | **PDFBox** | Apache-2.0: sin la pregunta de licencia que trae LGPL |
 | Seguridad | **Spring Security 6** · JWT HS256 · BCrypt | Sin estado en servidor: el contenedor puede reiniciarse sin perder sesiones |
 | Interfaz | **HTML + Tailwind (CDN) + JS sin framework** | Se sirve desde el mismo jar; no hay build de front |
+| Contrato de la API | **springdoc-openapi** | Sale de los controladores, así que no hay documentación que mantener aparte del código |
 | Despliegue | **Render** (backend) · **Supabase** (datos) | Capa gratuita, con heartbeat para que ninguno hiberne |
 
 La aplicación abre en **lo primero de hoy**: las prioridades de la tienda
@@ -197,7 +201,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 200 unitarias + 110 de integración
+mvn verify    # 201 unitarias + 110 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -206,7 +210,7 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
-De las unitarias, **66 son de seguridad** (`EndpointSecurityTest`): 31 endpoints
+De las unitarias, **67 son de seguridad** (`EndpointSecurityTest`): 31 endpoints
 que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes
@@ -230,6 +234,12 @@ una regla de negocio— y se pide aparte con `mvn test -Pbench`.
 | Serie del riesgo | `@Scheduled` a las 23:50 de Lima: una foto diaria por tienda en `risk_snapshots` |
 | Supabase activo | `@Scheduled` interno con un `SELECT 1` diario |
 | ¿Quién va lento? | `GET /api/v1/ops/diagnostics` responde si es Gemini, Supabase o el pool |
+
+El contrato de la API es público a propósito: describe qué endpoints existen,
+que es lo que ya se lee en este repositorio, y no devuelve ni un dato de ninguna
+tienda. Lo que protege esas rutas son los `@PreAuthorize` y el token, no el
+desconocimiento de que existen. Aun así se apaga entero con
+`SPRINGDOC_ENABLED=false`, y entonces las dos rutas responden 404.
 
 El health check de Render debe apuntar a `/api/v1/ping`, no a
 `/actuator/health`: ese último consulta la base y la despertaría en cada sonda.

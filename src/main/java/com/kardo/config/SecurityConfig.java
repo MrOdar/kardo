@@ -65,6 +65,15 @@ public class SecurityConfig {
                         // su propia empresa y su propia tienda, nunca toca una
                         // existente, y lleva freno por IP.
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
+                        // Contrato de la API y su visor. Publicos a proposito:
+                        // describen que endpoints existen y que cuerpo esperan,
+                        // que es exactamente lo que ya se lee en el repositorio.
+                        // No devuelven ni un dato de ninguna tienda, y lo que
+                        // protege las rutas que describen son las reglas de
+                        // abajo, no el desconocimiento de que existen. Se apagan
+                        // con springdoc.api-docs.enabled=false.
+                        .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**",
+                                "/swagger-ui.html", "/swagger-ui/**").permitAll()
                         // La SPA se sirve desde el mismo contenedor y debe cargar
                         // antes de que exista ningun token.
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/favicon.ico",

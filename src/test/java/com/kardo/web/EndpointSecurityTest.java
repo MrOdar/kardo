@@ -337,6 +337,23 @@ class EndpointSecurityTest {
             verify(registrationThrottle, org.mockito.Mockito.never()).recordSuccess(anyString());
         }
 
+        /**
+         * El contrato de la API se lee sin token: describe que endpoints hay,
+         * no devuelve datos de ninguna tienda.
+         *
+         * <p>Lo que se comprueba es que la cadena de filtros <b>no responde
+         * 401</b>. Aqui no hay springdoc -este es un corte de web, no la
+         * aplicacion entera-, asi que la ruta no esta mapeada y el 404 es la
+         * prueba de que la peticion paso la seguridad y murio por falta de
+         * controlador, no por falta de credenciales.
+         */
+        @Test
+        @DisplayName("El contrato de la API no exige token")
+        void elContratoDeLaApiEsPublico() throws Exception {
+            mockMvc.perform(get("/v3/api-docs")).andExpect(status().isNotFound());
+            mockMvc.perform(get("/swagger-ui.html")).andExpect(status().isNotFound());
+        }
+
         @Test
         @DisplayName("El login es publico, pero sigue siendo el servicio quien decide")
         void loginEsPublico() throws Exception {
