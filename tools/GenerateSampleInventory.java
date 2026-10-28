@@ -37,13 +37,13 @@ public class GenerateSampleInventory {
         items.add(new Item("LAC-GLO-002", "7750101001029", "Leche Evaporada Gloria Light Roja 400g", "LACTEOS", "LATA", "3.60", "4.70", "L-GLO-2610B", 50, 250, 48));
         items.add(new Item("LAC-GLO-003", "7750101001036", "Leche UHT Gloria Entera Caja 1L", "LACTEOS", "CAJA", "4.20", "5.60", "L-GLO-2609U", 40, 140, 36));
         items.add(new Item("LAC-LAI-004", "7750101001043", "Leche UHT Laive Sin Lactosa Caja 1L", "LACTEOS", "CAJA", "4.40", "5.90", "L-LAI-2609S", 35, 145, 24));
-        items.add(new Item("LAC-GLO-005", "7750101001050", "Yogurt Gloria Batido Fresa Botella 1kg", "LACTEOS", "BOTELLA", "5.80", "7.90", "L-YOG-2610F", 18, 6, 18)); // FEFO CRÍTICO (6 días)
-        items.add(new Item("LAC-GLO-006", "7750101001067", "Yogurt Gloria Batido Vainilla Botella 1kg", "LACTEOS", "BOTELLA", "5.80", "7.90", "L-YOG-2610V", 20, 8, 16)); // FEFO CRÍTICO (8 días)
-        items.add(new Item("LAC-LAI-007", "7750101001074", "Yogurt Griego Laive Natural 120g", "LACTEOS", "VASO", "2.80", "3.90", "L-YOG-GR-01", 12, 18, 20)); // FEFO MEDIO (18 días)
+        items.add(new Item("LAC-GLO-005", "7750101001050", "Yogurt Gloria Batido Fresa Botella 1kg", "LACTEOS", "BOTELLA", "5.80", "7.90", "L-YOG-2610F", 18, 5, 18)); // FEFO AMARILLA (5 días)
+        items.add(new Item("LAC-GLO-006", "7750101001067", "Yogurt Gloria Batido Vainilla Botella 1kg", "LACTEOS", "BOTELLA", "5.80", "7.90", "L-YOG-2610V", 20, 8, 16));
+        items.add(new Item("LAC-LAI-007", "7750101001074", "Yogurt Griego Laive Natural 120g", "LACTEOS", "VASO", "2.80", "3.90", "L-YOG-GR-01", 12, 18, 20));
         items.add(new Item("LAC-GLO-008", "7750101001081", "Mantequilla Gloria con Sal 200g", "LACTEOS", "PAQUETE", "5.20", "7.20", "L-MAN-2608G", 45, 120, 30));
         items.add(new Item("LAC-LAI-009", "7750101001098", "Mantequilla Laive Pote 225g", "LACTEOS", "POTE", "5.90", "8.20", "L-MAN-2608L", 40, 110, 24));
-        items.add(new Item("LAC-BON-010", "7750101001104", "Queso Edam Bonle Rebanado 200g", "LACTEOS", "PAQUETE", "7.80", "10.50", "L-QED-2610B", 25, 10, 15)); // FEFO CRÍTICO (10 días)
-        items.add(new Item("LAC-LAI-011", "7750101001111", "Queso Fresco Pasteurizado Laive 400g", "LACTEOS", "EMPAQUE", "9.20", "12.80", "L-QFR-2610L", 10, 4, 12)); // FEFO CRÍTICO (4 días)
+        items.add(new Item("LAC-BON-010", "7750101001104", "Queso Edam Bonle Rebanado 200g", "LACTEOS", "PAQUETE", "7.80", "10.50", "L-QED-2610B", 25, 10, 15));
+        items.add(new Item("LAC-LAI-011", "7750101001111", "Queso Fresco Pasteurizado Laive 400g", "LACTEOS", "EMPAQUE", "9.20", "12.80", "L-QFR-2610L", 10, 2, 12)); // FEFO ROJA (2 días)
         items.add(new Item("LAC-GLO-012", "7750101001128", "Crema de Leche Gloria UHT 200ml", "LACTEOS", "CAJA", "3.90", "5.20", "L-CRM-2607A", 60, 180, 24));
 
         // 2. BEBIDAS Y GASEOSAS (12)
@@ -89,24 +89,24 @@ public class GenerateSampleInventory {
         items.add(new Item("SNK-GOM-014", "7750104004143", "Gomitas Ambrosoli Ositos Dulces 100g", "SNACKS", "BOLSA", "2.20", "3.40", "L-GOM-OSI-26", 50, 240, 40));
 
         // 5. EMBUTIDOS Y FIAMBRES (8)
-        items.add(new Item("EMB-SFE-001", "7750105005010", "Hot Dog de Pollo San Fernando 500g", "EMBUTIDOS", "PAQUETE", "6.20", "8.80", "L-HD-POL-2610", 12, 7, 30)); // FEFO CRÍTICO (7 días)
-        items.add(new Item("EMB-SFE-002", "7750105005027", "Jamonada Especial San Fernando 250g", "EMBUTIDOS", "PAQUETE", "4.80", "6.90", "L-JAM-SFE-26", 14, 9, 25)); // FEFO CRÍTICO (9 días)
-        items.add(new Item("EMB-BRA-003", "7750105005034", "Jamonada de Cerdo Braedt 200g", "EMBUTIDOS", "PAQUETE", "6.50", "9.20", "L-JAM-BRA-26", 15, 11, 20)); // FEFO CRÍTICO (11 días)
-        items.add(new Item("EMB-OTT-004", "7750105005041", "Tocino Ahumado Tiras Otto Kunz 180g", "EMBUTIDOS", "PAQUETE", "9.80", "13.90", "L-TOC-OTT-26", 16, 13, 18)); // FEFO CRÍTICO (13 días)
-        items.add(new Item("EMB-SFE-005", "7750105005058", "Chorizo Parrillero San Fernando 400g", "EMBUTIDOS", "PAQUETE", "11.20", "15.50", "L-CHO-PAR-26", 15, 22, 20)); // FEFO MEDIO (22 días)
-        items.add(new Item("EMB-PRE-006", "7750105005065", "Salchicha Huachana La Preferida 250g", "EMBUTIDOS", "PAQUETE", "5.40", "7.80", "L-SAL-HUA-26", 10, 5, 15)); // FEFO CRÍTICO (5 días)
-        items.add(new Item("EMB-OTT-007", "7750105005072", "Cabanossi Clasico Otto Kunz 100g", "EMBUTIDOS", "PAQUETE", "6.20", "8.90", "L-CAB-OTT-26", 25, 45, 25)); // FEFO MEDIO (45 días)
-        items.add(new Item("EMB-BRA-008", "7750105005089", "Jamon del Pais Braedt Laminado 150g", "EMBUTIDOS", "PAQUETE", "8.90", "12.50", "L-JPA-BRA-26", 11, 7, 16)); // FEFO CRÍTICO (7 días)
+        items.add(new Item("EMB-SFE-001", "7750105005010", "Hot Dog de Pollo San Fernando 500g", "EMBUTIDOS", "PAQUETE", "6.20", "8.80", "L-HD-POL-2610", 12, 7, 30));
+        items.add(new Item("EMB-SFE-002", "7750105005027", "Jamonada Especial San Fernando 250g", "EMBUTIDOS", "PAQUETE", "4.80", "6.90", "L-JAM-SFE-26", 14, 9, 25));
+        items.add(new Item("EMB-BRA-003", "7750105005034", "Jamonada de Cerdo Braedt 200g", "EMBUTIDOS", "PAQUETE", "6.50", "9.20", "L-JAM-BRA-26", 15, 11, 20));
+        items.add(new Item("EMB-OTT-004", "7750105005041", "Tocino Ahumado Tiras Otto Kunz 180g", "EMBUTIDOS", "PAQUETE", "9.80", "13.90", "L-TOC-OTT-26", 16, 13, 18));
+        items.add(new Item("EMB-SFE-005", "7750105005058", "Chorizo Parrillero San Fernando 400g", "EMBUTIDOS", "PAQUETE", "11.20", "15.50", "L-CHO-PAR-26", 15, 22, 20));
+        items.add(new Item("EMB-PRE-006", "7750105005065", "Salchicha Huachana La Preferida 250g", "EMBUTIDOS", "PAQUETE", "5.40", "7.80", "L-SAL-HUA-26", 10, 4, 15)); // FEFO AMARILLA (4 días)
+        items.add(new Item("EMB-OTT-007", "7750105005072", "Cabanossi Clasico Otto Kunz 100g", "EMBUTIDOS", "PAQUETE", "6.20", "8.90", "L-CAB-OTT-26", 25, 45, 25));
+        items.add(new Item("EMB-BRA-008", "7750105005089", "Jamon del Pais Braedt Laminado 150g", "EMBUTIDOS", "PAQUETE", "8.90", "12.50", "L-JPA-BRA-26", 11, 7, 16));
 
         // 6. PANADERÍA Y PASTELERÍA (8)
-        items.add(new Item("PAN-BIM-001", "7750106006017", "Pan de Molde Blanco Bimbo Grande 750g", "PANADERIA", "BOLSA", "6.50", "8.90", "L-PAN-BLA-2610", 8, 4, 25)); // FEFO CRÍTICO (4 días)
-        items.add(new Item("PAN-BIM-002", "7750106006024", "Pan de Molde Integral Bimbo 700g", "PANADERIA", "BOLSA", "7.20", "9.80", "L-PAN-INT-2610", 7, 5, 20)); // FEFO CRÍTICO (5 días)
-        items.add(new Item("PAN-BIM-003", "7750106006031", "Pan Artesano Original Bimbo 550g", "PANADERIA", "BOLSA", "7.80", "10.50", "L-PAN-ART-2610", 6, 6, 18)); // FEFO CRÍTICO (6 días)
-        items.add(new Item("PAN-BIM-004", "7750106006048", "Pan Hamburguesa con Ajonjoli Bimbo 4 unid", "PANADERIA", "BOLSA", "4.10", "5.80", "L-PAN-HAM-2610", 9, 7, 24)); // FEFO CRÍTICO (7 días)
-        items.add(new Item("PAN-BIM-005", "7750106006055", "Pan Hot Dog Bimbo 6 unid", "PANADERIA", "BOLSA", "4.20", "5.90", "L-PAN-HD-2610", 8, 8, 24)); // FEFO CRÍTICO (8 días)
-        items.add(new Item("PAN-BIM-006", "7750106006062", "Queque Bimbolete Vainilla Bimbo 6 unid", "PANADERIA", "PAQUETE", "2.80", "4.00", "L-BIM-VAI-26", 15, 14, 30)); // FEFO CRÍTICO (14 días)
+        items.add(new Item("PAN-BIM-001", "7750106006017", "Pan de Molde Blanco Bimbo Grande 750g", "PANADERIA", "BOLSA", "6.50", "8.90", "L-PAN-BLA-2610", 8, 2, 25)); // FEFO ROJA (2 días)
+        items.add(new Item("PAN-BIM-002", "7750106006024", "Pan de Molde Integral Bimbo 700g", "PANADERIA", "BOLSA", "7.20", "9.80", "L-PAN-INT-2610", 7, 3, 20)); // FEFO AMARILLA (3 días)
+        items.add(new Item("PAN-BIM-003", "7750106006031", "Pan Artesano Original Bimbo 550g", "PANADERIA", "BOLSA", "7.80", "10.50", "L-PAN-ART-2610", 6, 4, 18)); // FEFO AMARILLA (4 días)
+        items.add(new Item("PAN-BIM-004", "7750106006048", "Pan Hamburguesa con Ajonjoli Bimbo 4 unid", "PANADERIA", "BOLSA", "4.10", "5.80", "L-PAN-HAM-2610", 9, 5, 24)); // FEFO AMARILLA (5 días)
+        items.add(new Item("PAN-BIM-005", "7750106006055", "Pan Hot Dog Bimbo 6 unid", "PANADERIA", "BOLSA", "4.20", "5.90", "L-PAN-HD-2610", 8, 8, 24));
+        items.add(new Item("PAN-BIM-006", "7750106006062", "Queque Bimbolete Vainilla Bimbo 6 unid", "PANADERIA", "PAQUETE", "2.80", "4.00", "L-BIM-VAI-26", 15, 14, 30));
         items.add(new Item("PAN-BIM-007", "7750106006079", "Tostadas Clasicas Bimbo 180g", "PANADERIA", "PAQUETE", "3.90", "5.50", "L-TOS-CLA-26", 30, 90, 30));
-        items.add(new Item("PAN-CHA-008", "7750106006086", "Bizcocho Chancay Tradicional 4 unid", "PANADERIA", "BOLSA", "3.00", "4.50", "L-BIZ-CHA-2610", 4, 3, 20)); // FEFO CRÍTICO (3 días)
+        items.add(new Item("PAN-CHA-008", "7750106006086", "Bizcocho Chancay Tradicional 4 unid", "PANADERIA", "BOLSA", "3.00", "4.50", "L-BIZ-CHA-2610", 4, 1, 20)); // FEFO ROJA (1 día)
 
         // 7. ABARROTES Y CONSERVAS (12)
         items.add(new Item("ABA-COS-001", "7750107007014", "Arroz Superior Costeno Bolsa 1kg", "ABARROTES", "BOLSA", "4.10", "5.30", "L-ARR-SUP-26", 45, 365, 100));
@@ -146,9 +146,180 @@ public class GenerateSampleInventory {
 
         System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPath1);
 
+        // Generar script de migración SQL para que sp_reset_demo_environment() siembre estos 88 productos
+        String sqlMigrationPath = "sql/16_demo_expanded_catalog.sql";
+        generateMigrationSql(items, sqlMigrationPath);
+        System.out.println("EXITO: Generada migracion SQL en " + sqlMigrationPath);
+
         // Verificación con el parser real de Kardo
         verifyWithKardoParser(cleanPath1, items.size());
         System.out.println("VERIFICACION COMPLETADA: El archivo cumple todas las reglas de negocio de Kardo.");
+    }
+
+    private static void generateMigrationSql(List<Item> items, String sqlPath) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                -- ============================================================================
+                -- 16. Catalogo y lotes expandidos de la tienda demo (88 productos del Excel simulado)
+                --
+                -- Redefine sp_reset_demo_environment() para sembrar exactamente el inventario
+                -- representativo de 88 productos (Lacteos, Bebidas, Licores, Snacks, Embutidos,
+                -- Panaderia, Abarrotes y Limpieza) con fechas relativas a CURRENT_DATE, alertas
+                -- FEFO inmediatas y registro de carga para la auditoria de Excel.
+                -- ============================================================================
+
+                CREATE OR REPLACE PROCEDURE sp_reset_demo_environment()
+                LANGUAGE plpgsql AS $$
+                DECLARE
+                    v_demo_store_id CONSTANT INT := 999;
+                    v_demo_company_id CONSTANT INT := 999;
+                    v_upload_id INT;
+                    v_sup_gloria INT;
+                    v_sup_sanfernando INT;
+                    v_sup_bimbo INT;
+                    v_sup_backus INT;
+                    v_sup_lindley INT;
+                    v_sup_alicorp INT;
+                    v_receipt_id INT;
+                    v_item_id INT;
+                BEGIN
+                    -- Candado exclusivo sobre la tienda demo
+                    PERFORM store_id FROM stores WHERE store_id = v_demo_store_id FOR UPDATE;
+
+                    -- 1. Limpieza de tablas dependientes en orden
+                    DELETE FROM daily_sales WHERE store_id = v_demo_store_id;
+                    DELETE FROM waste_log WHERE store_id = v_demo_store_id;
+                    DELETE FROM supplier_returns WHERE store_id = v_demo_store_id;
+                    DELETE FROM inventory_batches WHERE store_id = v_demo_store_id;
+                    DELETE FROM goods_receipt_items WHERE receipt_id IN (
+                        SELECT receipt_id FROM goods_receipt_headers WHERE store_id = v_demo_store_id
+                    );
+                    DELETE FROM goods_receipt_headers WHERE store_id = v_demo_store_id;
+                    DELETE FROM inventory_uploads WHERE store_id = v_demo_store_id;
+
+                    -- 2. Asegurar empresa y tienda demo
+                    INSERT INTO companies (company_id, legal_name, tax_id)
+                    VALUES (v_demo_company_id, 'Supermercados Demo Peru S.A.C.', '20999888771')
+                    ON CONFLICT (company_id) DO UPDATE SET legal_name = EXCLUDED.legal_name;
+
+                    INSERT INTO stores (store_id, company_id, store_code, name, address)
+                    VALUES (v_demo_store_id, v_demo_company_id, 'DEMO-LIMA-01', 'Tienda Demo Miraflores', 'Av. Larco 1234')
+                    ON CONFLICT (store_id) DO UPDATE SET name = EXCLUDED.name;
+
+                    -- 3. Proveedores representativos
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'Leche Gloria S.A.', '20100190797', 'pedidos@gloria.com.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_gloria;
+
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'San Fernando S.A.', '20100154308', 'ventas@san-fernando.com.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_sanfernando;
+
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'Bimbo del Peru S.A.', '20383796590', 'pedidos@bimbo.com.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_bimbo;
+
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'Union de Cervecerias Backus y Johnston S.A.A.', '20100113610', 'contacto@backus.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_backus;
+
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'Arca Continental Lindley S.A.', '20100010721', 'ventas@lindley.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_lindley;
+
+                    INSERT INTO suppliers (company_id, name, tax_id, contact_email)
+                    VALUES (v_demo_company_id, 'Alicorp S.A.A.', '20100055237', 'atencionclientes@alicorp.com.pe')
+                    ON CONFLICT (company_id, tax_id) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING supplier_id INTO v_sup_alicorp;
+
+                    -- 4. Registrar la carga del Excel en inventory_uploads para trazabilidad
+                    INSERT INTO inventory_uploads (
+                        store_id, file_name, file_hash, file_size_bytes, total_rows, inserted_rows, quarantined_rows, uploaded_by, client_ip
+                    ) VALUES (
+                        v_demo_store_id, 'inventario_ejemplo_kardo.xlsx', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                        12167, 88, 88, 0, 'demo@kardo.pe', '127.0.0.1'
+                    ) RETURNING upload_id INTO v_upload_id;
+
+                    -- 5. Guia de Remision Demo (Simula una entrega de Gloria con discrepancia)
+                    INSERT INTO goods_receipt_headers (store_id, supplier_id, grn_number, issue_date)
+                    VALUES (v_demo_store_id, v_sup_gloria, 'GRN-2026-DEMO-001', CURRENT_DATE - INTERVAL '2 days')
+                    RETURNING receipt_id INTO v_receipt_id;
+
+                """);
+
+        // Insertar productos
+        sb.append("    -- 6. Catalogo de los 88 productos\n");
+        sb.append("    INSERT INTO products (company_id, sku, barcode, name, category, unit_of_measure, unit_cost, retail_price)\n    VALUES\n");
+        for (int i = 0; i < items.size(); i++) {
+            Item it = items.get(i);
+            sb.append(String.format("        (v_demo_company_id, '%s', '%s', '%s', '%s', '%s', %s, %s)%s\n",
+                    it.sku(), it.barcode(), it.name().replace("'", "''"), it.category(), it.uom(), it.cost(), it.price(),
+                    (i == items.size() - 1 ? "" : ",")));
+        }
+        sb.append("""
+                    ON CONFLICT (company_id, sku) DO UPDATE SET
+                        barcode = EXCLUDED.barcode,
+                        name = EXCLUDED.name,
+                        category = EXCLUDED.category,
+                        unit_of_measure = EXCLUDED.unit_of_measure,
+                        unit_cost = EXCLUDED.unit_cost,
+                        retail_price = EXCLUDED.retail_price;
+
+                """);
+
+        // Insertar lotes
+        sb.append("    -- 7. Lotes de inventario (88 lotes con fechas relativas)\n");
+        for (Item it : items) {
+            sb.append(String.format("""
+                    INSERT INTO inventory_batches (
+                        store_id, product_id, upload_id, batch_code,
+                        manufacturing_date, expiration_date, initial_qty, current_qty, unit_cost, batch_status
+                    )
+                    SELECT
+                        v_demo_store_id, p.product_id, v_upload_id, '%s',
+                        CURRENT_DATE - INTERVAL '%d days', CURRENT_DATE + INTERVAL '%d days', %d, %d, %s, 'ACTIVE'
+                    FROM products p
+                    WHERE p.company_id = v_demo_company_id AND p.sku = '%s';
+                """,
+                    it.batch(), it.mfgDaysAgo(), it.expDaysFromNow(), it.qty(), it.qty(), it.cost(), it.sku()));
+        }
+
+        // Guía de remisión y enlaces de receipt_item_id para canjes (Gloria y San Fernando)
+        sb.append("""
+                    -- 8. Discrepancia en guia de remision para recepcion con IA
+                    INSERT INTO goods_receipt_items (receipt_id, product_id, invoiced_qty, received_qty, unit_cost)
+                    SELECT v_receipt_id, p.product_id, 74, 72, 3.40
+                    FROM products p WHERE p.company_id = v_demo_company_id AND p.sku = 'LAC-GLO-001'
+                    RETURNING item_id INTO v_item_id;
+
+                    UPDATE inventory_batches
+                    SET receipt_item_id = v_item_id
+                    WHERE store_id = v_demo_store_id AND batch_code = 'L-GLO-2610A';
+
+                    -- Guia de San Fernando para canjes
+                    INSERT INTO goods_receipt_headers (store_id, supplier_id, grn_number, issue_date)
+                    VALUES (v_demo_store_id, v_sup_sanfernando, 'GRN-2026-DEMO-002', CURRENT_DATE - INTERVAL '5 days')
+                    RETURNING receipt_id INTO v_receipt_id;
+
+                    INSERT INTO goods_receipt_items (receipt_id, product_id, invoiced_qty, received_qty, unit_cost)
+                    SELECT v_receipt_id, p.product_id, 30, 30, 6.20
+                    FROM products p WHERE p.company_id = v_demo_company_id AND p.sku = 'EMB-SFE-001'
+                    RETURNING item_id INTO v_item_id;
+
+                    UPDATE inventory_batches
+                    SET receipt_item_id = v_item_id
+                    WHERE store_id = v_demo_store_id AND batch_code = 'L-HD-POL-2610';
+
+                END;
+                $$;
+                """);
+
+        Files.writeString(Path.of(sqlPath), sb.toString());
     }
 
     private static void verifyWithKardoParser(String path, int expectedInserted) throws Exception {
