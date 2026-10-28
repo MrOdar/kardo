@@ -137,14 +137,12 @@ public class GenerateSampleInventory {
         items.add(new Item("LIM-AYU-012", "7750108008127", "Lavavajillas Liquido Ayudin Limon Botella 500ml", "LIMPIEZA", "BOTELLA", "5.10", "7.20", "L-AYU-LIQ-500", 30, 540, 30));
 
         // Generar archivo limpio de 88 filas
-        String cleanPath1 = "inventario_ejemplo_kardo.xlsx";
-        String cleanPath2 = "../inventario_ejemplo_kardo.xlsx";
-        String cleanPath3 = "src/main/resources/static/assets/inventario_ejemplo_kardo.xlsx";
-        writeWorkbook(cleanPath1, items, today);
-        writeWorkbook(cleanPath2, items, today);
-        writeWorkbook(cleanPath3, items, today);
+        String cleanPathAsset = "src/main/resources/static/assets/inventario_ejemplo_kardo.xlsx";
+        String cleanPathParent = "../inventario_ejemplo_kardo.xlsx";
+        writeWorkbook(cleanPathAsset, items, today);
+        writeWorkbook(cleanPathParent, items, today);
 
-        System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPath1);
+        System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPathAsset);
 
         // Generar script de migración SQL para que sp_reset_demo_environment() siembre estos 88 productos
         String sqlMigrationPath = "sql/16_demo_expanded_catalog.sql";
@@ -152,7 +150,7 @@ public class GenerateSampleInventory {
         System.out.println("EXITO: Generada migracion SQL en " + sqlMigrationPath);
 
         // Verificación con el parser real de Kardo
-        verifyWithKardoParser(cleanPath1, items.size());
+        verifyWithKardoParser(cleanPathAsset, items.size());
         System.out.println("VERIFICACION COMPLETADA: El archivo cumple todas las reglas de negocio de Kardo.");
     }
 
@@ -241,8 +239,8 @@ public class GenerateSampleInventory {
                     INSERT INTO inventory_uploads (
                         store_id, file_name, file_hash, file_size_bytes, total_rows, inserted_rows, quarantined_rows, uploaded_by, client_ip
                     ) VALUES (
-                        v_demo_store_id, 'inventario_ejemplo_kardo.xlsx', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-                        12167, 88, 88, 0, 'demo@kardo.pe', '127.0.0.1'
+                        v_demo_store_id, 'carga-inicial-demo.xlsx', 'd204e5c58af400f8ff391831a63755eb2904871cd30a053da61167dc88cf5e17',
+                        11940, 88, 88, 0, 'demo@kardo.pe', '127.0.0.1'
                     ) RETURNING upload_id INTO v_upload_id;
 
                     -- 5. Guia de Remision Demo (Simula una entrega de Gloria con discrepancia)

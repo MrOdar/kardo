@@ -338,6 +338,7 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
   | `06_upload_audit.sql` | `inventory_uploads`, `confirmed_by` en las guías |
   | `07_upload_rollback.sql` | `upload_id` en los lotes, unicidad parcial de la huella |
   | `15_tenant_scoped_resolution.sql` | La tienda entra en `sp_approve_waste`, `sp_reject_waste`, `sp_credit_return` y `sp_refuse_return`; retira sus firmas sin tienda |
+  | `16_demo_expanded_catalog.sql` | Reescribe `sp_reset_demo_environment()`: 88 productos, proveedores y guía con discrepancia, con fechas relativas a `CURRENT_DATE` |
 * **Dialecto fijado en el arranque:** `JdbcConfig` declara el dialecto PostgreSQL en lugar de dejar que Spring Data JDBC lo deduzca abriendo una conexión durante el refresco del contexto. Sin eso, una base pausada o una red caída impiden que el contenedor levante y, por tanto, que responda `/api/v1/ping`, que es justo el endpoint encargado de mantenerlo vivo.
 * **Límite de Conexiones HikariCP (evita saturación en capa gratuita):**
   ```properties

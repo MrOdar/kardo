@@ -13,7 +13,10 @@ primero. Kardo lleva ese control, vende siempre lo más próximo a caducar y
 avisa —con un precio concreto— cuando todavía se puede recuperar la plata.
 
 🔗 **Demo:** [kardo.onrender.com](https://kardo.onrender.com) · pulsa
-**Restaurar tienda demo** y entras sin credenciales.
+**Restaurar tienda demo** y entras sin credenciales. La tienda se siembra con
+**88 productos** de un minimarket peruano de verdad —lácteos, embutidos,
+panadería, licores— con fechas relativas al día de hoy, así que el semáforo
+abre con lotes venciendo en 48 horas y rebajas por decidir, no en verde.
 🔌 **API:** [`/swagger-ui.html`](https://kardo.onrender.com/swagger-ui.html) ·
 inicia sesión con `demo@kardo.pe` / `kardo-demo-2026`, pega el token en
 **Authorize** y pruébala desde ahí.
@@ -55,7 +58,7 @@ aplica.
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
 tienda y el backend ignora cualquier `storeId` que llegue en el cuerpo: es lo que
-impide que un token de una tienda escriba en otra. No es una intención: hay **74
+impide que un token de una tienda escriba en otra. No es una intención: hay **78
 pruebas** que levantan la cadena de filtros real, con tokens firmados de verdad,
 y comprueban quién entra, con qué rol y sobre qué tienda acaba escribiendo.
 
@@ -83,6 +86,14 @@ tuviera un error.
 (`fastexcel`, nunca el DOM de POI), el multipart se vuelca a disco a partir de
 64 KB, se usa `JdbcTemplate` en vez de JPA para no arrastrar un caché de primer
 nivel, y el pool de conexiones vive en 5.
+
+**Y se puede comprobar sin traer nada.** La pestaña *Excel y versionado* ofrece
+un `.xlsx` de ejemplo con esos mismos 88 productos. Súbelo y entran 88 lotes;
+súbelo otra vez y responde **409**, porque la huella del contenido ya está
+registrada. Son las dos mitades de la misma regla, en dos clics. La carga que
+la demo siembra lleva a propósito otro nombre y otra huella: si compartieran
+contenido, el archivo de ejemplo se rechazaría la *primera* vez y no habría
+nada que enseñar.
 
 Y está medido, no supuesto:
 
@@ -201,7 +212,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/15, en orden numérico
+-- luego sql/01 … sql/16, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -210,7 +221,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 220 unitarias + 121 de integración
+mvn verify    # 220 unitarias + 125 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -225,6 +236,13 @@ que sin token responden 401, tokens caducados y firmados con otra clave, los
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes
 de escribir nada. Borrar un `@PreAuthorize` pone la suite en rojo.
 
+`DemoResetIT` cubre lo que más se mira y menos se probaba: el procedimiento que
+siembra la tienda demo. No lo llama en frío —así siempre pasaría— sino después
+de **usarla**: vende, declara una merma y un canje, y recién entonces restaura.
+`daily_sales`, `waste_log` y `supplier_returns` apuntan al lote con
+`ON DELETE RESTRICT`, de modo que el borrado choca con la clave foránea en
+cuanto alguien toca la demo. Ya pasó una vez, y se descubrió a mano.
+
 `SpaContractTest` cubre un caso distinto: la CSP prohíbe `'unsafe-inline'` en
 `script-src` y autoriza el único `<script>` en línea del HTML —la configuración
 de Tailwind— por su **hash SHA-256**, de modo que un script inyectado no se
@@ -237,10 +255,20 @@ línea en LF: con CRLF el hash sería otro en Windows que en CI.
 El banco de rendimiento queda fuera del build a propósito —mide la máquina, no
 una regla de negocio— y se pide aparte con `mvn test -Pbench`.
 
-> **Windows + Docker Desktop reciente:** pueden saltarse en local aunque Docker
-> esté instalado. Docker Desktop 29 responde al `/info` de clientes que no son su
-> CLI con un `400` vacío y Testcontainers lo interpreta como "no hay Docker".
-> WSL2 o un runner Linux son el camino corto.
+> **Docker 29 y Testcontainers 1.x:** si las de integración se saltan aunque
+> Docker esté corriendo, la causa no es Docker Desktop ni Windows. Docker 29
+> subió la **API mínima de 1.24 a 1.44**, y el `docker-java` que trae
+> Testcontainers 1.x negocia una anterior: el daemon responde `400` a `/info` y
+> Testcontainers lo lee como "no hay Docker". Se arregla fijando la versión de
+> la API, una línea en el *home* del usuario:
+>
+> ```bash
+> echo "api.version=1.44" > ~/.docker-java.properties
+> ```
+>
+> Con eso, `mvn verify` levanta los contenedores en Windows igual que en CI. El
+> arreglo de fondo es subir a Testcontainers 2.x, que ya habla la API nueva;
+> queda pendiente porque `spring-boot-testcontainers` 3.3.4 espera la rama 1.x.
 
 ---
 

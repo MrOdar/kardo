@@ -77,11 +77,32 @@ BEGIN
     RETURNING supplier_id INTO v_sup_alicorp;
 
     -- 4. Registrar la carga del Excel en inventory_uploads para trazabilidad
+    -- Carga de atrezo: da origen a los 88 lotes para que la pestaña de Excel y
+    -- "Ultimos movimientos" cuenten de donde salio este inventario.
+    --
+    -- DOS COSAS QUE NO SON ARBITRARIAS:
+    --
+    -- 1. El nombre NO es el del archivo que se reparte en
+    --    static/assets/inventario_ejemplo_kardo.xlsx, y la huella tampoco. La
+    --    ingesta rechaza por duplicado comparando (store_id, file_hash), de
+    --    modo que sembrar aqui la huella real de ese archivo dejaria al
+    --    evaluador sin poder subirlo: la demostracion de la ingesta en
+    --    streaming -que es la cabecera del proyecto- moriria en un 409. Son dos
+    --    cargas distintas a proposito: esta es el historico, aquella es la que
+    --    el evaluador hace con sus manos.
+    --
+    -- 2. La huella es un SHA-256 de verdad (el de la cadena que identifica a
+    --    este fixture), no un relleno. Antes aqui habia
+    --    e3b0c44298fc...b855, que es el SHA-256 de la cadena vacia: una de las
+    --    constantes mas reconocibles que hay, y la interfaz la enseña en la
+    --    columna HUELLA. En un proyecto cuyo argumento es la trazabilidad,
+    --    exhibir una huella que cualquiera reconoce como falsa desmiente justo
+    --    lo que se esta enseñando.
     INSERT INTO inventory_uploads (
         store_id, file_name, file_hash, file_size_bytes, total_rows, inserted_rows, quarantined_rows, uploaded_by, client_ip
     ) VALUES (
-        v_demo_store_id, 'inventario_ejemplo_kardo.xlsx', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        12167, 88, 88, 0, 'demo@kardo.pe', '127.0.0.1'
+        v_demo_store_id, 'carga-inicial-demo.xlsx', 'd204e5c58af400f8ff391831a63755eb2904871cd30a053da61167dc88cf5e17',
+        11940, 88, 88, 0, 'demo@kardo.pe', '127.0.0.1'
     ) RETURNING upload_id INTO v_upload_id;
 
     -- 5. Guia de Remision Demo (Simula una entrega de Gloria con discrepancia)

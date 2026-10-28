@@ -64,22 +64,24 @@ public class DemoRepository {
      * que terminen las ventas en vuelo y repuebla el escenario. Por eso se invoca
      * con {@code CALL} y no se parte en sentencias sueltas: la atomicidad vive
      * dentro del procedimiento.
+     *
+     * <p><b>Una sola sentencia, y a proposito.</b> Aqui hubo un tiempo dos
+     * {@code DELETE} previos -{@code inventory_uploads} y
+     * {@code supplier_returns}- porque la version de entonces del procedimiento
+     * no las tocaba. Desde {@code sql/16} la limpieza entera vive dentro, de
+     * modo que repetirlas aqui era codigo muerto con un comentario que afirmaba
+     * lo contrario, que es peor que no tener comentario.
+     *
+     * <p>Lo que no puede perderse es <em>por que</em> esas dos tablas tienen que
+     * borrarse antes que los lotes: {@code daily_sales.batch_id},
+     * {@code waste_log.batch_id} y {@code supplier_returns.batch_id} son
+     * {@code ON DELETE RESTRICT}, asi que en cuanto alguien usa la demo -una
+     * venta, una merma, un canje- el {@code DELETE FROM inventory_batches}
+     * choca con la clave foranea y la demo deja de poder restaurarse. Ya paso
+     * una vez. {@code DemoResetIT} lo ejercita de verdad para que no vuelva a
+     * pasar en silencio.
      */
     public void resetDemoEnvironment() {
-        // El procedimiento borra lotes, guias y ventas, pero no el rastro de
-        // cargas. Sin esto, tras restaurar la demo el evaluador no podria volver
-        // a subir el mismo Excel: la huella seguiria registrada y la carga se
-        // rechazaria por duplicada aunque sus lotes ya no existan.
-        jdbcTemplate.update("DELETE FROM inventory_uploads WHERE store_id = ?", DEMO_STORE_ID);
-
-        // Y los canjes, por una razon distinta: `supplier_returns.batch_id` es
-        // ON DELETE RESTRICT, de modo que en cuanto el evaluador declara uno,
-        // el DELETE de lotes del procedimiento chocaria con la clave foranea y
-        // la demo dejaria de poder restaurarse. Va antes, no dentro del
-        // procedimiento, para no reescribir en sql/14 las cien lineas de
-        // sql/02 por una sentencia.
-        jdbcTemplate.update("DELETE FROM supplier_returns WHERE store_id = ?", DEMO_STORE_ID);
-
         jdbcTemplate.execute("CALL sp_reset_demo_environment()");
     }
 

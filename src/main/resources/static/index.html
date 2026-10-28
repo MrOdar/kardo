@@ -850,6 +850,26 @@
             Subir dos veces el mismo archivo no duplica nada.
           </li>
         </ul>
+
+        <!-- Sin un archivo a mano, esta pantalla no se puede probar: nadie
+             improvisa un .xlsx de inventario para mirar una demo. El de
+             ejemplo trae los mismos 88 productos que siembra la tienda demo,
+             y su huella no es la de la carga sembrada, de modo que entra
+             limpio la primera vez y se rechaza por duplicado la segunda:
+             las dos mitades de la regla de arriba, demostrables en dos clics. -->
+        <div class="mt-4 border-t border-line pt-4">
+          <a id="sample-xlsx" href="/assets/inventario_ejemplo_kardo.xlsx" download
+             class="inline-flex items-center gap-2 rounded-md px-2 py-1.5 -ml-2 text-sm font-semibold
+                    text-brand transition-colors hover:bg-brand-tint focus-visible:outline
+                    focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4v12m0 0 4-4m-4 4-4-4"/><path d="M4 18v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1"/>
+            </svg>
+            Descargar un Excel de ejemplo
+          </a>
+          <p class="mt-1 text-xs text-ink-faint">88 productos reales · 12 KB</p>
+        </div>
       </div>
 
       <dl id="ingest-summary"
