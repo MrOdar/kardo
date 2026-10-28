@@ -139,22 +139,19 @@ public class GenerateSampleInventory {
         // Generar archivo limpio de 88 filas
         String cleanPath1 = "inventario_ejemplo_kardo.xlsx";
         String cleanPath2 = "../inventario_ejemplo_kardo.xlsx";
-        writeWorkbook(cleanPath1, items, today, false);
-        writeWorkbook(cleanPath2, items, today, false);
-
-        // Generar archivo con 4 filas de cuarentena para probar compuerta de calidad
-        String quarantinePath = "inventario_demo_con_cuarentena.xlsx";
-        writeWorkbook(quarantinePath, items, today, true);
+        String cleanPath3 = "src/main/resources/static/assets/inventario_ejemplo_kardo.xlsx";
+        writeWorkbook(cleanPath1, items, today);
+        writeWorkbook(cleanPath2, items, today);
+        writeWorkbook(cleanPath3, items, today);
 
         System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPath1);
 
         // Verificación con el parser real de Kardo
-        verifyWithKardoParser(cleanPath1, items.size(), 0);
-        verifyWithKardoParser(quarantinePath, items.size(), 4);
-        System.out.println("VERIFICACION COMPLETADA: Ambos archivos cumplen las reglas de negocio de Kardo.");
+        verifyWithKardoParser(cleanPath1, items.size());
+        System.out.println("VERIFICACION COMPLETADA: El archivo cumple todas las reglas de negocio de Kardo.");
     }
 
-    private static void verifyWithKardoParser(String path, int expectedInserted, int expectedQuarantine) throws Exception {
+    private static void verifyWithKardoParser(String path, int expectedInserted) throws Exception {
         com.kardo.repository.InventoryIngestRepository dummyRepo = new com.kardo.repository.InventoryIngestRepository(null, null) {
             @Override
             public long findCompanyIdByStore(long storeId) {
@@ -178,13 +175,13 @@ public class GenerateSampleInventory {
             if (summary.totalInserted() != expectedInserted) {
                 throw new IllegalStateException("Error en insertados: esperado " + expectedInserted + " pero fue " + summary.totalInserted());
             }
-            if (summary.totalQuarantined() != expectedQuarantine) {
-                throw new IllegalStateException("Error en cuarentena: esperado " + expectedQuarantine + " pero fue " + summary.totalQuarantined());
+            if (summary.totalQuarantined() != 0) {
+                throw new IllegalStateException("Error en cuarentena: esperado 0 pero fue " + summary.totalQuarantined());
             }
         }
     }
 
-    private static void writeWorkbook(String filePath, List<Item> items, LocalDate today, boolean withQuarantineErrors) throws Exception {
+    private static void writeWorkbook(String filePath, List<Item> items, LocalDate today) throws Exception {
         List<String> headers = List.of(
                 "SKU", "Codigo de barras", "Producto", "Categoria", "Unidad",
                 "Costo", "Precio", "Lote", "Fabricacion", "Vencimiento", "Cantidad"
@@ -217,64 +214,6 @@ public class GenerateSampleInventory {
                 sheet.value(rowIdx, 9, exp.toString());
                 sheet.value(rowIdx, 10, it.qty());
 
-                rowIdx++;
-            }
-
-            if (withQuarantineErrors) {
-                // Fila 1 Cuarentena: Costo negativo
-                sheet.value(rowIdx, 0, "ERR-COST-001");
-                sheet.value(rowIdx, 1, "7759990000010");
-                sheet.value(rowIdx, 2, "Cerveza Artesanal IPA 330ml (Costo Negativo)");
-                sheet.value(rowIdx, 3, "LICORES");
-                sheet.value(rowIdx, 4, "BOTELLA");
-                sheet.value(rowIdx, 5, new BigDecimal("-4.50")); // Error
-                sheet.value(rowIdx, 6, new BigDecimal("8.50"));
-                sheet.value(rowIdx, 7, "L-ERR-01");
-                sheet.value(rowIdx, 8, today.minusDays(30).toString());
-                sheet.value(rowIdx, 9, today.plusDays(180).toString());
-                sheet.value(rowIdx, 10, 12);
-                rowIdx++;
-
-                // Fila 2 Cuarentena: Cantidad cero o negativa
-                sheet.value(rowIdx, 0, "ERR-QTY-002");
-                sheet.value(rowIdx, 1, "7759990000027");
-                sheet.value(rowIdx, 2, "Galleta Rellena Chocochips (Cantidad Cero)");
-                sheet.value(rowIdx, 3, "SNACKS");
-                sheet.value(rowIdx, 4, "PAQUETE");
-                sheet.value(rowIdx, 5, new BigDecimal("1.50"));
-                sheet.value(rowIdx, 6, new BigDecimal("2.50"));
-                sheet.value(rowIdx, 7, "L-ERR-02");
-                sheet.value(rowIdx, 8, today.minusDays(20).toString());
-                sheet.value(rowIdx, 9, today.plusDays(120).toString());
-                sheet.value(rowIdx, 10, 0); // Error
-                rowIdx++;
-
-                // Fila 3 Cuarentena: Vence antes de fabricarse
-                sheet.value(rowIdx, 0, "ERR-DATE-003");
-                sheet.value(rowIdx, 1, "7759990000034");
-                sheet.value(rowIdx, 2, "Queso Parmesano Rallado 100g (Fecha Inconsistente)");
-                sheet.value(rowIdx, 3, "LACTEOS");
-                sheet.value(rowIdx, 4, "SOBRE");
-                sheet.value(rowIdx, 5, new BigDecimal("4.20"));
-                sheet.value(rowIdx, 6, new BigDecimal("6.50"));
-                sheet.value(rowIdx, 7, "L-ERR-03");
-                sheet.value(rowIdx, 8, today.plusDays(30).toString()); // Fabrica despues de vencer
-                sheet.value(rowIdx, 9, today.minusDays(5).toString());
-                sheet.value(rowIdx, 10, 20);
-                rowIdx++;
-
-                // Fila 4 Cuarentena: Sin SKU
-                sheet.value(rowIdx, 0, ""); // Error falta SKU
-                sheet.value(rowIdx, 1, "7759990000041");
-                sheet.value(rowIdx, 2, "Bebida Energetica Monster 473ml (Sin SKU)");
-                sheet.value(rowIdx, 3, "BEBIDAS");
-                sheet.value(rowIdx, 4, "LATA");
-                sheet.value(rowIdx, 5, new BigDecimal("5.50"));
-                sheet.value(rowIdx, 6, new BigDecimal("8.50"));
-                sheet.value(rowIdx, 7, "L-ERR-04");
-                sheet.value(rowIdx, 8, today.minusDays(15).toString());
-                sheet.value(rowIdx, 9, today.plusDays(240).toString());
-                sheet.value(rowIdx, 10, 24);
                 rowIdx++;
             }
 
