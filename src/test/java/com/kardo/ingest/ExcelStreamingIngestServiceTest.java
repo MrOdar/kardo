@@ -14,6 +14,7 @@ import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.QuarantineRowDto;
 import com.kardo.dto.SpreadsheetRowDto;
 import com.kardo.exception.CorruptSpreadsheetException;
+import com.kardo.exception.SpreadsheetTooLargeException;
 import com.kardo.repository.InventoryIngestRepository;
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,7 +54,7 @@ class ExcelStreamingIngestServiceTest {
         // El repositorio simulado confirma tantas inserciones como filas recibe.
         when(repository.persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList(), any()))
                 .thenAnswer(invocation -> ((List<?>) invocation.getArgument(2)).size());
-        service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 100));
+        service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 100, 200_000));
     }
 
     @Test
@@ -96,7 +97,7 @@ class ExcelStreamingIngestServiceTest {
     @Test
     @DisplayName("Envia las filas en micro-lotes del tamanio configurado")
     void troceaEnMicroLotes() throws IOException {
-        service = new ExcelStreamingIngestService(repository, new IngestProperties(2, 100));
+        service = new ExcelStreamingIngestService(repository, new IngestProperties(2, 100, 200_000));
 
         List<List<Object>> filas = new ArrayList<>();
         for (int i = 1; i <= 5; i++) {
@@ -152,7 +153,7 @@ class ExcelStreamingIngestServiceTest {
     @Test
     @DisplayName("El Circuit Breaker aborta al superar el umbral de filas corruptas")
     void circuitBreakerCorta() throws IOException {
-        service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 3));
+        service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 3, 200_000));
 
         List<List<Object>> filas = new ArrayList<>();
         for (int i = 1; i <= 50; i++) {
@@ -171,6 +172,35 @@ class ExcelStreamingIngestServiceTest {
 
         // Corta sin persistir nada: no se escriben lotes de un archivo invalido
         verify(repository, never()).persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList(), any());
+    }
+
+    @Test
+    @DisplayName("Corta el archivo que pasa del tope de filas, sin escribir nada")
+    void topeDeFilas() throws IOException {
+        // Tope de 3 para no tener que generar 200.000 filas en una prueba: lo
+        // que se verifica es que el corte exista y llegue antes de la escritura.
+        service = new ExcelStreamingIngestService(repository, new IngestProperties(500, 100, 3));
+
+        List<List<Object>> filas = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            filas.add(fila("SKU-" + i, null, "Producto " + i, "VARIOS", "UNIDAD",
+                    "1.00", "2.00", "L-1", null, "2027-05-05", 10));
+        }
+
+        InputStream excel = TestWorkbooks.xlsx(HEADERS_CON_ALIAS, filas);
+
+        assertThatThrownBy(() -> service.ingest(excel, STORE_ID, 7L))
+                .isInstanceOf(SpreadsheetTooLargeException.class)
+                .hasMessageContaining("3 filas");
+
+        // No es un 422 de archivo corrupto: el archivo esta bien, lo que no
+        // cabe es el trabajo. La distincion le dice al cliente que la salida es
+        // dividirlo, no corregirlo.
+        assertThatThrownBy(() -> service.ingest(TestWorkbooks.xlsx(HEADERS_CON_ALIAS, filas), STORE_ID, 7L))
+                .isNotInstanceOf(CorruptSpreadsheetException.class);
+
+        verify(repository, never())
+                .persistMicroBatch(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyList(), any());
     }
 
     @Test

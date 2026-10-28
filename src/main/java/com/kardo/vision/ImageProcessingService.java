@@ -12,6 +12,7 @@ import java.util.Base64;
 import java.util.Iterator;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.MemoryCacheImageOutputStream;
@@ -51,11 +52,7 @@ public class ImageProcessingService {
      */
     public String toBase64Jpeg(InputStream inputStream) {
         try {
-            BufferedImage original = ImageIO.read(inputStream);
-            if (original == null) {
-                throw new UnreadableImageException(
-                        "El archivo no es una imagen valida (se esperaba JPEG o PNG).");
-            }
+            BufferedImage original = decodeWithinBudget(inputStream);
 
             BufferedImage prepared = resizeToMaxDimension(original);
             byte[] jpeg = compressToJpeg(prepared);
@@ -68,6 +65,62 @@ public class ImageProcessingService {
 
         } catch (IOException ex) {
             throw new UnreadableImageException("No se pudo procesar la imagen: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Decodifica la imagen solo despues de comprobar cuanto va a ocupar.
+     *
+     * <p><b>Por que no basta {@code ImageIO.read}.</b> Esa llamada decodifica
+     * primero y pregunta despues, de modo que el tope de 10 MB del multipart no
+     * protege de nada: la compresion sin perdida del PNG permite declarar
+     * 30.000 x 30.000 px en unas decenas de KB, y materializar eso son 3,6 GB de
+     * {@code int[]} que el contenedor de 512 MB no tiene. El proceso muere con
+     * {@code OutOfMemoryError}, que no es una excepcion que se atrape ni se
+     * traduzca a un 400: se cae la aplicacion entera, y con ella las ventas de
+     * todas las tiendas. Es una denegacion de servicio con una foto.
+     *
+     * <p><b>El arreglo.</b> El lector de ImageIO sabe el ancho y el alto de la
+     * cabecera sin descomprimir los pixeles. Se consulta primero y, si el
+     * producto pasa del presupuesto, se rechaza con un 400 sin haber reservado
+     * el buffer. La vista se cierra siempre, tambien al rechazar, para no dejar
+     * el archivo temporal del multipart abierto.
+     */
+    private BufferedImage decodeWithinBudget(InputStream inputStream) throws IOException {
+        try (var stream = ImageIO.createImageInputStream(inputStream)) {
+            if (stream == null) {
+                throw new UnreadableImageException(
+                        "El archivo no es una imagen valida (se esperaba JPEG o PNG).");
+            }
+
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(stream);
+            if (!readers.hasNext()) {
+                throw new UnreadableImageException(
+                        "El archivo no es una imagen valida (se esperaba JPEG o PNG).");
+            }
+
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(stream, true, true);
+
+                long pixels = (long) reader.getWidth(0) * reader.getHeight(0);
+                if (pixels > properties.maxPixels()) {
+                    log.warn("Imagen rechazada antes de decodificar: {}x{} = {} px, tope {}",
+                            reader.getWidth(0), reader.getHeight(0), pixels, properties.maxPixels());
+                    throw new UnreadableImageException(
+                            "La imagen es demasiado grande: " + pixels / 1_000_000
+                            + " megapixeles. El tope es " + properties.maxPixels() / 1_000_000 + ".");
+                }
+
+                BufferedImage image = reader.read(0);
+                if (image == null) {
+                    throw new UnreadableImageException(
+                            "El archivo no es una imagen valida (se esperaba JPEG o PNG).");
+                }
+                return image;
+            } finally {
+                reader.dispose();
+            }
         }
     }
 

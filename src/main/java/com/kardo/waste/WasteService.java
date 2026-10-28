@@ -69,26 +69,41 @@ public class WasteService {
                 quantity, batchId, storeId, operatorId, reason);
     }
 
-    /** Consolida la perdida: las unidades salen de la cuarentena y no vuelven. */
+    /**
+     * Consolida la perdida: las unidades salen de la cuarentena y no vuelven.
+     *
+     * <p>La tienda viaja al procedimiento en lugar de comprobarse aqui. El
+     * {@code waste_id} es un SERIAL global, de modo que sin ella un gerente
+     * podia aprobar la merma de otra empresa cambiando el numero de la URL. Y
+     * leer la merma en Java antes del CALL dejaria una ventana entre la
+     * comprobacion y la escritura: el filtro tiene que ir en el mismo
+     * {@code SELECT ... FOR UPDATE} que toma el candado.
+     */
     @Transactional
-    public void approve(long wasteId, String authorizedBy) {
+    public void approve(long storeId, long wasteId, String authorizedBy) {
         try {
-            jdbcTemplate.update("CALL sp_approve_waste(?::int, ?::varchar)", wasteId, authorizedBy);
+            jdbcTemplate.update("CALL sp_approve_waste(?::int, ?::int, ?::varchar)",
+                    storeId, wasteId, authorizedBy);
         } catch (DataAccessException ex) {
             throw translate(ex, 0L, wasteId);
         }
-        log.info("Merma {} aprobada por {}", wasteId, authorizedBy);
+        log.info("Merma {} de la tienda {} aprobada por {}", wasteId, storeId, authorizedBy);
     }
 
-    /** Devuelve la mercaderia al stock vendible, si el lote no ha vencido entretanto. */
+    /**
+     * Devuelve la mercaderia al stock vendible, si el lote no ha vencido
+     * entretanto. Tambien lleva la tienda, y por el mismo motivo.
+     */
     @Transactional
-    public void reject(long wasteId, String authorizedBy) {
+    public void reject(long storeId, long wasteId, String authorizedBy) {
         try {
-            jdbcTemplate.update("CALL sp_reject_waste(?::int, ?::varchar)", wasteId, authorizedBy);
+            jdbcTemplate.update("CALL sp_reject_waste(?::int, ?::int, ?::varchar)",
+                    storeId, wasteId, authorizedBy);
         } catch (DataAccessException ex) {
             throw translate(ex, 0L, wasteId);
         }
-        log.info("Merma {} rechazada por {}; la mercaderia vuelve al stock", wasteId, authorizedBy);
+        log.info("Merma {} de la tienda {} rechazada por {}; la mercaderia vuelve al stock",
+                wasteId, storeId, authorizedBy);
     }
 
     /**

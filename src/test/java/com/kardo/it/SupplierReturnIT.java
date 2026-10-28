@@ -84,7 +84,7 @@ class SupplierReturnIT extends PostgresIntegrationTest {
         long batchId = loteConGuia("LOT-CJE-B", 20);
         returns.declare(storeId, batchId, 12, OPERARIO);
 
-        returns.credit(idDelUnicoCanje(), GERENTE);
+        returns.credit(storeId, idDelUnicoCanje(), GERENTE);
 
         Map<String, Object> lote = lote(batchId);
         assertThat(lote.get("current_qty")).isEqualTo(8);
@@ -111,7 +111,7 @@ class SupplierReturnIT extends PostgresIntegrationTest {
         long batchId = loteConGuia("LOT-CJE-C", 20);
         returns.declare(storeId, batchId, 12, OPERARIO);
 
-        returns.refuse(idDelUnicoCanje(), GERENTE);
+        returns.refuse(storeId, idDelUnicoCanje(), GERENTE);
 
         Map<String, Object> lote = lote(batchId);
         assertThat(lote.get("current_qty")).isEqualTo(20);
@@ -125,7 +125,7 @@ class SupplierReturnIT extends PostgresIntegrationTest {
         long batchId = loteConGuia("LOT-CJE-D", LocalDate.now().minusDays(1), 10);
         returns.declare(storeId, batchId, 10, OPERARIO);
 
-        returns.refuse(idDelUnicoCanje(), GERENTE);
+        returns.refuse(storeId, idDelUnicoCanje(), GERENTE);
 
         assertThat(lote(batchId).get("batch_status")).isEqualTo("EXPIRED");
     }
@@ -179,11 +179,11 @@ class SupplierReturnIT extends PostgresIntegrationTest {
         returns.declare(storeId, batchId, 4, OPERARIO);
         long returnId = idDelUnicoCanje();
 
-        returns.credit(returnId, GERENTE);
+        returns.credit(storeId, returnId, GERENTE);
 
-        assertThatThrownBy(() -> returns.credit(returnId, GERENTE))
+        assertThatThrownBy(() -> returns.credit(storeId, returnId, GERENTE))
                 .isInstanceOf(ReturnAlreadyResolvedException.class);
-        assertThatThrownBy(() -> returns.refuse(returnId, GERENTE))
+        assertThatThrownBy(() -> returns.refuse(storeId, returnId, GERENTE))
                 .isInstanceOf(ReturnAlreadyResolvedException.class);
     }
 
@@ -215,7 +215,7 @@ class SupplierReturnIT extends PostgresIntegrationTest {
     void elCanjeNoSeCuentaComoMerma() {
         long canjeado = loteConGuia("LOT-CJE-J", 10);
         returns.declare(storeId, canjeado, 10, OPERARIO);
-        returns.credit(idDelUnicoCanje(), GERENTE);
+        returns.credit(storeId, idDelUnicoCanje(), GERENTE);
 
         long perdido = loteConGuia("LOT-CJE-K", 10);
         jdbcTemplate.update("""

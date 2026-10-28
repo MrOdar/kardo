@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class ImageProcessingServiceTest {
 
     private final ImageProcessingService service =
-            new ImageProcessingService(new VisionProperties(1800, 0.85f,
+            new ImageProcessingService(new VisionProperties(1800, 0.85f, 40_000_000L,
                     new VisionProperties.Quota(40, 200)));
 
     @Test
@@ -72,6 +72,27 @@ class ImageProcessingServiceTest {
         assertThatThrownBy(() -> service.toBase64Jpeg(basura))
                 .isInstanceOf(UnreadableImageException.class)
                 .hasMessageContaining("imagen");
+    }
+
+    @Test
+    @DisplayName("Una imagen que no cabe en memoria se rechaza antes de decodificarla")
+    void bombaDeDescompresion() throws IOException {
+        // El tope real son 40 Mpx; aqui se baja a 1 Mpx para poder provocar el
+        // rechazo con una imagen que esta prueba pueda generar. Lo que se
+        // verifica es que la comprobacion ocurra, no la cifra.
+        var acotado = new ImageProcessingService(
+                new VisionProperties(1800, 0.85f, 1_000_000L, new VisionProperties.Quota(40, 200)));
+
+        // 2000 x 2000 = 4 Mpx declarados en la cabecera. El ataque de verdad
+        // son 30.000 x 30.000 en un PNG de 60 KB: 3,6 GB de buffer en un
+        // contenedor de 512 MB, que no es una excepcion sino el proceso caido.
+        assertThatThrownBy(() -> acotado.toBase64Jpeg(jpeg(2000, 2000)))
+                .isInstanceOf(UnreadableImageException.class)
+                .hasMessageContaining("megapixeles");
+
+        // Y la misma imagen pasa sin problema con el tope de produccion: el
+        // limite protege la disponibilidad, no estorba a una foto normal.
+        assertThat(service.toBase64Jpeg(jpeg(2000, 2000))).isNotEmpty();
     }
 
     @Test

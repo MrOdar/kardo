@@ -10,9 +10,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -601,7 +603,7 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             // El autor de la decision sale del token, no del cuerpo de la peticion
-            verify(wasteService).approve(9L, MANAGER);
+            verify(wasteService).approve(TOKEN_STORE, 9L, MANAGER);
         }
 
         @Test
@@ -862,6 +864,103 @@ class EndpointSecurityTest {
                     .andExpect(jsonPath("$.storeId").value(TOKEN_STORE));
 
             verifyNoInteractions(authenticationService);
+        }
+
+        /**
+         * El agujero que cerro {@code sql/15}.
+         *
+         * <p>Resolver una merma o un canje se hacia por su clave primaria, que
+         * es un SERIAL global: la tienda del token no entraba en la sentencia.
+         * Un gerente de la empresa B podia aprobar la merma 41 de la empresa A
+         * -o dar por recuperado el costo de su canje- con solo cambiar el numero
+         * de la URL, porque la autorizacion por rol pasaba y la de tienda no
+         * existia. Estas cuatro comprobaciones son las que impiden que vuelva:
+         * si alguien quita el {@code storeId} de la llamada, fallan.
+         */
+        @Test
+        @DisplayName("Resolver una merma o un canje lleva siempre la tienda del token")
+        void laResolucionLlevaLaTiendaDelToken() throws Exception {
+            when(wasteService.list(anyLong(), anyString(), anyInt())).thenReturn(List.of());
+
+            mockMvc.perform(post("/api/v1/inventory/waste/41/approve")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/v1/inventory/waste/41/reject")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/v1/inventory/returns/41/credit")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isNoContent());
+            mockMvc.perform(post("/api/v1/inventory/returns/41/refuse")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isNoContent());
+
+            verify(wasteService).approve(TOKEN_STORE, 41L, MANAGER);
+            verify(wasteService).reject(TOKEN_STORE, 41L, MANAGER);
+            verify(returnService).credit(TOKEN_STORE, 41L, MANAGER);
+            verify(returnService).refuse(TOKEN_STORE, 41L, MANAGER);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Cabeceras de respuesta
+    // ---------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Cabeceras de seguridad")
+    class Cabeceras {
+
+        /**
+         * La primera defensa del XSS sigue siendo que el SPA pinte con
+         * textContent. Esto es lo que queda si alguna vez se cuela una, y la
+         * parte que de verdad muerde es {@code connect-src 'self'}: el script
+         * inyectado podria ejecutarse, pero no tiene a donde mandar el
+         * inventario ni el token.
+         */
+        @Test
+        @DisplayName("La respuesta lleva CSP, y connect-src no deja salir datos")
+        void politicaDeContenido() throws Exception {
+            mockMvc.perform(get("/api/v1/ping"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Content-Security-Policy",
+                            org.hamcrest.Matchers.containsString("connect-src 'self'")))
+                    .andExpect(header().string("Content-Security-Policy",
+                            org.hamcrest.Matchers.containsString("frame-ancestors 'none'")))
+                    .andExpect(header().string("Content-Security-Policy",
+                            org.hamcrest.Matchers.containsString("object-src 'none'")))
+                    .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                    .andExpect(header().string("X-Frame-Options", "DENY"))
+                    .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"));
+        }
+
+        /**
+         * Kardo no emite cookies: el token va en {@code Authorization} y lo
+         * adjunta el cliente. {@code allowCredentials} no habilitaba nada que
+         * el SPA necesite y dejaba armado el peor error de CORS que existe: el
+         * dia que alguien ponga un origen de mas en la lista, cualquier pagina
+         * podria pedirle al navegador peticiones autenticadas y leer la
+         * respuesta.
+         */
+        @Test
+        @DisplayName("El preflight no autoriza credenciales")
+        void preflightSinCredenciales() throws Exception {
+            mockMvc.perform(options("/api/v1/inventory/batches")
+                            .header(HttpHeaders.ORIGIN, "http://localhost:5173")
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                            "http://localhost:5173"))
+                    .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+        }
+
+        /** Un origen que no esta en la lista no recibe la cabecera que lo autoriza. */
+        @Test
+        @DisplayName("Un origen ajeno no obtiene permiso")
+        void origenAjeno() throws Exception {
+            mockMvc.perform(options("/api/v1/inventory/batches")
+                            .header(HttpHeaders.ORIGIN, "https://sitio-del-atacante.com")
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                    .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
         }
     }
 

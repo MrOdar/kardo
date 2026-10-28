@@ -61,7 +61,7 @@ public class WasteController {
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<List<WasteEntryDto>> approve(@PathVariable long wasteId) {
         var user = CurrentUser.require();
-        wasteService.approve(wasteId, user.email());
+        wasteService.approve(user.storeId(), wasteId, user.email());
         return ResponseEntity.ok(wasteService.list(user.storeId(), "PENDING_APPROVAL", 50));
     }
 
@@ -70,7 +70,7 @@ public class WasteController {
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<List<WasteEntryDto>> reject(@PathVariable long wasteId) {
         var user = CurrentUser.require();
-        wasteService.reject(wasteId, user.email());
+        wasteService.reject(user.storeId(), wasteId, user.email());
         return ResponseEntity.ok(wasteService.list(user.storeId(), "PENDING_APPROVAL", 50));
     }
 }

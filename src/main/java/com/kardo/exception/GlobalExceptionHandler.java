@@ -8,6 +8,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -34,6 +36,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleCorruptSpreadsheet(CorruptSpreadsheetException ex) {
         log.warn("Ingesta abortada tras {} filas corruptas", ex.getCorruptRows());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+    }
+
+    /**
+     * Archivo demasiado largo: 413 y no 422.
+     *
+     * <p>422 significa "esto esta mal"; aqui el archivo esta bien y lo que no
+     * cabe es el trabajo. La diferencia no es cosmetica: con un 413 el cliente
+     * sabe que la salida es dividir el archivo, no corregirlo.
+     */
+    @ExceptionHandler(SpreadsheetTooLargeException.class)
+    public ResponseEntity<ApiError> handleSpreadsheetTooLarge(SpreadsheetTooLargeException ex) {
+        log.warn("Carga rechazada por exceder las {} filas admitidas", ex.maxRows());
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, ex.getMessage());
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
@@ -183,6 +198,54 @@ public class GlobalExceptionHandler {
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining("; "));
         return build(HttpStatus.BAD_REQUEST, detail.isEmpty() ? "Payload invalido." : detail);
+    }
+
+    /**
+     * Red de seguridad: cualquier excepcion que nadie de arriba reclame.
+     *
+     * <p><b>Que pasaba sin esto.</b> Un {@code NullPointerException} o el
+     * {@code DataAccessException} de un ERRCODE que ningun traductor contempla
+     * salian por el manejador por defecto de Spring Boot, que devuelve un
+     * cuerpo con {@code exception}, {@code message} y, segun la configuracion,
+     * el {@code trace}. Eso le enseña al cliente el nombre de la clase que
+     * fallo, la version del driver y a veces el fragmento de SQL con los
+     * nombres de las tablas: un mapa gratis del interior para quien esta
+     * buscando por donde entrar.
+     *
+     * <p><b>Que hace.</b> El detalle va al log del servidor, que es de quien
+     * opera, y al cliente le llega un 500 con una frase. Va declarado al final
+     * del archivo y sobre {@code Exception}, el tipo mas general: Spring elige
+     * siempre el manejador mas especifico, de modo que no tapa ninguno de los
+     * de arriba.
+     *
+     * <p>Las excepciones de Spring Security quedan fuera a proposito: las
+     * resuelve la cadena de filtros antes de llegar aqui, y atraparlas
+     * convertiria un 401 en un 500.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
+        // Spring tiene sus propios errores de protocolo -metodo no permitido,
+        // ruta inexistente, parametro que falta- y cada uno ya sabe su codigo.
+        // Si el catch-all se los comiera, un 405 se devolveria como 500 y el
+        // cliente no sabria que lo que esta mal es su peticion.
+        if (ex instanceof ErrorResponse known) {
+            return ResponseEntity.status(known.getStatusCode())
+                    .body(ApiError.of(known.getStatusCode().value(),
+                            HttpStatus.valueOf(known.getStatusCode().value()).getReasonPhrase(),
+                            known.getBody().getDetail()));
+        }
+
+        // JSON malformado. No implementa ErrorResponse, asi que entra aqui, y
+        // su mensaje trae el fragmento del cuerpo que no se pudo parsear: va al
+        // log y no a la respuesta.
+        if (ex instanceof HttpMessageNotReadableException) {
+            log.warn("Cuerpo de peticion ilegible: {}", ex.getMessage());
+            return build(HttpStatus.BAD_REQUEST, "El cuerpo de la peticion no es un JSON valido.");
+        }
+
+        log.error("Fallo no contemplado", ex);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Ocurrio un error inesperado. Si vuelve a pasar, avisa a soporte.");
     }
 
     private static ResponseEntity<ApiError> build(HttpStatus status, String message) {

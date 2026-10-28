@@ -75,7 +75,7 @@ class WasteWorkflowIT extends PostgresIntegrationTest {
     @DisplayName("Listar sin filtro devuelve todas las bajas, resueltas o no")
     void listarSinFiltro() {
         wasteService.report(storeId, batchId, 4, "EXPIRATION", "operario@kardo.pe");
-        wasteService.approve(ultimaMerma(), "gerente@kardo.pe");
+        wasteService.approve(storeId, ultimaMerma(), "gerente@kardo.pe");
         wasteService.report(storeId, batchId, 3, "DAMAGE", "operario@kardo.pe");
 
         assertThat(wasteService.list(storeId, null, 50))
@@ -91,7 +91,7 @@ class WasteWorkflowIT extends PostgresIntegrationTest {
     @DisplayName("Aprobar consolida la perdida: las unidades no vuelven")
     void aprobarConsolida() {
         wasteService.report(storeId, batchId, 6, "EXPIRATION", "operario@kardo.pe");
-        wasteService.approve(ultimaMerma(), "gerente@kardo.pe");
+        wasteService.approve(storeId, ultimaMerma(), "gerente@kardo.pe");
 
         assertThat(masa()).isEqualTo("24/0/30");
         assertThat(estadoMerma()).isEqualTo("APPROVED");
@@ -104,7 +104,7 @@ class WasteWorkflowIT extends PostgresIntegrationTest {
     @DisplayName("Rechazar devuelve la mercaderia al stock vendible")
     void rechazarDevuelveElStock() {
         wasteService.report(storeId, batchId, 6, "COLD_CHAIN_FAILURE", "operario@kardo.pe");
-        wasteService.reject(ultimaMerma(), "gerente@kardo.pe");
+        wasteService.reject(storeId, ultimaMerma(), "gerente@kardo.pe");
 
         assertThat(masa()).isEqualTo("30/0/30");
         assertThat(estadoMerma()).isEqualTo("REJECTED");
@@ -118,11 +118,11 @@ class WasteWorkflowIT extends PostgresIntegrationTest {
     void resolucionIdempotente() {
         wasteService.report(storeId, batchId, 6, "EXPIRATION", "operario@kardo.pe");
         long merma = ultimaMerma();
-        wasteService.approve(merma, "gerente@kardo.pe");
+        wasteService.approve(storeId, merma, "gerente@kardo.pe");
 
-        assertThatThrownBy(() -> wasteService.approve(merma, "gerente@kardo.pe"))
+        assertThatThrownBy(() -> wasteService.approve(storeId, merma, "gerente@kardo.pe"))
                 .isInstanceOf(WasteAlreadyResolvedException.class);
-        assertThatThrownBy(() -> wasteService.reject(merma, "gerente@kardo.pe"))
+        assertThatThrownBy(() -> wasteService.reject(storeId, merma, "gerente@kardo.pe"))
                 .isInstanceOf(WasteAlreadyResolvedException.class);
 
         // El lote quedo como lo dejo la aprobacion, sin doble descuento

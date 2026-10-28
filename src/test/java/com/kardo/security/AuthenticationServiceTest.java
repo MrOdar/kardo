@@ -91,6 +91,34 @@ class AuthenticationServiceTest {
     }
 
     @Test
+    @DisplayName("Un correo inexistente tambien paga el BCrypt, para que el reloj no lo delate")
+    void mismoCosteParaCorreoInexistente() {
+        // El mismo mensaje no basta si el tiempo los distingue: sin esto, un
+        // correo que no existe salia en un milisegundo y uno real tardaba los
+        // ~100 ms de un BCrypt a coste 10, de modo que cronometrar dos
+        // peticiones decia que cuentas estan dadas de alta.
+        var encoder = org.mockito.Mockito.spy(new BCryptPasswordEncoder());
+        SecurityProperties properties = new SecurityProperties(
+                new SecurityProperties.Jwt(SECRET, "kardo", Duration.ofHours(8)),
+                new SecurityProperties.Cors(List.of("http://localhost:5173")));
+        var conSpy = new AuthenticationService(
+                userRepository, storeRepository, encoder, jwtService, properties);
+
+        // El hash señuelo se calcula al construir el servicio; solo interesa lo
+        // que pase a partir de aqui.
+        org.mockito.Mockito.clearInvocations(encoder);
+        when(userRepository.findActiveByEmail("nadie@kardo.pe")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> conSpy.login("nadie@kardo.pe", PASSWORD))
+                .isInstanceOf(InvalidCredentialsException.class);
+
+        // La comparacion se hizo igual: contra el señuelo, que ninguna
+        // contraseña satisface, pero cuesta lo mismo que la real.
+        verify(encoder).matches(org.mockito.ArgumentMatchers.eq(PASSWORD),
+                org.mockito.ArgumentMatchers.startsWith("$2a$"));
+    }
+
+    @Test
     @DisplayName("La sesion demo sin contraseña solo sirve para la tienda de demostracion")
     void sesionDemoAcotada() {
         trabajaEn("demo@kardo.pe", 999L, "MANAGER");

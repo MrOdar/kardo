@@ -43,7 +43,7 @@ class WasteSegregationIT extends PostgresIntegrationTest {
         wasteService.report(storeId, batchId, 5, "DAMAGE", GERENTE);
         long merma = ultimaMerma();
 
-        assertThatThrownBy(() -> wasteService.approve(merma, GERENTE))
+        assertThatThrownBy(() -> wasteService.approve(storeId, merma, GERENTE))
                 .isInstanceOf(SelfApprovalException.class)
                 .hasMessageContaining(GERENTE);
 
@@ -58,7 +58,7 @@ class WasteSegregationIT extends PostgresIntegrationTest {
         wasteService.report(storeId, batchId, 5, "DAMAGE", GERENTE);
         long merma = ultimaMerma();
 
-        assertThatThrownBy(() -> wasteService.reject(merma, GERENTE))
+        assertThatThrownBy(() -> wasteService.reject(storeId, merma, GERENTE))
                 .isInstanceOf(SelfApprovalException.class);
 
         assertThat(estado()).isEqualTo("PENDING_APPROVAL");
@@ -68,7 +68,7 @@ class WasteSegregationIT extends PostgresIntegrationTest {
     @DisplayName("Otra persona si puede resolverla")
     void otraPersonaResuelve() {
         wasteService.report(storeId, batchId, 5, "EXPIRATION", OPERARIO);
-        wasteService.approve(ultimaMerma(), GERENTE);
+        wasteService.approve(storeId, ultimaMerma(), GERENTE);
 
         assertThat(estado()).isEqualTo("APPROVED");
         assertThat(cuarentena()).isZero();
@@ -81,7 +81,7 @@ class WasteSegregationIT extends PostgresIntegrationTest {
     @DisplayName("El rechazo por otra persona devuelve la mercaderia")
     void otraPersonaRechaza() {
         wasteService.report(storeId, batchId, 5, "EXPIRATION", OPERARIO);
-        wasteService.reject(ultimaMerma(), GERENTE);
+        wasteService.reject(storeId, ultimaMerma(), GERENTE);
 
         assertThat(estado()).isEqualTo("REJECTED");
         assertThat(jdbcTemplate.queryForObject(

@@ -58,7 +58,8 @@ public class SupplierReturnController {
     @PostMapping("/{returnId}/credit")
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<Void> credit(@PathVariable long returnId) {
-        returnService.credit(returnId, CurrentUser.require().email());
+        var user = CurrentUser.require();
+        returnService.credit(user.storeId(), returnId, user.email());
         return ResponseEntity.noContent().build();
     }
 
@@ -66,7 +67,8 @@ public class SupplierReturnController {
     @PostMapping("/{returnId}/refuse")
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<Void> refuse(@PathVariable long returnId) {
-        returnService.refuse(returnId, CurrentUser.require().email());
+        var user = CurrentUser.require();
+        returnService.refuse(user.storeId(), returnId, user.email());
         return ResponseEntity.noContent().build();
     }
 }

@@ -25,6 +25,16 @@ public class AuthenticationService {
     private final JwtService jwtService;
     private final SecurityProperties securityProperties;
 
+    /**
+     * Hash contra el que se comparan las contraseñas de correos que no existen.
+     *
+     * <p>Se calcula al arrancar sobre un UUID aleatorio: nadie conoce el texto
+     * que lo produjo, ni este proceso, de modo que no hay contraseña que lo
+     * satisfaga. Lo unico que importa es que sea un BCrypt del mismo coste que
+     * los reales, porque su proposito es tardar lo mismo.
+     */
+    private final String decoyHash;
+
     public AuthenticationService(UserRepository userRepository,
                                  StoreRepository storeRepository,
                                  PasswordEncoder passwordEncoder,
@@ -35,6 +45,7 @@ public class AuthenticationService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.securityProperties = securityProperties;
+        this.decoyHash = passwordEncoder.encode(java.util.UUID.randomUUID().toString());
     }
 
     /**
@@ -72,13 +83,25 @@ public class AuthenticationService {
      */
     @Transactional
     public SessionDto login(String email, String rawPassword) {
-        var account = userRepository.findActiveByEmail(email)
-                .filter(user -> passwordEncoder.matches(rawPassword, user.passwordHash()))
-                .orElseThrow(() -> {
-                    log.warn("Intento de acceso fallido para {}", email);
-                    return new InvalidCredentialsException();
-                });
+        var found = userRepository.findActiveByEmail(email);
 
+        // El mismo mensaje no basta si el reloj los distingue. Un correo que no
+        // existe nunca llegaba al `matches`, de modo que respondia en un
+        // milisegundo mientras uno real tardaba los ~100 ms que cuesta un
+        // BCrypt a coste 10. Esa diferencia es medible desde fuera y convierte
+        // el login en un enumerador de cuentas: quien quiera saber si
+        // gerente@tienda.pe tiene usuario en Kardo solo tiene que cronometrar
+        // dos peticiones. Por eso se compara siempre, contra el hash real o
+        // contra el señuelo, y las dos ramas cuestan lo mismo.
+        String hash = found.map(UserRepository.UserAccount::passwordHash).orElse(decoyHash);
+        boolean matches = passwordEncoder.matches(rawPassword, hash);
+
+        if (found.isEmpty() || !matches) {
+            log.warn("Intento de acceso fallido para {}", email);
+            throw new InvalidCredentialsException();
+        }
+
+        var account = found.get();
         userRepository.touchLastLogin(account.userId());
         return toSession(account, defaultMembership(account));
     }

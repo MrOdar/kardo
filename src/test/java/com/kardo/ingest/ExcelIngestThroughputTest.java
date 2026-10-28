@@ -173,7 +173,7 @@ class ExcelIngestThroughputTest {
                 return rows.size();
             }
         };
-        return new ExcelStreamingIngestService(repository, new IngestProperties(500, 100));
+        return new ExcelStreamingIngestService(repository, new IngestProperties(500, 100, 200_000));
     }
 
     /**

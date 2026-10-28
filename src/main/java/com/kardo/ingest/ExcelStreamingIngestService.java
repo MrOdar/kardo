@@ -5,6 +5,7 @@ import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.QuarantineRowDto;
 import com.kardo.dto.SpreadsheetRowDto;
 import com.kardo.exception.CorruptSpreadsheetException;
+import com.kardo.exception.SpreadsheetTooLargeException;
 import com.kardo.repository.InventoryIngestRepository;
 import java.io.IOException;
 import java.io.InputStream;
@@ -82,6 +83,14 @@ public class ExcelStreamingIngestService {
                     }
                     processed++;
 
+                    // El tope se comprueba antes de validar la fila, no al
+                    // final: el sentido de cortar es no haber hecho el trabajo.
+                    // Y como corta el recorrido, la transaccion se deshace sin
+                    // haber escrito nada.
+                    if (processed > properties.maxRows()) {
+                        throw new SpreadsheetTooLargeException(properties.maxRows());
+                    }
+
                     RawRow rawRow = toRawRow(row, mapping);
                     switch (RowQualityGate.check(rawRow)) {
                         case RowValidationResult.Valid valid -> {
@@ -108,8 +117,11 @@ public class ExcelStreamingIngestService {
 
             inserted += repository.persistMicroBatch(storeId, companyId, microBatch, uploadId);
 
-        } catch (CorruptSpreadsheetException breaker) {
-            // El Circuit Breaker ya trae su mensaje y su contador: se propaga tal cual.
+        } catch (CorruptSpreadsheetException | SpreadsheetTooLargeException breaker) {
+            // Los dos cortes deliberados traen ya su mensaje y su codigo HTTP:
+            // se propagan tal cual. Van antes del catch de abajo porque
+            // envolverlos en "archivo corrupto" diria que el Excel esta mal
+            // cuando lo que pasa es que es demasiado grande, o al contrario.
             throw breaker;
         } catch (ExcelReaderException | UncheckedIOException ex) {
             // fastexcel envuelve el XML malformado en excepciones de runtime propias.

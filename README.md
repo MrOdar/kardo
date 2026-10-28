@@ -201,7 +201,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/14, en orden numérico
+-- luego sql/01 … sql/15, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -210,7 +210,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 208 unitarias + 121 de integración
+mvn verify    # 218 unitarias + 121 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -219,7 +219,7 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
-De las unitarias, **74 son de seguridad** (`EndpointSecurityTest`): 35 endpoints
+De las unitarias, **78 son de seguridad** (`EndpointSecurityTest`): 35 endpoints
 que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes

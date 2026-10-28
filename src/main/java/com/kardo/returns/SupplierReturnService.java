@@ -79,15 +79,24 @@ public class SupplierReturnService {
                 quantity, batchId, storeId, declaredBy);
     }
 
-    /** El proveedor se la llevo y abono: el costo se recupera, no se pierde. */
+    /**
+     * El proveedor se la llevo y abono: el costo se recupera, no se pierde.
+     *
+     * <p>La tienda va dentro del procedimiento, no comprobada aqui: el
+     * {@code return_id} es un SERIAL global y este es el metodo que mueve
+     * dinero, de modo que sin ella bastaba cambiar el numero de la URL para dar
+     * por recuperado el costo de un canje de otra empresa.
+     */
     @Transactional
-    public void credit(long returnId, String resolvedBy) {
+    public void credit(long storeId, long returnId, String resolvedBy) {
         try {
-            jdbcTemplate.update("CALL sp_credit_return(?::int, ?::varchar)", returnId, resolvedBy);
+            jdbcTemplate.update("CALL sp_credit_return(?::int, ?::int, ?::varchar)",
+                    storeId, returnId, resolvedBy);
         } catch (DataAccessException ex) {
             throw translate(ex, 0L, returnId);
         }
-        log.info("Canje {} abonado por el proveedor, resuelto por {}", returnId, resolvedBy);
+        log.info("Canje {} de la tienda {} abonado por el proveedor, resuelto por {}",
+                returnId, storeId, resolvedBy);
     }
 
     /**
@@ -98,13 +107,15 @@ public class SupplierReturnService {
      * no inventa contabilidad de perdidas, se la devuelve a quien ya la lleva.
      */
     @Transactional
-    public void refuse(long returnId, String resolvedBy) {
+    public void refuse(long storeId, long returnId, String resolvedBy) {
         try {
-            jdbcTemplate.update("CALL sp_refuse_return(?::int, ?::varchar)", returnId, resolvedBy);
+            jdbcTemplate.update("CALL sp_refuse_return(?::int, ?::int, ?::varchar)",
+                    storeId, returnId, resolvedBy);
         } catch (DataAccessException ex) {
             throw translate(ex, 0L, returnId);
         }
-        log.info("Canje {} rechazado por el proveedor; la mercaderia vuelve al stock", returnId);
+        log.info("Canje {} de la tienda {} rechazado por el proveedor; la mercaderia vuelve al stock",
+                returnId, storeId);
     }
 
     /** @param status filtro opcional; {@code null} devuelve todo el historial */
