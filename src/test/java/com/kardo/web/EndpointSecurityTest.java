@@ -30,6 +30,7 @@ import com.kardo.dto.MarkdownDecisionRequestDto;
 import com.kardo.dto.NewStoreRequestDto;
 import com.kardo.dto.NewUserRequestDto;
 import com.kardo.dto.RegisterRequestDto;
+import com.kardo.dto.ReturnRequestDto;
 import com.kardo.dto.RollbackResponseDto;
 import com.kardo.dto.SaleRequestDto;
 import com.kardo.dto.SaleResponseDto;
@@ -184,6 +185,9 @@ class EndpointSecurityTest {
     private WasteService wasteService;
 
     @MockBean
+    private com.kardo.returns.SupplierReturnService returnService;
+
+    @MockBean
     private ExpiryAlertService alertService;
 
     @MockBean
@@ -248,6 +252,10 @@ class EndpointSecurityTest {
                 "GET,  /api/v1/receipts/quota",
                 "POST, /api/v1/receipts/confirm",
                 "POST, /api/v1/inventory/sales",
+                "GET,  /api/v1/inventory/returns",
+                "POST, /api/v1/inventory/returns",
+                "POST, /api/v1/inventory/returns/9/credit",
+                "POST, /api/v1/inventory/returns/9/refuse",
                 "GET,  /api/v1/inventory/waste",
                 "POST, /api/v1/inventory/waste",
                 "POST, /api/v1/inventory/waste/9/approve",
@@ -500,13 +508,31 @@ class EndpointSecurityTest {
         @CsvSource({
                 "/api/v1/inventory/waste/9/approve",
                 "/api/v1/inventory/waste/9/reject",
-                "/api/v1/inventory/ingest/7/rollback"
+                "/api/v1/inventory/ingest/7/rollback",
+                // Confirmar que el proveedor abono es anotar dinero recuperado;
+                // lo firma quien responde de el.
+                "/api/v1/inventory/returns/9/credit",
+                "/api/v1/inventory/returns/9/refuse"
         })
         void operarioNoResuelve(String path) throws Exception {
             mockMvc.perform(post(path.trim()).header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
                     .andExpect(status().isForbidden());
 
-            verifyNoInteractions(wasteService, rollbackService);
+            verifyNoInteractions(wasteService, rollbackService, returnService);
+        }
+
+        /**
+         * Declararlo si, en cambio: el operario ve la fecha de cerca y sabe lo
+         * que le cabe al camion de mañana, igual que declara una merma.
+         */
+        @Test
+        @DisplayName("El operario si puede declarar un canje, con su correo y su tienda")
+        void elOperarioDeclaraCanjes() throws Exception {
+            mockMvc.perform(json(post("/api/v1/inventory/returns"), new ReturnRequestDto(7L, 5))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isCreated());
+
+            verify(returnService).declare(TOKEN_STORE, 7L, 5, OPERATOR);
         }
 
         /**

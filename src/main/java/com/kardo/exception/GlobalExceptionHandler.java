@@ -128,6 +128,16 @@ public class GlobalExceptionHandler {
      * un alta, saber que ese correo ya tiene cuenta es justo lo que necesita
      * quien la esta creando, y no revela nada que no acabe de teclear.
      */
+    @ExceptionHandler(NotReturnableException.class)
+    public ResponseEntity<ApiError> handleNotReturnable(NotReturnableException ex) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+    }
+
+    @ExceptionHandler(ReturnAlreadyResolvedException.class)
+    public ResponseEntity<ApiError> handleReturnResolved(ReturnAlreadyResolvedException ex) {
+        return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(DuplicateAccountException.class)
     public ResponseEntity<ApiError> handleDuplicateAccount(DuplicateAccountException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());

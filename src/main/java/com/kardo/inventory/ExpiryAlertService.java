@@ -51,9 +51,15 @@ public class ExpiryAlertService {
                    d.decision,
                    d.step_percent,
                    d.decided_by,
-                   d.decided_at
+                   d.decided_at,
+                   -- Quien trajo el lote, si vino por guia. Es lo que decide si
+                   -- se puede ofrecer el canje en vez de la merma.
+                   su.name AS supplier_name
             FROM inventory_batches b
             JOIN products p USING (product_id)
+            LEFT JOIN goods_receipt_items gi ON gi.item_id = b.receipt_item_id
+            LEFT JOIN goods_receipt_headers gh ON gh.receipt_id = gi.receipt_id
+            LEFT JOIN suppliers su ON su.supplier_id = gh.supplier_id
             LEFT JOIN LATERAL (
                 SELECT md.decision, md.step_percent, md.decided_by, md.decided_at
                 FROM markdown_decisions md
@@ -218,7 +224,8 @@ public class ExpiryAlertService {
                            NULL::varchar AS decision,
                            NULL::int AS step_percent,
                            NULL::varchar AS decided_by,
-                           NULL::timestamptz AS decided_at
+                           NULL::timestamptz AS decided_at,
+                           NULL::varchar AS supplier_name
                     FROM inventory_batches b
                     JOIN products p USING (product_id)
                     WHERE b.store_id = ? AND b.batch_id = ?
@@ -235,7 +242,7 @@ public class ExpiryAlertService {
                 c.unitCost(), c.markdownPrice(), c.retailPrice(),
                 s.action(), s.stepPercent(), s.discountPercent(), s.suggestedPrice(),
                 s.marginSacrificed(), s.valueAtRisk(), s.rationale(),
-                c.decision(), c.decidedStep(), c.decidedBy(), c.decidedAt());
+                c.decision(), c.decidedStep(), c.decidedBy(), c.decidedAt(), c.supplierName());
     }
 
     /** Fila cruda: el lote y lo ultimo que se decidio sobre el. */
@@ -243,7 +250,8 @@ public class ExpiryAlertService {
             long batchId, String sku, String productName, String batchCode,
             LocalDate expirationDate, int daysToExpiry, int sellableQty,
             BigDecimal unitCost, BigDecimal markdownPrice, BigDecimal retailPrice,
-            String decision, Integer decidedStep, String decidedBy, Instant decidedAt) {
+            String decision, Integer decidedStep, String decidedBy, Instant decidedAt,
+            String supplierName) {
     }
 
     private static final RowMapper<Candidate> CANDIDATE_MAPPER = ExpiryAlertService::mapCandidate;
@@ -271,6 +279,7 @@ public class ExpiryAlertService {
                 rs.getString("decision"),
                 decidedStep,
                 rs.getString("decided_by"),
-                decidedAt == null ? null : decidedAt.toInstant());
+                decidedAt == null ? null : decidedAt.toInstant(),
+                rs.getString("supplier_name"));
     }
 }

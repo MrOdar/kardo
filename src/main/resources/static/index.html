@@ -666,6 +666,43 @@
       </table>
     </div>
 
+    <!-- ───── Canje: va ANTES de las mermas a propósito ─────
+         Es la salida que recupera el costo entero, así que tiene que verse
+         antes que la que lo da por perdido. Sólo cabe para lo que entró por
+         una guía: sin proveedor conocido no hay a quién reclamarle. -->
+    <div class="mt-12 border-t border-line pt-8">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h3 class="text-xl font-bold tracking-tight">Canje al proveedor</h3>
+          <p class="mt-1 max-w-prose text-sm text-ink-soft">
+            Los distribuidores grandes canjean la mercadería próxima a vencer si se les avisa a
+            tiempo: la tienda recupera el costo entero en vez de perderlo. Se declara desde
+            <strong class="font-semibold text-ink">Qué rebajar hoy</strong>, en los lotes que
+            llegaron con guía de remisión; el gerente confirma después si el proveedor abonó.
+          </p>
+        </div>
+        <p id="return-total" class="py-2 text-sm text-ink-faint">—</p>
+      </div>
+
+      <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+        <table class="w-full min-w-[46rem] border-collapse text-sm">
+          <thead class="border-b border-line bg-canvas text-left">
+            <tr class="text-ink-soft">
+              <th class="th px-4 py-2.5">Producto</th>
+              <th class="th px-4 py-2.5">Lote</th>
+              <th class="th px-4 py-2.5">Proveedor</th>
+              <th class="th px-4 py-2.5 text-right">Unid.</th>
+              <th class="th px-4 py-2.5 text-right">Se recupera</th>
+              <th class="th px-4 py-2.5">Estado</th>
+              <th class="th px-4 py-2.5">Decisión</th>
+            </tr>
+          </thead>
+          <tbody id="return-rows" class="divide-y divide-line"></tbody>
+        </table>
+      </div>
+      <p id="return-empty" class="hidden py-8 text-center text-sm text-ink-faint"></p>
+    </div>
+
     <!-- ───── Mermas: se declaran sobre un lote, así que viven junto al inventario ───── -->
     <div class="mt-12 border-t border-line pt-8">
       <h3 class="text-xl font-bold tracking-tight">Dar de baja mercadería</h3>
@@ -1172,6 +1209,62 @@
               class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white
                      hover:bg-brand-deep disabled:opacity-60">
         Crear empresa y entrar
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ───── Cuántas unidades se devuelven ─────
+     Un diálogo y no un prompt del navegador: aquí se puede decir a quién se
+     devuelve y, sobre todo, cuánto dinero se recupera, que es el dato por el
+     que se toma la decisión y que un prompt no cabe. -->
+<dialog id="return-dialog"
+        class="mb-auto mt-[12vh] w-full max-w-md rounded-lg border border-line p-0 shadow-lift backdrop:bg-ink/50">
+  <form id="return-form" method="dialog" class="p-6">
+    <h2 class="text-lg font-bold tracking-tight">Canjear al proveedor</h2>
+    <p class="mt-1 text-sm text-ink-soft">
+      Las unidades quedan apartadas: dejan de venderse hasta que confirmes si el proveedor las
+      abonó. Si no las acepta, vuelven al stock.
+    </p>
+
+    <dl class="mt-5 space-y-2 rounded-lg bg-canvas p-4 text-sm">
+      <div class="flex justify-between gap-4">
+        <dt class="shrink-0 whitespace-nowrap text-ink-faint">Producto</dt>
+        <dd id="return-product" class="min-w-0 truncate text-right font-medium">—</dd>
+      </div>
+      <div class="flex justify-between gap-4">
+        <dt class="shrink-0 whitespace-nowrap text-ink-faint">Lote</dt>
+        <dd id="return-batch" class="font-mono text-xs">—</dd>
+      </div>
+      <div class="flex justify-between gap-4">
+        <dt class="shrink-0 whitespace-nowrap text-ink-faint">Se devuelve a</dt>
+        <dd id="return-supplier" class="min-w-0 truncate text-right">—</dd>
+      </div>
+    </dl>
+
+    <label for="return-qty" class="mt-4 block text-sm text-ink-faint">
+      Unidades a devolver <span id="return-max" class="text-ink-faint">(hay —)</span>
+    </label>
+    <input id="return-qty" type="number" min="1" step="1" required
+           class="num mt-1 w-full rounded-md border border-line px-3 py-1.5">
+
+    <!-- La cifra que decide: cuánto vuelve a caja si el proveedor acepta. -->
+    <p class="mt-3 flex items-baseline justify-between gap-4 border-t border-line pt-3">
+      <span class="text-sm text-ink-soft">Recuperas</span>
+      <span id="return-recovers" class="num text-xl font-bold text-risk-green">—</span>
+    </p>
+
+    <p id="return-error" class="mt-3 hidden text-sm text-risk-red"></p>
+
+    <div class="mt-5 flex justify-end gap-3">
+      <button type="button" id="return-cancel"
+              class="rounded-md border border-line px-4 py-2 text-sm font-semibold hover:border-ink">
+        Cancelar
+      </button>
+      <button type="submit" id="return-submit"
+              class="rounded-md bg-risk-green px-4 py-2 text-sm font-semibold text-white
+                     transition-opacity hover:opacity-90 disabled:opacity-60">
+        Apartar para el canje
       </button>
     </div>
   </form>

@@ -38,5 +38,13 @@ public record ExpiryAlertDto(
         String previousDecision,
         Integer decidedStep,
         String decidedBy,
-        Instant decidedAt) {
+        Instant decidedAt,
+
+        /**
+         * Quien trajo el lote, o nulo si entro por una carga de Excel.
+         *
+         * <p>Decide si al operario se le puede ofrecer canjearlo: sin guia de
+         * remision no hay a quien reclamarle, y lo unico que queda es la merma.
+         */
+        String supplierName) {
 }

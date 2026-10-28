@@ -27,7 +27,9 @@ const state = {
   uploads: [],
   quota: null,
   riskSeries: [],
-  memberships: []
+  memberships: [],
+  returns: [],
+  returnDraft: null
 };
 
 /* ─────────────────────────── utilidades ─────────────────────────── */
@@ -112,6 +114,7 @@ function showTab(name) {
   if (name === 'inventario' && state.token) {
     loadBatches();
     loadWasteHistory();
+    loadReturns();
   }
   if (name === 'alertas' && state.token) {
     loadAlerts();
@@ -699,6 +702,7 @@ async function resetDemo() {
     await loadWasteHistory();
     await loadUploadHistory();
     await loadBatches();
+    await loadReturns();
     await loadRiskHistory();
     toast('Tienda demo restaurada. Ya puedes cargar inventario o una guía.', 'ok');
   } catch (error) {
@@ -779,7 +783,7 @@ async function switchUser(event) {
 
     // Todo lo que se ve depende de quien mira: roles, botones y tienda.
     await Promise.all([loadCatalog(), loadPendingWaste(), loadUploadHistory(), loadBatches(),
-                       loadMarkdownHistory(), loadQuota(), loadWasteHistory(), loadRiskHistory()]);
+                       loadMarkdownHistory(), loadQuota(), loadWasteHistory(), loadRiskHistory(), loadReturns()]);
     await refreshDashboard();
     toast(`Sesión de ${session.fullName} (${session.role === 'MANAGER' ? 'gerente' : 'operario'}).`, 'ok');
   } catch (failure) {
@@ -1453,26 +1457,53 @@ function alertActions(alert) {
               alert.markdownPrice ? 'Quitar la oferta' : 'Descartar'
             }</button>`;
 
+  // Antes de ceder margen o de perder el costo, mirar si se puede devolver.
+  // Dos condiciones, y las dos importan:
+  //   - que el lote viniera por una guia, porque sin proveedor conocido no hay
+  //     a quien reclamarle;
+  //   - que TODAVIA no haya vencido, que es la que casi se me escapa: el
+  //     distribuidor canjea lo proximo a vencer, no lo vencido. Ofrecerlo
+  //     sobre un lote muerto manda al operario a una pared.
+  const canjear = alert.supplierName && alert.daysToExpiry >= 0
+    ? `<button data-return="${alert.batchId}"
+               title="Devolver a ${escapeHtml(alert.supplierName)} y recuperar el costo entero"
+               class="rounded-md bg-risk-green px-3 py-1.5 text-xs font-semibold text-white
+                      transition-opacity hover:opacity-90">Canjear</button>`
+    : '';
+
   if (alert.action === 'RETIRAR') {
+    // Vencido: el canje ya no cabe y la merma es la unica salida.
     return `
-      <span class="flex gap-2">
+      <span class="flex flex-wrap gap-2">
         <button data-withdraw="${alert.batchId}"
                 class="rounded bg-risk-red px-3 py-1 text-xs font-semibold text-white hover:opacity-90">Declarar merma</button>
         ${descartar}
       </span>`;
   }
   if (alert.action === 'REVISAR_PRECIO') {
-    return `<span class="flex items-center gap-2 text-xs text-ink-faint">Decide quien fija precios ${descartar}</span>`;
+    // El costo no deja sitio para rebajar. Si hay proveedor, devolverlo es
+    // justo la salida que queda, y es mejor que cualquier precio.
+    return `
+      <span class="flex flex-wrap items-center gap-2 text-xs text-ink-faint">
+        ${canjear}${canjear ? '' : 'Decide quien fija precios '}${descartar}
+      </span>`;
   }
   return `
-    <span class="flex gap-2">
+    <span class="flex flex-wrap gap-2">
       <button data-alert="${alert.batchId}" data-decision="APPLIED"
               class="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-deep">Rebajar a ${money(alert.suggestedPrice)}</button>
+      ${canjear}
       ${descartar}
     </span>`;
 }
 
 $('alert-rows').addEventListener('click', async (event) => {
+  const canje = event.target.closest('[data-return]');
+  if (canje) {
+    openReturnDialog(Number(canje.dataset.return));
+    return;
+  }
+
   const retirar = event.target.closest('[data-withdraw]');
   if (retirar) {
     jumpToWaste(retirar.dataset.withdraw);
@@ -2180,6 +2211,182 @@ async function confirmReceipt() {
     button.disabled = false;
   }
 }
+
+/* ────────────────────── canje al proveedor ──────────────────────
+ *
+ * El distribuidor grande -lacteos, embutidos, panaderia industrial- canjea la
+ * mercaderia proxima a vencer si se le avisa a tiempo. Es la unica salida que
+ * recupera el costo entero, asi que se ofrece ANTES que la merma, y solo
+ * cuando se sabe quien trajo el lote.
+ */
+
+const RETURN_STATUS = {
+  PENDING: { label: 'Esperando al proveedor', chip: 'chip-amber' },
+  CREDITED: { label: 'Abonado', chip: 'chip-green' },
+  REFUSED: { label: 'No lo aceptó', chip: 'chip-red' }
+};
+
+/**
+ * Abre el dialogo del canje con el lote ya puesto.
+ *
+ * <p>El lote entero se busca en la alerta en vez de colgarlo del boton en
+ * atributos: el precio y el proveedor ya estan en memoria, y repetirlos en el
+ * DOM seria una segunda copia que puede quedarse vieja.
+ */
+function openReturnDialog(batchId) {
+  const alerta = state.alerts?.alerts?.find((a) => a.batchId === batchId);
+  if (!alerta) return;
+
+  state.returnDraft = alerta;
+
+  $('return-product').textContent = alerta.productName;
+  $('return-batch').textContent = alerta.batchCode;
+  $('return-supplier').textContent = alerta.supplierName;
+  $('return-max').textContent = `(hay ${alerta.sellableQty})`;
+  $('return-qty').max = alerta.sellableQty;
+  $('return-qty').value = alerta.sellableQty;
+  $('return-error').classList.add('hidden');
+
+  updateRecovered();
+  $('return-dialog').showModal();
+  $('return-qty').focus();
+  $('return-qty').select();
+}
+
+/** Lo que vuelve a caja, recalculado mientras se teclea. */
+function updateRecovered() {
+  const alerta = state.returnDraft;
+  if (!alerta) return;
+
+  const quantity = Number($('return-qty').value);
+  const valido = Number.isInteger(quantity) && quantity >= 1 && quantity <= alerta.sellableQty;
+
+  $('return-recovers').textContent = valido
+    ? money(quantity * Number(alerta.unitCost))
+    : '—';
+  $('return-submit').disabled = !valido;
+}
+
+async function declareReturn(event) {
+  event.preventDefault();
+  const alerta = state.returnDraft;
+  const quantity = Number($('return-qty').value);
+  const button = $('return-submit');
+  const error = $('return-error');
+
+  error.classList.add('hidden');
+  button.disabled = true;
+
+  try {
+    await request('/inventory/returns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batchId: alerta.batchId, quantity })
+    });
+    $('return-dialog').close();
+
+    await Promise.all([loadReturns(), loadAlerts(), loadBatches()]);
+    await refreshDashboard();
+    toast(`${plural(quantity, 'unidad apartada', 'unidades apartadas')} para el canje. `
+        + 'Ya no se venden; confirma cuando el proveedor abone.', 'ok');
+  } catch (failure) {
+    // El error se queda dentro del dialogo: el operario tiene ahi la cantidad
+    // que acaba de escribir y puede corregirla sin volver a empezar.
+    error.textContent = failure.message;
+    error.classList.remove('hidden');
+    button.disabled = false;
+  }
+}
+
+$('return-qty').addEventListener('input', updateRecovered);
+$('return-cancel').addEventListener('click', () => $('return-dialog').close());
+$('return-form').addEventListener('submit', declareReturn);
+
+function renderReturns(entries) {
+  const body = $('return-rows');
+  const empty = $('return-empty');
+  const total = $('return-total');
+
+  state.returns = entries;
+
+  if (!entries.length) {
+    body.replaceChildren();
+    empty.classList.remove('hidden');
+    empty.textContent = 'Todavía no has devuelto nada a ningún proveedor.';
+    total.textContent = '—';
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // Solo suma lo abonado: lo pendiente todavia puede rechazarse, y lo
+  // rechazado no recupero nada.
+  const recuperado = entries
+    .filter((entry) => entry.status === 'CREDITED')
+    .reduce((sum, entry) => sum + Number(entry.recovered ?? 0), 0);
+
+  total.textContent = `${plural(entries.length, 'canje', 'canjes')} · ${
+    money(recuperado)} ya abonados`;
+
+  const esGerente = state.session?.role === 'MANAGER';
+
+  body.replaceChildren(...entries.map((entry) => {
+    const estado = RETURN_STATUS[entry.status] ?? { label: entry.status, chip: 'chip-neutral' };
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="px-4 py-2.5 font-medium">${escapeHtml(entry.productName)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs text-ink-soft">${escapeHtml(entry.batchCode)}</td>
+      <td class="px-4 py-2.5">${escapeHtml(entry.supplierName)}</td>
+      <td class="num px-4 py-2.5 text-right">${entry.quantity}</td>
+      <td class="num px-4 py-2.5 text-right ${
+        entry.status === 'CREDITED' ? 'font-semibold text-risk-green' : 'text-ink-faint'}">${
+        money(entry.recovered)}</td>
+      <td class="px-4 py-2.5">
+        <span class="chip ${estado.chip}">${estado.label}</span>
+        ${entry.resolvedBy ? `<span class="block text-xs text-ink-faint">${escapeHtml(entry.resolvedBy)}</span>` : ''}
+      </td>
+      <td class="px-4 py-2.5">${
+        entry.status !== 'PENDING' ? ''
+          : esGerente ? `
+            <span class="flex gap-2">
+              <button data-credit="${entry.returnId}"
+                      class="rounded-md bg-risk-green px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">Abonó</button>
+              <button data-refuse="${entry.returnId}"
+                      class="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-soft hover:border-ink-faint">No lo aceptó</button>
+            </span>`
+          : '<span class="text-xs text-ink-faint">Lo confirma el gerente</span>'}</td>`;
+    return tr;
+  }));
+}
+
+async function loadReturns() {
+  try {
+    renderReturns(await request('/inventory/returns?limit=100'));
+  } catch {
+    renderReturns([]);
+  }
+}
+
+$('return-rows').addEventListener('click', async (event) => {
+  const abono = event.target.closest('[data-credit]');
+  const rechazo = event.target.closest('[data-refuse]');
+  const boton = abono ?? rechazo;
+  if (!boton) return;
+
+  boton.disabled = true;
+  const id = abono ? abono.dataset.credit : rechazo.dataset.refuse;
+
+  try {
+    await request(`/inventory/returns/${id}/${abono ? 'credit' : 'refuse'}`, { method: 'POST' });
+    await Promise.all([loadReturns(), loadBatches(), loadAlerts()]);
+    await refreshDashboard();
+    toast(abono
+      ? 'Canje abonado: el costo se recuperó, no fue merma.'
+      : 'La mercadería vuelve al stock. Si ya venció, tendrás que darla de baja.', 'ok');
+  } catch (error) {
+    boton.disabled = false;
+    toast(error.message, 'error');
+  }
+});
 
 /* ─────────────────── panel 7: por que pasa lo que pasa ───────────────────
  *

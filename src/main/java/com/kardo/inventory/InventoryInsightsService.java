@@ -79,6 +79,7 @@ public class InventoryInsightsService {
                    COALESCE(sum(b.current_qty * b.unit_cost)
                             FILTER (WHERE (b.expiration_date - CURRENT_DATE) < 0), 0) AS vencido,
                    COALESCE(sum(m.perdida), 0) AS merma,
+                   COALESCE(sum(c.recuperado), 0) AS canjeado,
                    (su.supplier_id IS NOT NULL) AS con_guia
               FROM inventory_batches b
               LEFT JOIN goods_receipt_items gi ON gi.item_id = b.receipt_item_id
@@ -90,6 +91,15 @@ public class InventoryInsightsService {
                    WHERE w.batch_id = b.batch_id
                      AND w.approval_status = 'APPROVED'
               ) m ON TRUE
+              -- Lo canjeado va aparte de lo perdido y nunca sumado a ello: un
+              -- proveedor que acepta devoluciones es el que mejor se porta, y
+              -- contarlo como merma lo dejaria como el peor.
+              LEFT JOIN LATERAL (
+                  SELECT COALESCE(sum(r.recovered_amount), 0) AS recuperado
+                    FROM supplier_returns r
+                   WHERE r.batch_id = b.batch_id
+                     AND r.status = 'CREDITED'
+              ) c ON TRUE
              WHERE b.store_id = ?
              GROUP BY su.supplier_id, su.name
              ORDER BY en_riesgo DESC, merma DESC, valor DESC

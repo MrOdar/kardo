@@ -55,7 +55,7 @@ aplica.
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
 tienda y el backend ignora cualquier `storeId` que llegue en el cuerpo: es lo que
-impide que un token de una tienda escriba en otra. No es una intención: hay **67
+impide que un token de una tienda escriba en otra. No es una intención: hay **74
 pruebas** que levantan la cadena de filtros real, con tokens firmados de verdad,
 y comprueban quién entra, con qué rol y sobre qué tienda acaba escribiendo.
 
@@ -101,9 +101,18 @@ de prueba, que corre en la misma JVM, no la lectura. Se reproduce con:
 mvn test -Pbench
 ```
 
-**Quien hace algo queda firmado.** Cargas, correcciones, mermas, rebajas y
-recepciones registran autor y momento. La huella SHA-256 del contenido es lo que
-hace idempotente una carga reintentada tras un corte de red.
+**Antes de perder el costo, se intenta recuperarlo.** Los distribuidores
+grandes canjean la mercadería próxima a vencer si se avisa a tiempo, así que en
+los lotes que llegaron con guía de remisión Kardo ofrece devolverla **antes** de
+proponer la merma: la tienda recupera el costo entero en vez de perderlo. No es
+un motivo más de merma, es otra tabla, porque el signo del dinero es el
+contrario: `waste_log.total_loss_amount` es una columna generada y todo lo que
+entra ahí es pérdida por definición. Si el proveedor no lo acepta, la mercadería
+vuelve al stock y el semáforo la empuja al circuito de mermas, que ya existe.
+
+**Quien hace algo queda firmado.** Cargas, correcciones, mermas, rebajas,
+canjes y recepciones registran autor y momento. La huella SHA-256 del contenido
+es lo que hace idempotente una carga reintentada tras un corte de red.
 
 ---
 
@@ -192,7 +201,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/13, en orden numérico
+-- luego sql/01 … sql/14, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -201,7 +210,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 201 unitarias + 110 de integración
+mvn verify    # 208 unitarias + 121 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -210,7 +219,7 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
-De las unitarias, **67 son de seguridad** (`EndpointSecurityTest`): 31 endpoints
+De las unitarias, **74 son de seguridad** (`EndpointSecurityTest`): 35 endpoints
 que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes

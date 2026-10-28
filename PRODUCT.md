@@ -45,6 +45,8 @@ firmada y comprobable en los libros.
 - Motor FEFO transaccional con costo por lote y precio vigente por lote.
 - Escalera de descuentos con piso en el costo y decisiones auditadas.
 - Circuito de mermas con cuarentena y segregación de funciones.
+- Canje al proveedor antes del vencimiento: recupera el costo en vez de
+  perderlo, y se contabiliza aparte de las mermas.
 - Alta de empresa, tienda y usuarios sin pasar por la demo: la empresa se crea
   con su primera tienda y su gerente, y crece desde dentro.
 - Exportación valorizada en Excel y en PDF firmable, y etiquetas de oferta

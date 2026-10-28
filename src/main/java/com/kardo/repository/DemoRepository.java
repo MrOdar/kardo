@@ -71,6 +71,15 @@ public class DemoRepository {
         // a subir el mismo Excel: la huella seguiria registrada y la carga se
         // rechazaria por duplicada aunque sus lotes ya no existan.
         jdbcTemplate.update("DELETE FROM inventory_uploads WHERE store_id = ?", DEMO_STORE_ID);
+
+        // Y los canjes, por una razon distinta: `supplier_returns.batch_id` es
+        // ON DELETE RESTRICT, de modo que en cuanto el evaluador declara uno,
+        // el DELETE de lotes del procedimiento chocaria con la clave foranea y
+        // la demo dejaria de poder restaurarse. Va antes, no dentro del
+        // procedimiento, para no reescribir en sql/14 las cien lineas de
+        // sql/02 por una sentencia.
+        jdbcTemplate.update("DELETE FROM supplier_returns WHERE store_id = ?", DEMO_STORE_ID);
+
         jdbcTemplate.execute("CALL sp_reset_demo_environment()");
     }
 

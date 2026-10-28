@@ -53,7 +53,8 @@ public abstract class PostgresIntegrationTest {
             "sql/10_vision_quota.sql",
             "sql/11_batch_markdown.sql",
             "sql/12_risk_history.sql",
-            "sql/13_user_stores.sql");
+            "sql/13_user_stores.sql",
+            "sql/14_supplier_returns.sql");
 
     static {
         if (DockerEnvironment.isPresent()) {
