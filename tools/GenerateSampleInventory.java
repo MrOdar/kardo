@@ -138,9 +138,7 @@ public class GenerateSampleInventory {
 
         // Generar archivo limpio de 88 filas
         String cleanPathAsset = "src/main/resources/static/assets/inventario_ejemplo_kardo.xlsx";
-        String cleanPathParent = "../inventario_ejemplo_kardo.xlsx";
         writeWorkbook(cleanPathAsset, items, today);
-        writeWorkbook(cleanPathParent, items, today);
 
         System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPathAsset);
 
@@ -382,30 +380,93 @@ public class GenerateSampleInventory {
     private static List<Sale> sampleSales() {
         List<Sale> sales = new ArrayList<>();
 
-        // Cuatro dias de una tienda normal: lo de mas rotacion aparece casi
-        // todos los dias, y las cantidades se quedan muy por debajo del stock
-        // que siembra la hoja de Inventario para que el archivo se pueda subir
-        // entero sin que nada caiga en cuarentena por falta de existencias.
+        // Cinco días de ventas de minimarket: 72 transacciones distribuidas en las 8 familias.
+        // Las cantidades se mantienen por debajo del stock disponible para que la carga entre
+        // 100% limpia sin caer en cuarentena por falta de existencias.
+
+        // Hace 4 días
+        sales.add(new Sale("BEB-INC-001", 10, 4, true));
+        sales.add(new Sale("BEB-COC-003", 8, 4, true));
+        sales.add(new Sale("BEB-SLU-007", 12, 4, true));
+        sales.add(new Sale("SNK-SUB-007", 8, 4, true));
+        sales.add(new Sale("SNK-LAY-001", 4, 4, true));
+        sales.add(new Sale("LAC-GLO-001", 6, 4, true));
+        sales.add(new Sale("LAC-GLO-003", 3, 4, true));
+        sales.add(new Sale("EMB-SFE-001", 3, 4, true));
+        sales.add(new Sale("PAN-BIM-001", 3, 4, true));
+        sales.add(new Sale("PAN-BIM-004", 2, 4, true));
+        sales.add(new Sale("ABA-COS-001", 8, 4, true));
+        sales.add(new Sale("ABA-FLO-007", 6, 4, true));
+        sales.add(new Sale("LIC-PIL-003", 6, 4, true));
+        sales.add(new Sale("LIM-CLO-008", 4, 4, true));
+        sales.add(new Sale("LIM-SUA-001", 3, 4, true));
+
+        // Hace 3 días
         sales.add(new Sale("BEB-INC-001", 12, 3, true));
+        sales.add(new Sale("BEB-INC-002", 5, 3, true));
         sales.add(new Sale("BEB-COC-003", 9, 3, true));
-        sales.add(new Sale("BEB-SLU-007", 15, 3, true));
-        sales.add(new Sale("SNK-SUB-007", 6, 3, true));
+        sales.add(new Sale("BEB-VOL-010", 6, 3, true));
+        sales.add(new Sale("SNK-PRI-008", 6, 3, true));
+        sales.add(new Sale("SNK-DOR-003", 4, 3, true));
+        sales.add(new Sale("LAC-GLO-001", 5, 3, true));
+        sales.add(new Sale("LAC-LAI-007", 4, 3, true));
+        sales.add(new Sale("EMB-SFE-002", 3, 3, true));
+        sales.add(new Sale("EMB-OTT-007", 2, 3, true));
+        sales.add(new Sale("PAN-BIM-002", 2, 3, true));
+        sales.add(new Sale("PAN-BIM-005", 3, 3, true));
+        sales.add(new Sale("ABA-PRI-003", 4, 3, true));
+        sales.add(new Sale("ABA-VIT-005", 6, 3, true));
+        sales.add(new Sale("LIC-CUS-001", 6, 3, true));
 
+        // Hace 2 días
         sales.add(new Sale("BEB-INC-001", 10, 2, true));
+        sales.add(new Sale("BEB-SMA-008", 5, 2, true));
+        sales.add(new Sale("BEB-CIF-014", 7, 2, true));
+        sales.add(new Sale("SNK-SUB-007", 7, 2, true));
+        sales.add(new Sale("SNK-CAS-011", 5, 2, true));
+        sales.add(new Sale("SNK-SOD-013", 6, 2, true));
+        sales.add(new Sale("LAC-GLO-002", 4, 2, true));
+        sales.add(new Sale("LAC-NES-011", 3, 2, true));
+        sales.add(new Sale("EMB-BRA-003", 2, 2, true));
+        sales.add(new Sale("EMB-SFE-005", 2, 2, true));
+        sales.add(new Sale("PAN-BIM-001", 2, 2, true));
+        sales.add(new Sale("PAN-BIM-006", 3, 2, true));
         sales.add(new Sale("ABA-COS-001", 8, 2, true));
-        sales.add(new Sale("LAC-GLO-001", 6, 2, true));
+        sales.add(new Sale("ABA-ALA-009", 4, 2, true));
+        sales.add(new Sale("LIC-CRI-004", 8, 2, true));
+        sales.add(new Sale("LIM-DOV-004", 4, 2, true));
 
+        // Ayer
         sales.add(new Sale("BEB-INC-001", 14, 1, true));
-        sales.add(new Sale("BEB-SMA-008", 7, 1, true));
-        sales.add(new Sale("LIC-PIL-003", 4, 1, true));
-        sales.add(new Sale("SNK-PRI-008", 5, 1, true));
+        sales.add(new Sale("BEB-COC-003", 10, 1, true));
+        sales.add(new Sale("BEB-COC-004", 4, 1, true));
+        sales.add(new Sale("BEB-SCA-009", 8, 1, true));
+        sales.add(new Sale("SNK-TRI-009", 6, 1, true));
+        sales.add(new Sale("SNK-PEP-012", 4, 1, true));
+        sales.add(new Sale("LAC-GLO-001", 6, 1, true));
+        sales.add(new Sale("LAC-BON-010", 5, 1, true));
+        sales.add(new Sale("EMB-SFE-001", 3, 1, true));
+        sales.add(new Sale("EMB-OTT-004", 2, 1, true));
+        sales.add(new Sale("PAN-BIM-003", 2, 1, true));
+        sales.add(new Sale("PAN-BIM-007", 3, 1, true));
+        sales.add(new Sale("ABA-COS-002", 6, 1, true));
+        sales.add(new Sale("ABA-GLO-008", 4, 1, true));
+        sales.add(new Sale("LIC-PIL-003", 8, 1, true));
+        sales.add(new Sale("LIM-SAP-009", 3, 1, true));
 
-        // Hoy, y la ultima sin fecha: la columna es opcional y una celda vacia
-        // se registra en el momento de la carga. Conviene que el evaluador lo
-        // vea en el propio archivo y no solo leido en el README.
+        // Hoy (con fecha explícita)
+        sales.add(new Sale("BEB-INC-001", 8, 0, true));
         sales.add(new Sale("BEB-COC-003", 11, 0, true));
-        sales.add(new Sale("ABA-FLO-007", 9, 0, true));
-        sales.add(new Sale("LAC-GLO-001", 4, 0, false));
+        sales.add(new Sale("BEB-SLU-007", 10, 0, true));
+        sales.add(new Sale("SNK-SUB-007", 6, 0, true));
+        sales.add(new Sale("LAC-GLO-001", 4, 0, true));
+        sales.add(new Sale("EMB-SFE-001", 2, 0, true));
+        sales.add(new Sale("PAN-BIM-001", 2, 0, true));
+        sales.add(new Sale("ABA-FLO-007", 6, 0, true));
+
+        // Hoy (celda de fecha vacía: demuestra que el sistema toma el instante de carga por defecto)
+        sales.add(new Sale("ABA-COS-001", 5, 0, false));
+        sales.add(new Sale("BEB-INC-001", 6, 0, false));
 
         return sales;
     }
