@@ -105,6 +105,72 @@ public class InventoryInsightsService {
              ORDER BY en_riesgo DESC, merma DESC, valor DESC
             """;
 
+    /**
+     * El inventario agrupado por categoria, con la plata que no va a salir a
+     * tiempo.
+     *
+     * <p><b>Por que no cuenta unidades.</b> Un grafico de "cuantas cosas tengo
+     * de cada familia" le dice al dueño algo que ya sabe -vende mas gaseosas
+     * que embutidos- y no lleva a ninguna decision. Lo que no sabe es cual de
+     * esas familias se le esta muriendo en el anaquel, y eso solo aparece
+     * cruzando dos cifras que hasta ahora vivian separadas: lo que le queda al
+     * lote y lo que tarda en venderse.
+     *
+     * <p><b>`sin_salida` es la columna que paga la consulta.</b> Es el mismo
+     * veredicto "No da tiempo" que la tabla de cobertura ya da producto por
+     * producto, sumado en dinero por categoria. No es un concepto nuevo: es el
+     * que ya existe, contado donde se decide la compra.
+     *
+     * <p>Un producto sin ventas en la ventana no entra en esa cuenta. No se
+     * sabe a que ritmo sale, y suponerle el peor caso inflaria la cifra justo
+     * en lo que acaba de llegar.
+     */
+    private static final String BY_CATEGORY = """
+            WITH ventas AS (
+                SELECT product_id, sum(quantity)::numeric AS vendidas
+                  FROM daily_sales
+                 WHERE store_id = ?
+                   AND sale_timestamp >= CURRENT_TIMESTAMP - make_interval(days => ?)
+                 GROUP BY product_id
+            ), lotes AS (
+                SELECT b.product_id,
+                       p.category,
+                       b.current_qty,
+                       b.unit_cost,
+                       (b.expiration_date - CURRENT_DATE) AS dias
+                  FROM inventory_batches b
+                  JOIN products p USING (product_id)
+                 WHERE b.store_id = ?
+                   AND b.current_qty > 0
+                   AND b.batch_status <> 'DEPLETED'
+            ), por_producto AS (
+                SELECT l.category,
+                       sum(l.current_qty) AS unidades,
+                       sum(l.current_qty * l.unit_cost) AS valor,
+                       sum(CASE WHEN l.dias <= ? THEN l.current_qty * l.unit_cost
+                                ELSE 0 END) AS en_riesgo,
+                       -- El lote mas proximo manda: es el que marca el plazo.
+                       min(l.dias) AS dias,
+                       CASE WHEN COALESCE(v.vendidas, 0) > 0
+                            THEN sum(l.current_qty) / (v.vendidas / ?::numeric)
+                       END AS cobertura
+                  FROM lotes l
+                  LEFT JOIN ventas v USING (product_id)
+                 GROUP BY l.category, l.product_id, v.vendidas
+            )
+            SELECT category AS categoria,
+                   count(*) AS productos,
+                   sum(unidades) AS unidades,
+                   sum(valor) AS valor,
+                   sum(en_riesgo) AS en_riesgo,
+                   count(*) FILTER (WHERE cobertura > dias) AS productos_sin_salida,
+                   COALESCE(sum(valor) FILTER (WHERE cobertura > dias), 0) AS sin_salida,
+                   round(avg(cobertura), 1) AS cobertura_media
+              FROM por_producto
+             GROUP BY category
+             ORDER BY sin_salida DESC, en_riesgo DESC, valor DESC
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     public InventoryInsightsService(JdbcTemplate jdbcTemplate) {
@@ -127,6 +193,13 @@ public class InventoryInsightsService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> bySupplier(long storeId) {
         return jdbcTemplate.queryForList(BY_SUPPLIER, RISK_DAYS, storeId);
+    }
+
+    /** El inventario por categoria, ordenado por la plata que no saldra a tiempo. */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> byCategory(long storeId) {
+        return jdbcTemplate.queryForList(
+                BY_CATEGORY, storeId, SALES_WINDOW_DAYS, storeId, RISK_DAYS, SALES_WINDOW_DAYS);
     }
 
     /** Ventana usada, para que la interfaz no tenga que repetir la constante. */

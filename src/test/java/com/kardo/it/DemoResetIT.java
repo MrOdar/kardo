@@ -2,11 +2,13 @@ package com.kardo.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kardo.inventory.InventoryInsightsService;
 import com.kardo.repository.DemoRepository;
 import com.kardo.returns.SupplierReturnService;
 import com.kardo.sales.FefoSaleService;
 import com.kardo.waste.WasteService;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +49,8 @@ class DemoResetIT extends PostgresIntegrationTest {
     private WasteService wasteService;
     @Autowired
     private SupplierReturnService returnService;
+    @Autowired
+    private InventoryInsightsService insightsService;
 
     @Test
     @DisplayName("Siembra el escenario completo con alertas FEFO que de verdad vencen pronto")
@@ -72,6 +76,71 @@ class DemoResetIT extends PostgresIntegrationTest {
                 """)).isPositive();
     }
 
+    /**
+     * Sin ventas, media pestaña de analisis es una columna de guiones.
+     *
+     * <p>{@code dias_cobertura} solo se calcula cuando el producto vendio algo
+     * dentro de la ventana, de modo que una demo sin historial deja la funcion
+     * construida y muda. Y el dato que de verdad importa -que un lote se
+     * vence antes de rotar- no se puede ni formular sin ella.
+     */
+    @Test
+    @DisplayName("Siembra un mes de ventas, con la ventana que mira el analisis")
+    void siembraElHistorialDeVentas() {
+        demoRepository.resetDemoEnvironment();
+
+        assertThat(cuenta("SELECT count(*) FROM daily_sales WHERE store_id = ?")).isPositive();
+
+        // Todos los productos con stock tienen que haber vendido algo dentro de
+        // la ventana: a uno solo que se quede fuera, su cobertura sale vacia.
+        assertThat(cuenta("""
+                SELECT count(*)
+                  FROM (SELECT DISTINCT product_id FROM inventory_batches
+                         WHERE store_id = ? AND current_qty > 0) s
+                 WHERE NOT EXISTS (
+                       SELECT 1 FROM daily_sales v
+                        WHERE v.product_id = s.product_id
+                          AND v.sale_timestamp >= CURRENT_TIMESTAMP
+                                                  - make_interval(days => %d))
+                """.formatted(insightsService.salesWindowDays())))
+                .describedAs("productos con stock y sin ventas en la ventana")
+                .isZero();
+
+        List<Map<String, Object>> cobertura = insightsService.coverage(DemoRepository.DEMO_STORE_ID);
+        assertThat(cobertura).isNotEmpty();
+        assertThat(cobertura)
+                .describedAs("filas sin dias de cobertura: la columna saldria con un guion")
+                .allSatisfy(fila -> assertThat(fila.get("dias_cobertura")).isNotNull());
+
+        // Y que no roten todas igual, que es lo que haria inutil la columna:
+        // una tienda donde el pan y el pisco se mueven al mismo ritmo no
+        // enseña nada sobre que comprar menos.
+        assertThat(cuenta("""
+                SELECT count(DISTINCT p.category) FROM daily_sales s
+                  JOIN products p USING (product_id)
+                 WHERE s.store_id = ?
+                """)).isGreaterThan(1);
+    }
+
+    /**
+     * Las unidades vendidas se suman a {@code initial_qty} en lugar de restarse
+     * de {@code current_qty}, para no desarmar el escenario que da las alertas.
+     * Si alguien lo invierte, el invariante de masa salta aqui y no en un
+     * {@code CHECK} a mitad de una demo.
+     */
+    @Test
+    @DisplayName("El historial no rompe el balance de masa de ningun lote")
+    void lasVentasCuadranConElStock() {
+        demoRepository.resetDemoEnvironment();
+
+        assertThat(cuenta("""
+                SELECT count(*) FROM inventory_batches
+                 WHERE store_id = ? AND current_qty + quarantined_qty > initial_qty
+                """))
+                .describedAs("lotes que venden mas de lo que entro")
+                .isZero();
+    }
+
     @Test
     @DisplayName("Se puede restaurar despues de usarla, que es cuando antes se atrancaba")
     void sobreviveAlUso() {
@@ -92,9 +161,21 @@ class DemoResetIT extends PostgresIntegrationTest {
         demoRepository.resetDemoEnvironment();
 
         assertThat(lotes()).isEqualTo(LOTES_SEMBRADOS);
-        assertThat(cuenta("SELECT count(*) FROM daily_sales WHERE store_id = ?")).isZero();
         assertThat(cuenta("SELECT count(*) FROM waste_log WHERE store_id = ?")).isZero();
         assertThat(cuenta("SELECT count(*) FROM supplier_returns WHERE store_id = ?")).isZero();
+
+        // Las ventas no se comprueban a cero: desde que la demo siembra un mes
+        // de historial, cero significaria que el escenario no se repoblo. Lo
+        // que tiene que haber desaparecido es la venta de ESTA sesion, y se
+        // distingue por la fecha: lo sembrado termina ayer, lo que haga quien
+        // prueba la demo lleva la marca de hoy.
+        assertThat(cuenta("""
+                SELECT count(*) FROM daily_sales
+                 WHERE store_id = ? AND sale_timestamp >= CURRENT_DATE
+                """))
+                .describedAs("ventas de esta sesion que el reset no se llevo")
+                .isZero();
+        assertThat(cuenta("SELECT count(*) FROM daily_sales WHERE store_id = ?")).isPositive();
     }
 
     @Test

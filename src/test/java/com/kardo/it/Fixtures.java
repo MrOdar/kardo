@@ -39,12 +39,18 @@ final class Fixtures {
     }
 
     long product(long storeId, String sku, String name, String cost, String price) {
+        return product(storeId, sku, name, "PRUEBAS", cost, price);
+    }
+
+    /** Con familia explicita, para lo que se agrupa por categoria. */
+    long product(long storeId, String sku, String name, String category, String cost, String price) {
         return jdbcTemplate.queryForObject("""
                 INSERT INTO products (company_id, sku, name, category, unit_cost, retail_price)
-                SELECT s.company_id, ?, ?, 'PRUEBAS', ?, ?
+                SELECT s.company_id, ?, ?, ?, ?, ?
                 FROM stores s WHERE s.store_id = ?
                 RETURNING product_id
-                """, Long.class, sku, name, new BigDecimal(cost), new BigDecimal(price), storeId);
+                """, Long.class, sku, name, category,
+                new BigDecimal(cost), new BigDecimal(price), storeId);
     }
 
     long batch(long storeId, long productId, String code, LocalDate expiration, int quantity, String cost) {

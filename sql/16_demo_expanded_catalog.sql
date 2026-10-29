@@ -1026,5 +1026,121 @@ BEGIN
     SET receipt_item_id = v_item_id
     WHERE store_id = v_demo_store_id AND batch_code = 'L-HD-POL-2610';
 
+    -- ------------------------------------------------------------------
+    -- 9. Un mes de ventas
+    --
+    -- SON 30 DIAS PORQUE ESA ES LA VENTANA que mira
+    -- `InventoryInsightsService.SALES_WINDOW_DAYS`. Sembrar menos no es
+    -- "menos datos": la consulta divide lo vendido entre 30 igual, de modo
+    -- que con dos semanas toda la tienda apareceria rotando a la mitad de
+    -- su ritmo y la cobertura saldria del doble de lo real. Si esa
+    -- constante cambia, esta siembra tiene que seguirla.
+    --
+    -- POR QUE HACEN FALTA. Sin una sola fila en `daily_sales`, la pestaña
+    -- de analisis queda a medias: `dias_cobertura` solo se calcula cuando
+    -- hubo ventas en la ventana, de modo que la columna salia vacia en las
+    -- 50 filas. La funcion estaba construida y en la demo no enseñaba
+    -- nada.
+    --
+    -- Y SOBRE TODO, LO QUE PERMITEN PREGUNTAR. Un lote que vence pronto no
+    -- es un problema si rota rapido: se va a vender igual. El problema es
+    -- lo que vence pronto y ademas se mueve despacio. Esa pregunta no se
+    -- puede hacer sin historial, y es la que de verdad distingue a Kardo
+    -- de un semaforo de fechas.
+    --
+    -- EL RITMO SALE DE LA CATEGORIA, no de un promedio unico, porque si
+    -- todo rotara igual la cobertura seria una columna con el mismo
+    -- numero repetido y no diria nada. Una gaseosa sale todos los dias;
+    -- una botella de pisco, una cada dos. Con estos ritmos la cobertura
+    -- va de ~6 dias en panaderia a ~80 en licores, y ahi es donde se ve
+    -- que la panaderia se vence antes de venderse.
+    --
+    -- SIN `random()`: la variacion diaria sale de aritmetica sobre el id
+    -- del lote y el dia. Una demo que siembra cifras distintas en cada
+    -- reinicio no se puede afirmar en una prueba, y `DemoResetIT`
+    -- comprueba justamente que haya cobertura calculable.
+    INSERT INTO daily_sales (
+        store_id, batch_id, product_id, sale_timestamp,
+        quantity, unit_retail_price, lot_unit_cogs, operator_id
+    )
+    SELECT v_demo_store_id,
+           r.batch_id,
+           r.product_id,
+           -- Repartidas por la mañana y la tarde, no todas a la misma hora.
+           (CURRENT_DATE - r.dia) + TIME '08:30'
+               + make_interval(mins => ((r.batch_id * 37 + r.dia * 11) % 600)),
+           r.unidades,
+           r.retail_price,
+           r.unit_cost,
+           'operario@kardo.pe'
+      FROM (
+          SELECT b.batch_id,
+                 b.product_id,
+                 b.unit_cost,
+                 b.manufacturing_date,
+                 p.retail_price,
+                 d.dia,
+                 ritmo.cada,
+                 GREATEST(1,
+                     ritmo.base
+                     -- Variacion determinista de -1, 0 o +1 unidad.
+                     + ((b.batch_id * 7 + d.dia * 13) % 3) - 1
+                     -- El fin de semana se vende mas; es lo que hace que una
+                     -- serie temporal se parezca a una tienda de verdad.
+                     + CASE WHEN EXTRACT(dow FROM CURRENT_DATE - d.dia) IN (0, 6)
+                            THEN 2 ELSE 0 END
+                 ) AS unidades
+            FROM inventory_batches b
+            JOIN products p USING (product_id)
+            CROSS JOIN generate_series(1, 30) AS d(dia)
+            CROSS JOIN LATERAL (
+                SELECT CASE p.category
+                           WHEN 'BEBIDAS'   THEN 6
+                           WHEN 'SNACKS'    THEN 5
+                           WHEN 'PANADERIA' THEN 4
+                           WHEN 'LACTEOS'   THEN 4
+                           WHEN 'EMBUTIDOS' THEN 2
+                           WHEN 'ABARROTES' THEN 2
+                           ELSE 1
+                       END AS base,
+                       -- Cada cuantos dias sale uno. Licores y limpieza no se
+                       -- venden a diario en un minimarket.
+                       CASE p.category
+                           WHEN 'LICORES'  THEN 2
+                           WHEN 'LIMPIEZA' THEN 2
+                           ELSE 1
+                       END AS cada
+            ) AS ritmo
+           WHERE b.store_id = v_demo_store_id
+      ) AS r
+     WHERE r.dia % r.cada = 0;
+
+    -- NO SE FILTRA POR `manufacturing_date`, y la primera version si lo
+    -- hacia: parecia mas honesto no vender un lote antes de fabricarlo.
+    -- Resultaba al reves. La cobertura se calcula por PRODUCTO, y en esta
+    -- demo cada producto tiene un lote; el pan se fabrica hace dos dias,
+    -- de modo que con el filtro solo acumulaba dos dias de ventas dentro
+    -- de una ventana de treinta y aparecia como lo que menos rota de la
+    -- tienda. Justo lo contrario de la verdad, y justo el dato sobre el
+    -- que el usuario va a decidir. Entre una cronologia impecable por
+    -- lote que nadie ve y una rotacion correcta por producto que se
+    -- muestra en pantalla, manda la segunda.
+
+    -- Las unidades vendidas tienen que haber entrado alguna vez: se suman a
+    -- `initial_qty` en lugar de restarse de `current_qty`, porque el stock
+    -- actual es el que da al escenario sus alertas y su valor en riesgo, y
+    -- moverlo desarmaria la demo. El invariante
+    -- `current_qty + quarantined_qty <= initial_qty` se cumple por
+    -- construccion: `initial_qty` solo crece.
+    UPDATE inventory_batches b
+       SET initial_qty = b.initial_qty + v.vendidas
+      FROM (
+          SELECT batch_id, sum(quantity) AS vendidas
+            FROM daily_sales
+           WHERE store_id = v_demo_store_id
+           GROUP BY batch_id
+      ) AS v
+     WHERE b.batch_id = v.batch_id;
+
 END;
 $$;

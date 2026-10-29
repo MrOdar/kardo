@@ -27,6 +27,11 @@ const state = {
   uploads: [],
   quota: null,
   riskSeries: [],
+  categories: [],
+  // Las familias que el usuario quito del grafico. Se guarda lo excluido y no
+  // lo incluido: asi una categoria nueva aparece sola la proxima vez, en vez
+  // de quedarse invisible porque no estaba en la lista cuando se filtro.
+  categoriesOff: new Set(),
   memberships: [],
   returns: [],
   returnDraft: null
@@ -572,6 +577,25 @@ $('priority-list').addEventListener('click', async (event) => {
   if (!destino) return;
   showTab(destino.dataset.goto);
   $(`tab-${destino.dataset.goto}`).focus();
+});
+
+// Delegado en el contenedor y no chip a chip: renderCategories reemplaza los
+// botones en cada pintada, y suscribirse a cada uno dejaria oyentes colgando
+// de nodos que ya no estan en el documento.
+$('category-filters').addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-categoria]');
+  if (!chip) return;
+
+  const nombre = chip.dataset.categoria;
+  const activa = state.categoriesOff.has(nombre);
+  if (activa) {
+    state.categoriesOff.delete(nombre);
+  } else {
+    state.categoriesOff.add(nombre);
+  }
+
+  vestirChip(chip, activa);
+  renderCategoryBars();
 });
 
 $('btn-today-refresh').addEventListener('click', () => {
@@ -2498,11 +2522,138 @@ async function loadInsights() {
   try {
     const insights = await request('/inventory/insights');
     $('coverage-window').textContent = insights.salesWindowDays;
+    $('category-window').textContent = insights.salesWindowDays;
+    state.categories = insights.categories;
+    // Al llegar se muestran todas; quitar es del usuario, no del estado inicial.
+    state.categoriesOff = new Set();
+    renderCategories();
     renderCoverage(insights.coverage, insights.salesWindowDays);
     renderSuppliers(insights.suppliers);
   } catch (error) {
     toast(error.message, 'error');
   }
+}
+
+/**
+ * El inventario por familia, con la plata que no va a salir a tiempo.
+ *
+ * <p>Quitar una familia no la esconde: la saca del calculo. La escala y los
+ * totales se rehacen con lo que queda, que es lo unico que hace util el
+ * filtro —comparar la mercaderia fresca entre si sin que la aplaste el valor
+ * de los abarrotes, que no se vencen nunca.
+ */
+function renderCategories() {
+  const filtros = $('category-filters');
+  const todas = state.categories ?? [];
+
+  if (!todas.length) {
+    filtros.replaceChildren();
+    $('category-total').textContent = '';
+    $('category-chart').innerHTML = `<p class="py-6 text-center text-sm text-ink-faint">
+      No hay existencias que agrupar todavía.</p>`;
+    return;
+  }
+
+  filtros.replaceChildren(...todas.map((fila) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.dataset.categoria = String(fila.categoria);
+    chip.textContent = enFrase(fila.categoria);
+    vestirChip(chip, !state.categoriesOff.has(String(fila.categoria)));
+    return chip;
+  }));
+
+  renderCategoryBars();
+}
+
+/**
+ * El aspecto de un chip segun este dentro o fuera.
+ *
+ * <p>Se cambia sobre el boton que ya existe en lugar de volver a crearlo. Con
+ * el raton da igual, pero quien lo active con el teclado perderia el foco en
+ * el acto: el nodo que tenia enfocado deja de estar en el documento y el foco
+ * se cae al body, de modo que el siguiente Tab empieza desde el principio de
+ * la pagina. Un filtro no se puede recorrer asi.
+ */
+function vestirChip(chip, activa) {
+  chip.setAttribute('aria-pressed', String(activa));
+  chip.className = activa
+    ? 'rounded-full border border-brand bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-deep transition-colors'
+    : 'rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-faint line-through transition-colors hover:border-line-strong';
+}
+
+/** Solo las barras: los chips los mantiene el que los pulsa. */
+function renderCategoryBars() {
+  const chart = $('category-chart');
+  const total = $('category-total');
+  const todas = state.categories ?? [];
+
+  const activas = todas.filter((fila) => !state.categoriesOff.has(String(fila.categoria)));
+
+  if (!activas.length) {
+    total.textContent = '';
+    chart.innerHTML = `<p class="py-6 text-center text-sm text-ink-faint">
+      Quitaste todas las familias. Vuelve a añadir alguna para ver el reparto.</p>`;
+    return;
+  }
+
+  // La escala se rehace con lo que queda visible: si no, quitar la familia mas
+  // grande dejaria el resto aplastado contra el margen izquierdo y el filtro
+  // no serviria de nada.
+  const techo = Math.max(...activas.map((fila) => Number(fila.valor)), 1);
+  const sinSalida = activas.reduce((suma, fila) => suma + Number(fila.sin_salida), 0);
+  const valor = activas.reduce((suma, fila) => suma + Number(fila.valor), 0);
+
+  total.textContent = sinSalida > 0
+    ? `${money(sinSalida)} sin salida de ${money(valor)}`
+    : `${money(valor)}, todo con tiempo de venderse`;
+  total.className = sinSalida > 0
+    ? 'num text-right text-sm font-semibold text-risk-red'
+    : 'num text-right text-sm font-semibold text-risk-green';
+
+  chart.replaceChildren(...activas.map((fila) => barraDeCategoria(fila, techo)));
+}
+
+/** Una barra: el ancho es el dinero, el rojo es el que no alcanza a venderse. */
+function barraDeCategoria(fila, techo) {
+  const valor = Number(fila.valor);
+  const perdido = Number(fila.sin_salida);
+  const cobertura = fila.cobertura_media === null ? null : Number(fila.cobertura_media);
+  const sinSalida = Number(fila.productos_sin_salida);
+
+  const ancho = Math.max((valor / techo) * 100, 1.5);
+  // El rojo se mide sobre la barra, no sobre el total: es la fraccion de ESTA
+  // familia que se pierde, que es lo que se compara de una fila a otra.
+  const rojo = valor > 0 ? (perdido / valor) * 100 : 0;
+
+  const fragmento = document.createElement('div');
+  fragmento.className = 'mb-3.5 last:mb-0';
+  fragmento.innerHTML = `
+    <div class="flex items-baseline justify-between gap-3 text-sm">
+      <span class="font-medium">${escapeHtml(enFrase(fila.categoria))}</span>
+      <span class="num text-xs ${sinSalida > 0 ? 'font-semibold text-risk-red' : 'text-ink-faint'}">${
+        sinSalida > 0
+          ? `${money(perdido)} · ${sinSalida} de ${fila.productos} no da tiempo`
+          : `${money(valor)} · sale a tiempo`}</span>
+    </div>
+    <div class="mt-1.5 flex items-center gap-2.5">
+      <div class="h-3.5 flex-1 overflow-hidden rounded-r bg-canvas">
+        <div class="flex h-full" style="width:${ancho.toFixed(2)}%">
+          <div class="h-full bg-risk-red" style="width:${rojo.toFixed(2)}%"></div>
+          <div class="h-full flex-1 bg-brand"></div>
+        </div>
+      </div>
+      <span class="num w-16 shrink-0 text-right text-xs text-ink-faint"
+            title="Días de venta que hay en el anaquel">${
+        cobertura === null ? '—' : `${cobertura} d`}</span>
+    </div>`;
+  return fragmento;
+}
+
+/** MAYUSCULAS DE BASE DE DATOS a texto que se pueda leer en una pantalla. */
+function enFrase(texto) {
+  const limpio = String(texto ?? '').toLowerCase();
+  return limpio.charAt(0).toUpperCase() + limpio.slice(1);
 }
 
 /**

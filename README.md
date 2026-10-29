@@ -54,6 +54,58 @@ aplica.
 
 ---
 
+## Lo que el semáforo no ve
+
+Las dos pantallas de arriba salvan mercadería que ya está en el anaquel. Esta
+dice **qué no volver a comprar igual**, y encuentra plata que el semáforo deja
+pasar por definición.
+
+El semáforo mira cinco días. Un lote que vence en nueve y tarda doce en
+venderse no entra en esa ventana —está "en verde"— y se pierde exactamente
+igual. Para verlo hay que cruzar dos cifras que vivían separadas: lo que le
+queda al lote y lo que tarda en salir. En la tienda demo, los embutidos:
+
+| | Embutidos |
+|---|---:|
+| En riesgo, según el semáforo (≤ 5 días) | S/ 81.00 |
+| **Sin salida**, al ritmo real de venta | **S/ 387.00** |
+
+Casi cinco veces más, invisible hasta ahora.
+
+![Qué familia no va a salir a tiempo: una barra por familia, con la parte roja que no alcanza a venderse antes de vencer](docs/img/que-familia-no-sale.jpg)
+
+Las tres familias que sangran son también las tres de menor valor: panadería y
+embutidos son las dos barras más cortas del gráfico. El reparto completo:
+
+| Familia | Valor | Sin salida | Cobertura |
+|---|---:|---:|---:|
+| Panadería | S/ 907.10 | **S/ 605.30** · 5 de 8 productos | ~5 d |
+| Embutidos | S/ 1,214.80 | **S/ 387.00** · 3 de 8 | ~8 d |
+| Lácteos | S/ 1,546.20 | **S/ 110.40** · 1 de 12 | ~6 d |
+| Abarrotes | S/ 3,916.20 | — | ~24 d |
+| Licores | S/ 3,386.70 | — | ~48 d |
+
+De una tienda demo recién restaurada. La cobertura va aproximada a propósito:
+se calcula sobre una ventana de 30 días que se desplaza, así que el decimal
+cambia según el día de la semana en que se siembre. Las cifras de dinero no
+se mueven.
+
+Panadería es el **5 %** del inventario y el **55 %** de lo que se pierde.
+Ordenado por valor aparecería la última y nadie la miraría; por eso el gráfico
+ordena por lo que sangra, no por lo que vale.
+
+Las familias se quitan y se ponen con un clic, y la escala y los totales se
+rehacen con lo que queda: quitar abarrotes y licores —que no se vencen nunca—
+deja comparar la mercadería fresca entre sí sin que la aplaste el volumen de la
+seca. No hay ninguna librería de gráficos detrás: son barras con `div`, por la
+misma razón que la CSP no admite `'unsafe-inline'` en `script-src`.
+
+Un producto **sin ventas** no cuenta como perdido aunque venza mañana. No se
+sabe a qué ritmo sale, y suponerle el peor caso inflaría la cifra justo en lo
+que acaba de llegar. Esa regla está fijada en `InventoryInsightsIT`.
+
+---
+
 ## Cómo funciona
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
@@ -221,7 +273,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 220 unitarias + 125 de integración
+mvn verify    # 220 unitarias + 132 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le

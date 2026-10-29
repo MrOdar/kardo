@@ -43,6 +43,7 @@ public class InventoryInsightsController {
         return ResponseEntity.ok(Map.of(
                 "salesWindowDays", insightsService.salesWindowDays(),
                 "coverage", insightsService.coverage(storeId),
+                "categories", insightsService.byCategory(storeId),
                 "suppliers", insightsService.bySupplier(storeId)));
     }
 

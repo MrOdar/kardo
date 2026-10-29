@@ -1040,6 +1040,28 @@
       <div id="trend-chart" class="mt-5"></div>
     </div>
 
+    <!-- El semaforo mira 5 dias. Esto mira el cruce entre lo que le queda al
+         lote y lo que tarda en venderse, que atrapa lo que vence en 9 dias y
+         tarda 12 en salir: invisible para el semaforo y perdido igual. -->
+    <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+      <div class="border-b border-line px-5 py-4">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 class="text-base font-semibold">Qué familia no va a salir a tiempo</h3>
+            <p class="mt-0.5 max-w-prose text-sm text-ink-soft">
+              Cada barra es el dinero que tienes en esa familia. La parte roja es el que no alcanza a
+              venderse antes de vencer, al ritmo de los últimos
+              <span id="category-window" class="num font-semibold">30</span> días. Se decide al comprar.
+            </p>
+          </div>
+          <p id="category-total" class="num text-right text-sm font-semibold text-ink-soft"></p>
+        </div>
+        <div id="category-filters" class="mt-4 flex flex-wrap gap-2" role="group"
+             aria-label="Familias incluidas en el gráfico"></div>
+      </div>
+      <div id="category-chart" class="px-5 py-5"></div>
+    </div>
+
     <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
       <div class="border-b border-line px-5 py-4">
         <h3 class="text-base font-semibold">Días de cobertura</h3>
