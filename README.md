@@ -120,7 +120,7 @@ Por eso la misma plantilla trae dos hojas:
 | **Inventario** | Crea los lotes | SKU, producto, categoría, costo, precio, lote, vencimiento, cantidad |
 | **Ventas** | Los descuenta por FEFO | **SKU, Cantidad, Fecha** |
 
-![La pestaña de Excel con la sección de ventas: el área para soltar el archivo, lo que espera la hoja, y el resumen de 14 ventas registradas por 120 unidades y S/ 445.80](docs/img/ventas-por-excel.jpg)
+![La pestaña de Excel con la sección de ventas: el área para soltar el archivo, lo que espera la hoja, y el resumen de 72 ventas registradas por 391 unidades y S/ 1.878,20, con un ticket promedio de S/ 26,09](docs/img/ventas-por-excel.jpg)
 
 **Las tres columnas que faltan son la parte interesante.** La hoja de ventas no
 pide lote ni precio. El lote lo elige el motor FEFO —del más próximo a vencer al

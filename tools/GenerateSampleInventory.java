@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import org.dhatim.fastexcel.Workbook;
 import org.dhatim.fastexcel.Worksheet;
@@ -405,7 +407,7 @@ public class GenerateSampleInventory {
         sales.add(new Sale("BEB-INC-001", 12, 3, true));
         sales.add(new Sale("BEB-INC-002", 5, 3, true));
         sales.add(new Sale("BEB-COC-003", 9, 3, true));
-        sales.add(new Sale("BEB-VOL-010", 6, 3, true));
+        sales.add(new Sale("BEB-GAT-010", 6, 3, true));
         sales.add(new Sale("SNK-PRI-008", 6, 3, true));
         sales.add(new Sale("SNK-DOR-003", 4, 3, true));
         sales.add(new Sale("LAC-GLO-001", 5, 3, true));
@@ -421,26 +423,26 @@ public class GenerateSampleInventory {
         // Hace 2 días
         sales.add(new Sale("BEB-INC-001", 10, 2, true));
         sales.add(new Sale("BEB-SMA-008", 5, 2, true));
-        sales.add(new Sale("BEB-CIF-014", 7, 2, true));
+        sales.add(new Sale("BEB-CIF-011", 7, 2, true));
         sales.add(new Sale("SNK-SUB-007", 7, 2, true));
         sales.add(new Sale("SNK-CAS-011", 5, 2, true));
         sales.add(new Sale("SNK-SOD-013", 6, 2, true));
         sales.add(new Sale("LAC-GLO-002", 4, 2, true));
-        sales.add(new Sale("LAC-NES-011", 3, 2, true));
+        sales.add(new Sale("LAC-GLO-008", 3, 2, true));
         sales.add(new Sale("EMB-BRA-003", 2, 2, true));
         sales.add(new Sale("EMB-SFE-005", 2, 2, true));
         sales.add(new Sale("PAN-BIM-001", 2, 2, true));
         sales.add(new Sale("PAN-BIM-006", 3, 2, true));
         sales.add(new Sale("ABA-COS-001", 8, 2, true));
         sales.add(new Sale("ABA-ALA-009", 4, 2, true));
-        sales.add(new Sale("LIC-CRI-004", 8, 2, true));
+        sales.add(new Sale("LIC-CRI-005", 8, 2, true));
         sales.add(new Sale("LIM-DOV-004", 4, 2, true));
 
         // Ayer
         sales.add(new Sale("BEB-INC-001", 14, 1, true));
         sales.add(new Sale("BEB-COC-003", 10, 1, true));
         sales.add(new Sale("BEB-COC-004", 4, 1, true));
-        sales.add(new Sale("BEB-SCA-009", 8, 1, true));
+        sales.add(new Sale("BEB-SPO-009", 8, 1, true));
         sales.add(new Sale("SNK-TRI-009", 6, 1, true));
         sales.add(new Sale("SNK-PEP-012", 4, 1, true));
         sales.add(new Sale("LAC-GLO-001", 6, 1, true));
@@ -507,6 +509,7 @@ public class GenerateSampleInventory {
                 rowIdx++;
             }
 
+            verificarVentasContraInventario(items, sampleSales());
             writeSalesSheet(workbook, today);
 
             workbook.finish();
@@ -521,6 +524,55 @@ public class GenerateSampleInventory {
      * modo que mientras Inventario sea la primera, la ingesta de inventario no
      * nota que este libro trae una hoja mas. La de ventas se pide por nombre.
      */
+    /**
+     * Comprueba que cada venta se puede atender con lo que siembra Inventario.
+     *
+     * <p><b>Por que existe.</b> Las dos listas se escriben a mano y viven a 300
+     * lineas de distancia: es facil teclear un SKU que no existe -o repetir uno
+     * hasta pasarse de su stock- y que el archivo salga igual de bien formado.
+     * El fallo no aparece aqui sino en la demo del evaluador, como filas en
+     * cuarentena, que es el peor sitio donde puede aparecer.
+     *
+     * <p>Ya paso: cinco ventas apuntaban a SKU que nadie daba de alta
+     * (BEB-VOL-010, BEB-CIF-014, LAC-NES-011, LIC-CRI-004, BEB-SCA-009) y la
+     * carga entraba 67 de 72.
+     *
+     * <p>Se comprueba la SUMA por SKU y no cada linea: lo que agota un lote es
+     * el total de los cinco dias, no la venta mas grande.
+     */
+    private static void verificarVentasContraInventario(List<Item> items, List<Sale> sales) {
+        Map<String, Integer> stock = new LinkedHashMap<>();
+        for (Item it : items) {
+            stock.merge(it.sku(), it.qty(), Integer::sum);
+        }
+
+        Map<String, Integer> pedido = new LinkedHashMap<>();
+        for (Sale s : sales) {
+            pedido.merge(s.sku(), s.qty(), Integer::sum);
+        }
+
+        List<String> problemas = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : pedido.entrySet()) {
+            Integer hay = stock.get(e.getKey());
+            if (hay == null) {
+                problemas.add("  " + e.getKey() + ": se vende pero no esta en Inventario");
+            } else if (e.getValue() > hay) {
+                problemas.add("  " + e.getKey() + ": se venden " + e.getValue()
+                        + " y solo hay " + hay);
+            }
+        }
+
+        if (!problemas.isEmpty()) {
+            throw new IllegalStateException(
+                    "La hoja Ventas no cuadra con la de Inventario:\n"
+                            + String.join("\n", problemas)
+                            + "\nCorrigelo aqui: en la demo saldria como filas en cuarentena.");
+        }
+
+        System.out.println("OK: las " + sales.size() + " ventas caben en el stock de "
+                + pedido.size() + " productos distintos.");
+    }
+
     private static void writeSalesSheet(Workbook workbook, LocalDate today) {
         List<String> headers = List.of("SKU", "Cantidad", "Fecha");
 
