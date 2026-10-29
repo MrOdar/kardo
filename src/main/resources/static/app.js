@@ -1738,6 +1738,16 @@ function pintarResumenDeVentas(summary) {
   $('v-registered').textContent = summary.totalRegistered;
   $('v-units').textContent = summary.totalUnits;
   $('v-revenue').textContent = money(summary.revenue);
+  if ($('v-avg-ticket')) {
+    $('v-avg-ticket').textContent = summary.totalRegistered > 0
+      ? money(Number(summary.revenue) / summary.totalRegistered)
+      : '—';
+  }
+  if ($('v-avg-units')) {
+    $('v-avg-units').textContent = summary.totalRegistered > 0
+      ? `${(summary.totalUnits / summary.totalRegistered).toFixed(1)} u`
+      : '—';
+  }
   $('v-quarantined').textContent = summary.totalQuarantined;
   $('sales-summary').classList.remove('hidden');
   $('sales-summary').classList.add('grid');
