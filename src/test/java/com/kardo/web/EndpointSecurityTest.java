@@ -18,7 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.kardo.conciliation.ReceiptConciliationService;
 import com.kardo.diagnostics.DiagnosticsService;
 import com.kardo.config.SecurityConfig;
@@ -76,8 +76,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -132,85 +132,85 @@ class EndpointSecurityTest {
     @Autowired
     private JwtService jwtService;
 
-    @MockBean
+    @MockitoBean
     private AuthenticationService authenticationService;
 
-    @MockBean
+    @MockitoBean
     private DemoRepository demoRepository;
 
-    @MockBean
+    @MockitoBean
     private InventoryBatchService batchService;
 
-    @MockBean
+    @MockitoBean
     private InventoryExportService exportService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.ingest.InventoryPdfExportService pdfExportService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.ingest.MarkdownLabelPdfService labelPdfService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.inventory.InventoryInsightsService insightsService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.inventory.RiskHistoryService riskHistoryService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.onboarding.OnboardingService onboardingService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.throttle.RegistrationThrottle registrationThrottle;
 
-    @MockBean
+    @MockitoBean
     private StoreRepository storeRepository;
 
-    @MockBean
+    @MockitoBean
     private BulkFixService bulkFixService;
 
-    @MockBean
+    @MockitoBean
     private ExcelUploadService uploadService;
 
-    @MockBean
+    @MockitoBean
     private UploadRollbackService rollbackService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.ingest.SalesUploadService salesUploadService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.ingest.SalesExcelIngestService salesIngestService;
 
-    @MockBean
+    @MockitoBean
     private ProductCatalogRepository productCatalogRepository;
 
-    @MockBean
+    @MockitoBean
     private ReceiptConciliationService conciliationService;
 
-    @MockBean
+    @MockitoBean
     private FefoSaleService fefoSaleService;
 
-    @MockBean
+    @MockitoBean
     private WasteService wasteService;
 
-    @MockBean
+    @MockitoBean
     private com.kardo.returns.SupplierReturnService returnService;
 
-    @MockBean
+    @MockitoBean
     private ExpiryAlertService alertService;
 
-    @MockBean
+    @MockitoBean
     private VisionQuotaService visionQuotaService;
 
-    @MockBean
+    @MockitoBean
     private DiagnosticsService diagnosticsService;
 
     // Los frenos de los endpoints publicos tienen sus propias pruebas en
     // PublicEndpointThrottleTest; aqui estorbarian, porque varias pruebas
     // repiten el mismo login a proposito.
-    @MockBean
+    @MockitoBean
     private LoginThrottle loginThrottle;
 
-    @MockBean
+    @MockitoBean
     private DemoResetThrottle demoResetThrottle;
 
     private String operatorToken;

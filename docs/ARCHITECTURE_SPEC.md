@@ -20,7 +20,7 @@ flowchart TD
     subgraph Cloud_Free_Tier ["Infraestructura Cloud (100% Gratuita & Cero Latencia)"]
         UptimeMonitor["⏰ UptimeRobot / cron-job.org\n(GET /api/v1/ping cada 5 min a memoria RAM\nCero consultas a BD / 0 conexiones HikariCP)"]
         
-        Backend["⚙️ Spring Boot 3.3.13 (Java 21 LTS)\nRender Container (Límite estricto 512 MB RAM)\n- Spooling a disco con file-size-threshold=64KB\n- fastexcel + getInputStream directo\n- JdbcTemplate.batchUpdate (Sin First-Level Cache)\n- Circuit Breaker de Calidad (Max 100 errores)\n- BufferedImage (1800 px bicúbico)\n- Spring Security 6 (JWT sin estado, tienda en el token)\n- Circuito de mermas con cuarentena y aprobación\n- Auditoría de cargas con huella SHA-256\n- Heartbeat diario anti-hibernación (SELECT 1)"]
+        Backend["⚙️ Spring Boot 4.1.2 (Java 21 LTS)\nRender Container (Límite estricto 512 MB RAM)\n- Spooling a disco con file-size-threshold=64KB\n- fastexcel + getInputStream directo\n- JdbcTemplate.batchUpdate (Sin First-Level Cache)\n- Circuit Breaker de Calidad (Max 100 errores)\n- BufferedImage (1800 px bicúbico)\n- Spring Security 6 (JWT sin estado, tienda en el token)\n- Circuito de mermas con cuarentena y aprobación\n- Auditoría de cargas con huella SHA-256\n- Heartbeat diario anti-hibernación (SELECT 1)"]
         
         Gemini["🤖 Google Gemini 3.8 Flash\n(Google AI Studio Free Tier)\n- Extracción documental OCR con JSON estructurado\n- Fallback dinámico ante 429/503/404"]
         
@@ -36,7 +36,7 @@ flowchart TD
 #### Decisiones de Ingeniería Justificadas:
 | Componente | Tecnología | Decisión de Arquitectura / Trade-off |
 |---|---|---|
-| **Core Runtime** | **Java 21 LTS + Spring Boot 3.3.13** | Tipado fuerte, Virtual Threads para concurrencia I/O y estándar corporativo bancario. |
+| **Core Runtime** | **Java 21 LTS + Spring Boot 4.1.2** | Tipado fuerte, Virtual Threads para concurrencia I/O y estándar corporativo bancario. |
 | **Parser de Excel** | **`fastexcel` (dhatim) + `JdbcTemplate`** | **Evita OOM:** Streaming directo desde `file.getInputStream()` con spooling en `/tmp` fuera del Java Heap (`file-size-threshold=64KB`). Inserta mediante `JdbcTemplate.batchUpdate()` en micro-lotes de 500 filas, esquivando el First-Level Cache de Hibernate. |
 | **Persistencia** | **PostgreSQL 17 en Supabase** | 500 MB persistentes que no consumen horas de cómputo activo como Neon, con índice `GIN` para `word_similarity` y procedimientos transaccionales. |
 | **Keep-Alive Híbrido** | **UptimeRobot (5 min) + Heartbeat diario** | `/api/v1/ping` en RAM cada 5 min mantiene vivo Render; un `@Scheduled` diario ejecuta `SELECT 1` para evitar la pausa por 7 días de inactividad de Supabase. |
@@ -506,21 +506,63 @@ corregidos aguas arriba. Ninguna prueba lo detectó, y ninguna podía: las prueb
 comprueban que el código hace lo que debe, no que las librerías de debajo sigan
 mantenidas. Hace falta algo que mire el reloj.
 
-**Lo que se subió, y lo que no.** De 3.3.4 a 3.3.13, dentro de la misma línea:
+**Lo que se subió.** En dos saltos: primero a 3.3.13, el último parche libre de
+la propia línea, y de ahí a **4.1.2**, que es la línea con soporte abierto hoy.
 
 | | Antes | Ahora |
 |---|---|---|
-| Spring Boot | 3.3.4 | **3.3.13** |
-| Tomcat embebido | 10.1.30 | **10.1.42** |
-| Spring Framework | 6.1.13 | **6.1.21** |
-| Spring Security | 6.3.3 | **6.3.10** |
+| Spring Boot | 3.3.4 | **4.1.2** |
+| Spring Framework | 6.1.13 | **7.0.10** |
+| Spring Security | 6.3.3 | **7.x** |
+| Jackson | 2.x | **3.x** (`tools.jackson`) |
 
-Las 370 pruebas pasan sin tocar una línea de código, que es la ventaja de no
-salir de la línea: cierra los CVEs conocidos de Tomcat y no obliga a revisar
-nada. Lo que **no** arregla es el fondo —3.3 sigue sin soporte— y por eso el
-destino real es la línea 4.x, hoy en 4.1.2. Eso es Spring Framework 7 debajo y
-rupturas que hay que leer una por una: es un proyecto aparte, no una subida de
-versión, y se deja dicho en vez de hecho a medias.
+#### La migración a 4.x, y lo que de verdad costó
+
+El código de producción cruzó casi intacto. Lo que rompió fue, en su mayor
+parte, andamiaje: paquetes que se movieron y módulos que dejaron de venir en el
+paquete grande. Lo que sigue es lo que hubo que tocar, porque el siguiente que
+suba de versión se va a encontrar lo mismo.
+
+| Qué rompió | Por qué | Qué se hizo |
+|---|---|---|
+| El POM ni se podía leer | Boot 4 sacó Testcontainers de `spring-boot-dependencies` | Importar `testcontainers-bom` |
+| `UserDetailsServiceAutoConfiguration` | Las autoconfiguraciones se reorganizaron por módulo | `org.springframework.boot.security.autoconfigure` |
+| `@WebMvcTest`, `@AutoConfigureMockMvc` | Las porciones de prueba salieron del starter general a uno por tecnología | `spring-boot-starter-webmvc-test`, paquete `org.springframework.boot.webmvc.test.autoconfigure` |
+| `@MockBean` | Retirado | `@MockitoBean`, que ya es de Spring Framework |
+| `ObjectMapper` sin bean | Boot 4 pasó a Jackson 3 | `tools.jackson.databind`; `findAndRegisterModules()` ya no existe |
+| `RestClient.Builder` sin bean | Su autoconfiguración se mudó de módulo | `spring-boot-starter-restclient` |
+| `NoResourceFoundException` | Spring 7 le añadió un tercer argumento | Pasar también la ruta tal como llegó |
+
+**Las dos que no eran andamiaje**, y son las que merecen leerse:
+
+* **`JdbcConfig` declaraba un bean `jdbcDialect` que ahora choca.** Existía para
+  que el dialecto no se resolviera abriendo una conexión durante el refresco del
+  contexto, porque con Supabase pausado el contenedor no levantaba y por tanto no
+  respondía `/api/v1/ping`, que es el endpoint encargado de mantenerlo vivo. Boot
+  4 registra un bean con ese mismo nombre, así que el nuestro dejó de ganar y
+  pasó a reventar el arranque con `BeanDefinitionOverrideException`. Hoy existe
+  `spring.data.jdbc.dialect`, que hace exactamente lo mismo sostenido por el
+  framework: el bean se retiró y quedó una línea de propiedades.
+
+* **Un token válido devolvía 401, y nada lo delataba.** Falló únicamente el
+  grupo de pruebas que manda tokens buenos; las que esperan 401 seguían en
+  verde, de modo que el síntoma se parecía a "la seguridad funciona de más".
+  `JwtAuthenticationFilter` es un `@Component` que extiende
+  `OncePerRequestFilter`, y Boot lo daba de alta **también** como filtro del
+  servlet, además de donde lo pone `addFilterBefore`. El orden arruinaba el
+  resultado: el registro automático corría antes de la cadena y dejaba la
+  autenticación puesta; `SecurityContextHolderFilter` la sustituía por el
+  contexto vacío del repositorio —somos sin estado—; y cuando al filtro le
+  tocaba su turno correcto, `OncePerRequestFilter` veía que esa petición ya había
+  pasado por él y **se saltaba**. Se corrige con un `FilterRegistrationBean`
+  deshabilitado, que es lo que impide el alta automática. Vale también para
+  producción: era un doble registro latente desde antes.
+
+El resultado se comprobó además fuera de las pruebas, contra la aplicación
+levantada: login real, endpoint protegido con token (200) y sin él (401),
+`actuator/health` público y `actuator/metrics` cerrado, la CSP con su hash
+intacta, 405 y 404 con el cuerpo `ApiError` de siempre, la carga de ventas por
+Excel registrando sus 14 líneas, y la SPA cargando sin un solo error de consola.
 
 **El chequeo que faltaba.** El job `dependencias` del CI hace dos cosas
 distintas a propósito:
@@ -538,7 +580,7 @@ distintas a propósito:
 actualización —agrupadas, porque Spring Boot gobierna las versiones de casi todo
 lo demás a través de `spring-boot-dependencies` y separarlas produce conflictos
 entre los propios PRs—. Como el CI corre contra cada PR, cada propuesta llega ya
-con las 370 pruebas pasadas o con el fallo a la vista: eso es lo que hace barata
+con las 391 pruebas pasadas o con el fallo a la vista: eso es lo que hace barata
 la actualización, porque el coste no es leer el changelog, es no saber si rompe
 algo.
 

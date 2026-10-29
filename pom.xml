@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.13</version>
+        <version>4.1.2</version>
         <relativePath/>
     </parent>
 
@@ -24,12 +24,29 @@
         <jjwt.version>0.12.6</jjwt.version>
         <pdfbox.version>3.0.3</pdfbox.version>
         <springdoc.version>2.6.0</springdoc.version>
+        <!-- Spring Boot 4 saco Testcontainers de su BOM: lo que antes venia de
+             balde ahora es una decision explicita del proyecto. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
 
         <!-- El banco de pruebas queda fuera por defecto; lo enciende -Pbench. -->
         <surefire.excluded.groups>bench</surefire.excluded.groups>
         <surefire.groups></surefire.groups>
         <bench.heap>64</bench.heap>
     </properties>
+
+    <!-- Sin este BOM las dependencias de Testcontainers se quedan sin version y
+         el POM ni siquiera se puede leer. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Web MVC: controladores REST y multipart con spooling a disco -->
@@ -123,6 +140,23 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Boot 4 saco las anotaciones de porcion ( y
+             compania) del starter general y las puso en un modulo por
+             tecnologia: spring-boot-starter-<lo-que-sea>-test. -->
+        <!-- En Spring Boot 4 la autoconfiguracion de RestClient vive en su propio
+             modulo: sin esto no hay bean de RestClient.Builder y el cliente de
+             Gemini no se puede construir. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>

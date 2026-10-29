@@ -10,7 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.kardo.config.MatchingProperties;
 import com.kardo.dto.ConciliationLineDto;
 import com.kardo.dto.ConfirmedLineDto;
@@ -78,7 +78,7 @@ class ReceiptConciliationServiceTest {
         service = new ReceiptConciliationService(
                 imageProcessingService, geminiVisionClient, visionQuotaService, skuMatchingRepository,
                 goodsReceiptRepository, storeRepository,
-                new MatchingProperties(0.35), new ObjectMapper().findAndRegisterModules());
+                new MatchingProperties(0.35), new ObjectMapper());
     }
 
     @Test

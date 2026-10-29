@@ -5,28 +5,26 @@ import io.micrometer.core.instrument.MeterRegistry;
 import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.jdbc.core.dialect.JdbcPostgresDialect;
-import org.springframework.data.relational.core.dialect.Dialect;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 
 /**
- * Fija el dialecto relacional en lugar de dejar que Spring Data JDBC lo deduzca.
+ * Instrumentacion del acceso a datos.
  *
- * <p>La autoconfiguracion resuelve el dialecto abriendo una conexion durante el
- * refresco del contexto: si Supabase esta pausado o la red falla en el arranque,
- * el contenedor de Render no levanta y ni siquiera responde {@code /api/v1/ping},
- * que es justo el endpoint que debe mantenerlo vivo. El motor es siempre
- * PostgreSQL 15, asi que declararlo elimina ese viaje de red y hace el arranque
- * independiente de la disponibilidad de la base de datos.
+ * <p><b>El dialecto ya no se declara aqui.</b> Lo hacia un bean propio llamado
+ * `jdbcDialect`, por la misma razon que hoy se fija con
+ * `spring.data.jdbc.dialect`: la autoconfiguracion lo resolvia abriendo una
+ * conexion durante el refresco del contexto, de modo que una base pausada
+ * impedia que el contenedor levantara y, con el, que respondiera
+ * {@code /api/v1/ping}, que es justo el endpoint encargado de mantenerlo vivo.
+ *
+ * <p>Spring Boot 4 registra su propio bean con ese mismo nombre, asi que el
+ * nuestro dejo de ganar y paso a chocar con el
+ * ({@code BeanDefinitionOverrideException}). La propiedad hace lo mismo y esta
+ * sostenida por el framework, que es mejor sitio para esto que un bean nuestro.
  */
 @Configuration
 public class JdbcConfig {
-
-    @Bean
-    Dialect jdbcDialect() {
-        return JdbcPostgresDialect.INSTANCE;
-    }
 
     /**
      * Envuelve el {@code DataSource} para cronometrar JDBC.

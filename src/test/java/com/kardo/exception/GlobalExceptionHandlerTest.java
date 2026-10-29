@@ -408,7 +408,10 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/recurso-que-no-esta")
         String recursoQueNoEsta() throws NoResourceFoundException {
-            throw new NoResourceFoundException(HttpMethod.GET, "/sonda/recurso-que-no-esta");
+            // Spring 7 anadio un tercer argumento: la ruta tal como llego, aparte
+            // de la del recurso. Aqui son la misma.
+            throw new NoResourceFoundException(HttpMethod.GET,
+                    "/sonda/recurso-que-no-esta", "/sonda/recurso-que-no-esta");
         }
 
         @GetMapping("/npe")
