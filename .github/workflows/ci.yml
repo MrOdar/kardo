@@ -45,3 +45,67 @@ jobs:
             target/failsafe-reports/
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Lo que las pruebas no pueden ver
+  # ---------------------------------------------------------------------------
+  # El build estuvo verde dos anos sobre un Spring Boot sin soporte: las pruebas
+  # comprueban que el codigo hace lo que debe, no que las librerias de debajo
+  # sigan mantenidas. Este job mira el reloj, que es lo que ninguna prueba hace.
+  #
+  # Va aparte del build y no depende de el: si las dependencias estan al dia
+  # interesa saberlo aunque una prueba falle, y al contrario.
+  dependencias:
+    name: Revision de dependencias
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # Corta el PR que introduce una dependencia con un CVE conocido, antes de
+      # que entre a main. Usa la base de avisos de GitHub, asi que no hace falta
+      # clave de la NVD ni descargar su base entera en cada build.
+      #
+      # Solo puede correr sobre un PR: compara dos arboles de dependencias, y en
+      # un push a main no hay con que comparar. Ese hueco lo cubren las alertas
+      # de Dependabot, que hay que encender una vez en los ajustes del
+      # repositorio (ver .github/dependabot.yml).
+      - name: Avisos de seguridad en lo que cambia
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+      # Informativo a proposito: no falla. Una version nueva no es un fallo, y
+      # un build rojo por algo que no hay que arreglar hoy ensena a ignorar el
+      # rojo. Queda en el resumen del job para que el desfase se vea sin tener
+      # que ir a buscarlo.
+      - name: Que se ha quedado atras
+        run: |
+          echo '## Dependencias por detras de la ultima version' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # processDependencyManagement=false: sin esto lista el BOM entero de
+          # spring-boot-dependencies -Elasticsearch, Couchbase, Cassandra- que
+          # el proyecto no usa, y el resumen se vuelve ilegible.
+          #
+          # maven.version.ignore y no ignoredVersions: el segundo se acepta sin
+          # queja y no filtra nada, de modo que el informe proponia subir a un
+          # release candidate.
+          mvn -B --no-transfer-progress \
+            org.codehaus.mojo:versions-maven-plugin:2.17.1:display-parent-updates \
+            org.codehaus.mojo:versions-maven-plugin:2.17.1:display-dependency-updates \
+            -DprocessDependencyManagement=false \
+            -Dversions.outputLineWidth=100 \
+            -Dmaven.version.ignore='.*-RC.*,.*-M[0-9]*,.*-(alpha|beta).*' \
+            | grep -E '^\[INFO\]   .* -> |^\[INFO\] The parent project' \
+            | sed 's/^\[INFO\] *//' \
+            | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

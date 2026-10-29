@@ -13,6 +13,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /** Manejo centralizado de excepciones con los codigos acordados en la arquitectura. */
@@ -189,6 +190,29 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(StoreNotFoundException.class)
     public ResponseEntity<ApiError> handleStoreNotFound(StoreNotFoundException ex) {
         return build(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    /**
+     * Un {@code id} de la ruta que no es un numero, o un parametro que no se
+     * puede convertir al tipo que espera el metodo.
+     *
+     * <p>{@code MethodArgumentTypeMismatchException} hereda de
+     * {@code TypeMismatchException}, que no implementa {@code ErrorResponse}:
+     * sin esta rama caia en la red de seguridad del final y
+     * {@code /inventory/waste/abc/approve} respondia <b>500</b>. Dos cosas mal
+     * a la vez: el cliente creia que el servidor esta roto cuando lo que esta
+     * mal es su peticion, y cada dedazo entraba en el log por {@code log.error}
+     * como fallo no contemplado, que es donde se miran los fallos de verdad.
+     *
+     * <p>Se nombra el parametro pero no se devuelve el valor recibido: no hace
+     * falta para corregirlo, y no se reflejan al cliente cadenas que el mismo
+     * acaba de mandar.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("Parametro '{}' con formato invalido", ex.getName());
+        return build(HttpStatus.BAD_REQUEST,
+                "El parametro '" + ex.getName() + "' no tiene el formato esperado.");
     }
 
     /** Payload de {@code /bulk-fix} con filas que no pasan Bean Validation. */

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MrOdar/kardo/actions/workflows/ci.yml/badge.svg)](https://github.com/MrOdar/kardo/actions/workflows/ci.yml)
 [![Java 21](https://img.shields.io/badge/Java-21%20LTS-orange?style=flat&logo=openjdk)](https://openjdk.org/)
-[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3.4-6DB33F?style=flat&logo=springboot)](https://spring.io/projects/spring-boot)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3.13-6DB33F?style=flat&logo=springboot)](https://spring.io/projects/spring-boot)
 [![PostgreSQL 17](https://img.shields.io/badge/Database-PostgreSQL_17_(3NF)-336791?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![Gemini Flash](https://img.shields.io/badge/AI-Gemini_Flash_Vision-4285F4?style=flat&logo=google)](https://ai.google.dev/)
 
@@ -223,7 +223,7 @@ y enseña el máximo como contexto.
 
 | Capa | Tecnología | Por qué |
 |---|---|---|
-| Backend | **Java 21** · Spring Boot 3.3.4 | `JdbcTemplate` y no JPA: el control de memoria es explícito |
+| Backend | **Java 21** · Spring Boot 3.3.13 | `JdbcTemplate` y no JPA: el control de memoria es explícito |
 | Base de datos | **PostgreSQL 17** (Supabase) | Esquema 3NF, procedimientos PL/pgSQL, índice GIN `pg_trgm` para el matching de SKUs |
 | Excel | **fastexcel** | Streaming de lectura y escritura, memoria constante |
 | Visión | **Gemini Flash** | Extracción de guías con cadena de modelos de respaldo ante 429/503 |
@@ -273,7 +273,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 220 unitarias + 132 de integración
+mvn verify    # 238 unitarias + 132 de integración
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
@@ -320,7 +320,7 @@ una regla de negocio— y se pide aparte con `mvn test -Pbench`.
 >
 > Con eso, `mvn verify` levanta los contenedores en Windows igual que en CI. El
 > arreglo de fondo es subir a Testcontainers 2.x, que ya habla la API nueva;
-> queda pendiente porque `spring-boot-testcontainers` 3.3.4 espera la rama 1.x.
+> queda pendiente porque `spring-boot-testcontainers` 3.3.13 espera la rama 1.x.
 
 ---
 

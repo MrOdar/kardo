@@ -1,0 +1,64 @@
+# Revision automatica de dependencias.
+#
+# Por que existe: el proyecto estuvo dos anos en Spring Boot 3.3.4 sin que nada
+# lo avisara, nueve parches por detras del ultimo parche libre de su propia
+# linea y con CVEs de Tomcat ya corregidos aguas arriba. El build estaba verde
+# todo ese tiempo, porque las pruebas comprueban que el codigo hace lo que debe,
+# no que las librerias de debajo sigan mantenidas. Es un fallo que ninguna
+# prueba puede atrapar: hace falta algo que mire el reloj.
+#
+# Dependabot abre un PR por actualizacion, y el CI de este repositorio corre
+# contra cada PR, de modo que cada propuesta llega ya con las 370 pruebas
+# pasadas o con el fallo a la vista. Eso es lo que hace la actualizacion barata:
+# el coste de mirar no es leer el changelog, es no saber si rompe algo.
+#
+# NOTA: esto cubre las actualizaciones por version. Las alertas de seguridad
+# -las que avisan de un CVE sin esperar al lunes- son un ajuste aparte del
+# repositorio y hay que encenderlo una vez:
+#
+#   gh api -X PUT repos/MrOdar/kardo/vulnerability-alerts
+#
+# Sin eso, este archivo propone versiones nuevas pero nadie dice cuales de las
+# viejas eran peligrosas.
+
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Lima
+    # Un PR por semana como maximo mientras no haya nada urgente: mas que eso
+    # en un proyecto de una persona se convierte en ruido que se ignora, y una
+    # alerta que se ignora no es una alerta.
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Spring Boot gobierna las versiones de casi todo lo demas a traves de
+      # spring-boot-dependencies: separarlas en PRs distintos produce conflictos
+      # entre ellos. Van juntas o no van.
+      spring:
+        patterns:
+          - "org.springframework*"
+          - "org.springframework.boot:*"
+      pruebas:
+        patterns:
+          - "org.testcontainers:*"
+          - "org.junit*"
+          - "org.mockito:*"
+        update-types:
+          - minor
+          - patch
+
+  # Las propias acciones del workflow caducan igual que las librerias, y una
+  # accion abandonada corre con permisos sobre el repositorio.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"

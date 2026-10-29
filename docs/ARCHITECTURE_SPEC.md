@@ -20,7 +20,7 @@ flowchart TD
     subgraph Cloud_Free_Tier ["Infraestructura Cloud (100% Gratuita & Cero Latencia)"]
         UptimeMonitor["⏰ UptimeRobot / cron-job.org\n(GET /api/v1/ping cada 5 min a memoria RAM\nCero consultas a BD / 0 conexiones HikariCP)"]
         
-        Backend["⚙️ Spring Boot 3.3.4 (Java 21 LTS)\nRender Container (Límite estricto 512 MB RAM)\n- Spooling a disco con file-size-threshold=64KB\n- fastexcel + getInputStream directo\n- JdbcTemplate.batchUpdate (Sin First-Level Cache)\n- Circuit Breaker de Calidad (Max 100 errores)\n- BufferedImage (1800 px bicúbico)\n- Spring Security 6 (JWT sin estado, tienda en el token)\n- Circuito de mermas con cuarentena y aprobación\n- Auditoría de cargas con huella SHA-256\n- Heartbeat diario anti-hibernación (SELECT 1)"]
+        Backend["⚙️ Spring Boot 3.3.13 (Java 21 LTS)\nRender Container (Límite estricto 512 MB RAM)\n- Spooling a disco con file-size-threshold=64KB\n- fastexcel + getInputStream directo\n- JdbcTemplate.batchUpdate (Sin First-Level Cache)\n- Circuit Breaker de Calidad (Max 100 errores)\n- BufferedImage (1800 px bicúbico)\n- Spring Security 6 (JWT sin estado, tienda en el token)\n- Circuito de mermas con cuarentena y aprobación\n- Auditoría de cargas con huella SHA-256\n- Heartbeat diario anti-hibernación (SELECT 1)"]
         
         Gemini["🤖 Google Gemini 3.8 Flash\n(Google AI Studio Free Tier)\n- Extracción documental OCR con JSON estructurado\n- Fallback dinámico ante 429/503/404"]
         
@@ -36,7 +36,7 @@ flowchart TD
 #### Decisiones de Ingeniería Justificadas:
 | Componente | Tecnología | Decisión de Arquitectura / Trade-off |
 |---|---|---|
-| **Core Runtime** | **Java 21 LTS + Spring Boot 3.3.4** | Tipado fuerte, Virtual Threads para concurrencia I/O y estándar corporativo bancario. |
+| **Core Runtime** | **Java 21 LTS + Spring Boot 3.3.13** | Tipado fuerte, Virtual Threads para concurrencia I/O y estándar corporativo bancario. |
 | **Parser de Excel** | **`fastexcel` (dhatim) + `JdbcTemplate`** | **Evita OOM:** Streaming directo desde `file.getInputStream()` con spooling en `/tmp` fuera del Java Heap (`file-size-threshold=64KB`). Inserta mediante `JdbcTemplate.batchUpdate()` en micro-lotes de 500 filas, esquivando el First-Level Cache de Hibernate. |
 | **Persistencia** | **PostgreSQL 17 en Supabase** | 500 MB persistentes que no consumen horas de cómputo activo como Neon, con índice `GIN` para `word_similarity` y procedimientos transaccionales. |
 | **Keep-Alive Híbrido** | **UptimeRobot (5 min) + Heartbeat diario** | `/api/v1/ping` en RAM cada 5 min mantiene vivo Render; un `@Scheduled` diario ejecuta `SELECT 1` para evitar la pausa por 7 días de inactividad de Supabase. |
@@ -297,7 +297,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Sprint1["Sprint 1 (Días 1-3)\nBD & Motor Transaccional\n- DDL 3NF en Supabase\n- chk_batch_mass_balance\n- Candados stores (FOR SHARE / FOR UPDATE)\n- Setup Spring Boot 3.3.4"] 
+    Sprint1["Sprint 1 (Días 1-3)\nBD & Motor Transaccional\n- DDL 3NF en Supabase\n- chk_batch_mass_balance\n- Candados stores (FOR SHARE / FOR UPDATE)\n- Setup Spring Boot 3.3.4"]
     --> Sprint2["Sprint 2 (Días 4-6)\nStreaming & Ingesta Elástica\n- Spooling Tomcat (64KB)\n- fastexcel + JdbcTemplate.batchUpdate\n- Circuit Breaker (100 errores)\n- /api/v1/ping + Heartbeat Supabase"]
     --> Sprint3["Sprint 3 (Días 7-9)\nVisión IA & Matching Batch\n- OCR Gemini 3.8 Flash (1800 px)\n- name %> item.ocr_text con LEFT JOIN\n- Fallback dinámico de modelos"]
     --> Sprint4["Sprint 4 (Días 10-12)\nUI & Puesta en Producción\n- Tablas interactivas Tailwind\n- Botón Restaurar Demo\n- Deploy Render (SPA en el mismo jar)\n- Config UptimeRobot"]
@@ -337,8 +337,15 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
   | `05_waste_workflow.sql` | `sp_report_waste`, `sp_approve_waste`, `sp_reject_waste` |
   | `06_upload_audit.sql` | `inventory_uploads`, `confirmed_by` en las guías |
   | `07_upload_rollback.sql` | `upload_id` en los lotes, unicidad parcial de la huella |
+  | `08_waste_segregation.sql` | Segregación de funciones en mermas, **por persona y no solo por rol**: el autor no resuelve su propia pérdida (`P0008`) |
+  | `09_expiry_alerts.sql` | Rastro de las decisiones de rebaja: la alerta se puede callar, y la decisión vale solo para el peldaño que se vio |
+  | `10_vision_quota.sql` | Consumo diario de la visión, contado **en la base y no en memoria** porque el contenedor de Render hiberna |
+  | `11_batch_markdown.sql` | El precio rebajado del lote, y que `sp_process_fefo_sale` cobre ese y no el de lista |
+  | `12_risk_history.sql` | Foto diaria del valor en riesgo por tienda: tabla derivada, `ON DELETE CASCADE` al revés que las transaccionales |
+  | `13_user_stores.sql` | Una persona en varias tiendas, con **el rol por tienda**; no toca `users.store_id` |
+  | `14_supplier_returns.sql` | Canje al proveedor: recupera el costo, y por eso no cabe en `waste_log`, cuya columna de pérdida es generada |
   | `15_tenant_scoped_resolution.sql` | La tienda entra en `sp_approve_waste`, `sp_reject_waste`, `sp_credit_return` y `sp_refuse_return`; retira sus firmas sin tienda |
-  | `16_demo_expanded_catalog.sql` | Reescribe `sp_reset_demo_environment()`: 88 productos, proveedores y guía con discrepancia, con fechas relativas a `CURRENT_DATE` |
+  | `16_demo_expanded_catalog.sql` | Reescribe `sp_reset_demo_environment()`: 88 productos, proveedores y guía con discrepancia, con fechas relativas a `CURRENT_DATE`, y **siembra 30 días de ventas** —la ventana que mira el análisis— sin los cuales la cobertura y el gráfico por familias saldrían vacíos |
 * **Dialecto fijado en el arranque:** `JdbcConfig` declara el dialecto PostgreSQL en lugar de dejar que Spring Data JDBC lo deduzca abriendo una conexión durante el refresco del contexto. Sin eso, una base pausada o una red caída impiden que el contenedor levante y, por tanto, que responda `/api/v1/ping`, que es justo el endpoint encargado de mantenerlo vivo.
 * **Límite de Conexiones HikariCP (evita saturación en capa gratuita):**
   ```properties
@@ -452,44 +459,146 @@ conmutaciones y conciliación documental).
 login real devuelve la sesión del gerente demo, la exportación entrega el `.xlsx`
 y todos los endpoints protegidos responden 401 sin token.
 
-Cobertura automatizada tras esta ronda: **174 pruebas unitarias**.
+Cobertura automatizada, hoy y no en la ronda en que se escribió esto:
+**238 pruebas unitarias** (`mvn test`), verificadas el 2026-10-23 con la suite
+en verde.
 
 #### Pruebas de integración contra PostgreSQL real
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta 79 pruebas sobre lo que de verdad puede romperse en silencio:
+y ejecuta **132 pruebas** repartidas en dieciséis clases, sobre lo que de verdad
+puede romperse en silencio:
 
 | Clase | Qué protege |
 |---|---|
 | `FefoSaleIT` | Orden FEFO y costo por lote, **aislamiento entre compañías con el mismo SKU**, stock insuficiente sin rastro, cantidad no positiva, lote vencido no vendible, y que **la venta cobre el precio rebajado de cada lote** |
 | `WasteWorkflowIT` | El invariante `current + cuarentena <= inicial` paso a paso, que FEFO no venda lo reservado, aprobar/rechazar, resolución idempotente, lote de otra tienda |
+| `WasteSegregationIT` | Segregación de funciones, que es lo que separa un registro de mermas de un control antifraude: **el autor no aprueba su propia pérdida, y tampoco la rechaza** —devolver el stock sin revisión es la otra mitad del fraude—; otra persona sí puede, y su rechazo devuelve la mercadería |
+| `SupplierReturnIT` | El canje, que se parece a una merma pero mueve el dinero al revés: el costo se **recupera y nunca se cuenta como pérdida**, lo apartado no se vende ni se puede dar de baja mientras espera el camión, un rechazo del proveedor devuelve la mercadería al circuito de mermas, y un lote sin guía no se puede canjear |
 | `SkuMatchingIT` | El caso insignia `"CERV PILSEN 650"` (score 0.55, que el umbral de fábrica descartaba), varias líneas en un viaje, producto nuevo sin forzar, aislamiento por compañía |
 | `UploadRollbackIT` | Reversión todo o nada, catálogo intacto, bloqueo por venta o por merma, idempotencia, y que la huella deje de bloquear tras revertir |
 | `ExpiryAlertIT` | Que el panel se pueda callar y **vuelva a hablar al bajar un peldaño**, que lo vencido no lo silencie ninguna decisión previa, cuarentena excluida, aislamiento por tienda, y que una rebaja no bloquee la reversión de su carga |
 | `VisionQuotaIT` | **Diez escaneos simultáneos contra un tope de cinco pasan exactamente cinco**, el tope global corta aunque a la tienda le sobre saldo, el cupo de una tienda no gasta el de otra, y el consumo se imputa al día de Lima |
 | `DiagnosticsIT` | Que la instrumentación **esté de verdad puesta** en el contexto real: el `DataSource` es el que mide, cada sentencia y cada `CALL` suman al cronómetro, y el pool se publica solo. Es el fallo silencioso que ya ocurrió una vez |
 | `InventoryPdfExportIT` | **Relee el PDF generado** y busca dentro los totales, el criterio de valorización y la paginación; que un inventario vacío produzca un documento válido, que un nombre con comillas tipográficas no lo rompa, y que no asome un lote de otra tienda |
+| `MarkdownLabelPdfIT` | La etiqueta de rebaja releída igual que el informe: que el precio impreso sea **el mismo que cobrará la caja** y que el lote venga identificado —un cartel con el precio de otro lote es peor que no tener cartel—, que un lote sin rebaja o agotado no se imprima, y el reparto en hojas |
+| `OnboardingIT` | Que una empresa pueda nacer **fuera de la demo**: alta de empresa, tienda y gerente con sesión abierta, contraseña cifrada, correo en minúsculas como lo busca el login, RUC único, un alta a medias que no deja la empresa creada, y sobre todo que **nadie dé de alta a nadie en la tienda de otra empresa** |
+| `BatchSearchIT` | Que los tramos del filtro sean **los mismos que pinta el semáforo FEFO** —una discrepancia entre ambos confundiría al operario—, que los vencidos se listen aparte en vez de esconderse, la búsqueda por nombre, SKU y lote impreso sin exigir la palabra completa, un filtro desconocido que no rompe la pantalla, y el aislamiento por tienda |
+| `InventoryInsightsIT` | Lo que el análisis **puede afirmar y lo que no**: sin ventas la cobertura es desconocida y no cero, una venta antigua no cuenta como ritmo de hoy, lo que entró sin guía se agrupa aparte en vez de repartirse entre los proveedores conocidos, varias bajas sobre un lote no multiplican su valor, y el reparto por familia ordena por lo que se pierde y no por lo que vale |
+| `AuditRetentionIT` | Que una corrección manual deje **el mismo asiento que un archivo**, con su autor y sus lotes ligados, que reenviarla no duplique la mercadería, y que la IP —dato personal— se borre pasada la ventana de retención sin llevarse el resto del asiento |
+| `DemoResetIT` | La puerta de entrada del evaluador, ejercitada de verdad. `sp_reset_demo_environment()` son mil líneas de PL/pgSQL que hasta ahora solo tocaban pruebas con el repositorio simulado. Vigila un fallo concreto: `daily_sales`, `waste_log` y `supplier_returns` son `ON DELETE RESTRICT`, así que la demo **se atranca en cuanto alguien la usa**, que es para lo que está. Por eso la prueba primero la gasta y luego la restaura |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
 antes de lanzar el build, para que la ausencia de Docker nunca se confunda con
 pruebas en verde.
 
+#### Lo que ninguna prueba puede ver
+El build estuvo verde dos años sobre **Spring Boot 3.3.4**, de septiembre de
+2024. El soporte abierto de la línea 3.3 terminó el 30 de junio de 2025 y su
+último parche libre fue el 3.3.13: el proyecto iba **nueve parches por detrás
+del último parche gratuito de su propia línea**, con CVEs de Tomcat ya
+corregidos aguas arriba. Ninguna prueba lo detectó, y ninguna podía: las pruebas
+comprueban que el código hace lo que debe, no que las librerías de debajo sigan
+mantenidas. Hace falta algo que mire el reloj.
+
+**Lo que se subió, y lo que no.** De 3.3.4 a 3.3.13, dentro de la misma línea:
+
+| | Antes | Ahora |
+|---|---|---|
+| Spring Boot | 3.3.4 | **3.3.13** |
+| Tomcat embebido | 10.1.30 | **10.1.42** |
+| Spring Framework | 6.1.13 | **6.1.21** |
+| Spring Security | 6.3.3 | **6.3.10** |
+
+Las 370 pruebas pasan sin tocar una línea de código, que es la ventaja de no
+salir de la línea: cierra los CVEs conocidos de Tomcat y no obliga a revisar
+nada. Lo que **no** arregla es el fondo —3.3 sigue sin soporte— y por eso el
+destino real es la línea 4.x, hoy en 4.1.2. Eso es Spring Framework 7 debajo y
+rupturas que hay que leer una por una: es un proyecto aparte, no una subida de
+versión, y se deja dicho en vez de hecho a medias.
+
+**El chequeo que faltaba.** El job `dependencias` del CI hace dos cosas
+distintas a propósito:
+
+* `dependency-review-action` **corta el PR** que introduce una dependencia con
+  un CVE de severidad alta. Usa la base de avisos de GitHub, así que no necesita
+  clave de la NVD ni descargar su base en cada build. Solo puede correr sobre un
+  PR, porque compara dos árboles de dependencias y en un push a `main` no hay
+  con qué comparar.
+* El informe de versiones atrasadas **no falla nunca**, y va al resumen del job.
+  Una versión nueva no es un fallo, y un build rojo por algo que no hay que
+  arreglar hoy enseña a ignorar el rojo.
+
+`.github/dependabot.yml` cubre el hueco del push a `main` abriendo un PR por
+actualización —agrupadas, porque Spring Boot gobierna las versiones de casi todo
+lo demás a través de `spring-boot-dependencies` y separarlas produce conflictos
+entre los propios PRs—. Como el CI corre contra cada PR, cada propuesta llega ya
+con las 370 pruebas pasadas o con el fallo a la vista: eso es lo que hace barata
+la actualización, porque el coste no es leer el changelog, es no saber si rompe
+algo.
+
+> **Queda un ajuste por hacer a mano, una vez.** Las alertas de seguridad del
+> repositorio —las que avisan de un CVE sin esperar al lunes— están
+> desactivadas, y es un ajuste de GitHub, no un archivo del proyecto:
+>
+> ```bash
+> gh api -X PUT repos/MrOdar/kardo/vulnerability-alerts
+> ```
+>
+> Sin eso, Dependabot propone versiones nuevas pero nadie dice cuáles de las
+> viejas eran peligrosas.
+
+#### Lo que sale por la respuesta cuando algo falla
+`GlobalExceptionHandler` decide el código y el cuerpo de **todos** los errores del
+producto, y durante mucho tiempo ninguna prueba lo nombró. Dos cosas quedaban sin
+red, y las dos fallan en silencio —la respuesta sigue llegando, con el código o el
+texto equivocado—: que el `@ExceptionHandler(Exception.class)` del final no se
+coma los errores de protocolo de Spring, y que ningún manejador deje escapar el
+interior del servidor.
+
+`GlobalExceptionHandlerTest` pasa peticiones de verdad por el despachador real
+contra un controlador que falla a propósito, porque lo que puede romperse no es
+la aritmética de cada rama sino **la selección de manejadores**: que Spring elija
+siempre el más específico, y que las excepciones que lanza el propio despachador
+lleguen hasta aquí. En **18 pruebas**:
+
+| Grupo | Qué fija |
+|---|---|
+| `ErroresDeProtocolo` | Que un método no permitido siga siendo **405** y no 500, una ruta inexistente **404**, un parámetro que falta o un `id` que no es número **400**; y que un JSON roto devuelva 400 **sin el fragmento ilegible ni el nombre del parser** |
+| `NoSeFiltraElInterior` | La razón de ser de la red de seguridad: un fallo no contemplado da 500 con una frase, **sin la clase, el mensaje ni la pila**; un error de base de datos no devuelve el SQL ni los nombres de las tablas; una violación de unicidad no nombra la restricción; un 403 no dice qué tienda era ni qué rol faltaba |
+| `LoQueSiSeDice` | El contraste: donde el mensaje **sí** es para el cliente. Un error de negocio devuelve el suyo, una reversión bloqueada enumera los lotes que la impiden, un freno lleva `Retry-After`, y un archivo con demasiadas filas es **413 y no 422** —el archivo está bien, lo que no cabe es el trabajo— |
+| `ElCatchAllNoTapa` | Que una excepción con manejador propio no acabe en el de 500. Es la suposición sobre la que descansa todo lo anterior |
+
+**El fallo que encontró al escribirla:** `MethodArgumentTypeMismatchException`
+hereda de `TypeMismatchException`, que no implementa `ErrorResponse`, así que
+caía en la red de seguridad. `POST /inventory/waste/abc/approve` respondía **500
+en producción** —comprobado contra el despliegue antes de arreglarlo—. Dos cosas
+mal a la vez: el cliente creía que el servidor está roto cuando lo que estaba mal
+era su petición, y cada dedazo entraba en el log por `log.error` como fallo no
+contemplado, que es donde se miran los fallos de verdad.
+
+Para confirmar que las pruebas muerden se anuló la rama de `ErrorResponse` y
+fallaron tres con **500 donde esperaban 405, 404 y 400**; y se hizo que el 403
+devolviera su motivo real, con lo que la prueba lo delató citando
+`la tienda 77 con una sesion de la tienda 1`.
+
 #### Pruebas de la cadena de seguridad
 Las pruebas anteriores cubrían el SQL y la lógica con dobles, de modo que **borrar
 un `@PreAuthorize` dejaba la suite verde**. `EndpointSecurityTest` levanta la
 cadena de filtros real, con el filtro JWT real y tokens firmados de verdad, y
 responde desde fuera a las tres preguntas que importan —quién entra, con qué rol,
-y sobre qué tienda acaba escribiendo— en **50 pruebas**:
+y sobre qué tienda acaba escribiendo— en **78 pruebas**:
 
 | Grupo | Qué fija |
 |---|---|
-| `SinToken` | Los 23 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
+| `SinToken` | Los 35 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
 | `Publicos` | Lo que debe seguir abierto sigue abierto: `ping` por GET y HEAD (si dejara de serlo, Render apagaría el servicio), `demo/reset` y `auth/login` |
 | `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
 | `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |
 | `Aislamiento` | Token de una tienda con el cuerpo apuntando a otra se corta **antes de escribir**; un `storeId` colado en la URL se ignora; venta, catálogo, merma y reversión usan la tienda y el correo del token |
+| `Cabeceras` | Que la respuesta lleve la CSP y que **`script-src` no tenga `unsafe-inline`** —un `unsafe-inline` anula la política entera, así que el único bloque en línea del HTML va autorizado por su hash SHA-256—, que `connect-src 'self'` le quite el destino a un script inyectado, y que el preflight CORS **no autorice credenciales** ni conteste a un origen ajeno |
 
 Los dobles sin usar son aquí la afirmación más fuerte: comprueban que la petición
 nunca llegó al servicio. Para confirmar que las pruebas muerden se quitó el
