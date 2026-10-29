@@ -55,9 +55,9 @@ class ExcelUploadServiceTest {
     void setUp() {
         when(ingestService.ingest(any(), anyLong(), any()))
                 .thenReturn(new IngestSummaryResponseDto(120, 115, 5, List.of()));
-        when(uploadRepository.findByHash(anyLong(), anyString())).thenReturn(Optional.empty());
+        when(uploadRepository.findByHash(anyLong(), anyString(), any())).thenReturn(Optional.empty());
         when(uploadRepository.record(anyLong(), anyString(), anyString(), anyLong(),
-                anyString(), anyString())).thenReturn(77L);
+                anyString(), anyString(), any())).thenReturn(77L);
 
         service = new ExcelUploadService(ingestService, uploadRepository);
     }
@@ -72,7 +72,8 @@ class ExcelUploadServiceTest {
 
         ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
         verify(uploadRepository).record(eq(STORE_ID), hash.capture(), eq("inventario-octubre.xlsx"),
-                eq((long) CONTENIDO.length), eq("operario@kardo.pe"), eq("190.12.33.4"));
+                eq((long) CONTENIDO.length), eq("operario@kardo.pe"), eq("190.12.33.4"),
+                eq(InventoryUploadRepository.Kind.INVENTORY));
         // Las metricas se escriben al terminar de recorrer el archivo
         verify(uploadRepository).updateCounts(77L, 120, 115, 5);
 
@@ -83,7 +84,7 @@ class ExcelUploadServiceTest {
     @Test
     @DisplayName("Reenviar el mismo archivo no vuelve a procesarlo")
     void recargaDuplicada() {
-        when(uploadRepository.findByHash(anyLong(), anyString()))
+        when(uploadRepository.findByHash(anyLong(), anyString(), any()))
                 .thenReturn(Optional.of(previo()));
 
         assertThatThrownBy(() -> service.upload(STORE_ID, streams(), context))
@@ -95,7 +96,7 @@ class ExcelUploadServiceTest {
         // Lo importante: no se duplican los lotes
         verify(ingestService, never()).ingest(any(), anyLong(), any());
         verify(uploadRepository, never()).record(anyLong(), anyString(), anyString(), anyLong(),
-                anyString(), anyString());
+                anyString(), anyString(), any());
     }
 
     @Test
@@ -117,7 +118,7 @@ class ExcelUploadServiceTest {
         service.upload(STORE_ID, () -> new ByteArrayInputStream(otro), context);
         ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
         verify(uploadRepository, org.mockito.Mockito.atLeastOnce())
-                .record(anyLong(), hash.capture(), anyString(), anyLong(), anyString(), anyString());
+                .record(anyLong(), hash.capture(), anyString(), anyLong(), anyString(), anyString(), any());
 
         assertThat(hash.getAllValues()).last().isNotEqualTo(primero);
     }
@@ -126,7 +127,7 @@ class ExcelUploadServiceTest {
         service.upload(STORE_ID, streams(), ctx);
         ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
         verify(uploadRepository, org.mockito.Mockito.atLeastOnce())
-                .record(anyLong(), hash.capture(), anyString(), anyLong(), anyString(), anyString());
+                .record(anyLong(), hash.capture(), anyString(), anyLong(), anyString(), anyString(), any());
         return hash.getValue();
     }
 
@@ -137,6 +138,6 @@ class ExcelUploadServiceTest {
     private static UploadAuditDto previo() {
         return new UploadAuditDto(12L, "inventario-octubre.xlsx", "a".repeat(64), CONTENIDO.length,
                 120, 115, 5, "operario@kardo.pe", "190.12.33.4",
-                Instant.parse("2026-10-18T19:32:00Z"), null, null);
+                Instant.parse("2026-10-18T19:32:00Z"), null, null, "INVENTORY");
     }
 }

@@ -106,6 +106,63 @@ que acaba de llegar. Esa regla está fijada en `InventoryInsightsIT`.
 
 ---
 
+## De dónde salen las ventas
+
+Todo lo anterior —la cobertura, el reparto por familias, el semáforo— se calcula
+sobre `daily_sales`. Una tienda que no registra sus ventas tiene un sistema que
+no puede decirle nada: sabe qué hay en el anaquel, pero no a qué ritmo sale, que
+es la mitad que convierte un inventario en una decisión de compra.
+
+Por eso la misma plantilla trae dos hojas:
+
+| Hoja | Qué hace | Columnas |
+|---|---|---|
+| **Inventario** | Crea los lotes | SKU, producto, categoría, costo, precio, lote, vencimiento, cantidad |
+| **Ventas** | Los descuenta por FEFO | **SKU, Cantidad, Fecha** |
+
+![La pestaña de Excel con la sección de ventas: el área para soltar el archivo, lo que espera la hoja, y el resumen de 14 ventas registradas por 120 unidades y S/ 445.80](docs/img/ventas-por-excel.jpg)
+
+**Las tres columnas que faltan son la parte interesante.** La hoja de ventas no
+pide lote ni precio. El lote lo elige el motor FEFO —del más próximo a vencer al
+más lejano— y el precio sale de ese lote, ya con su rebaja si la tiene.
+Pedírselos a quien llena el Excel deshace las dos cosas que hace el producto:
+una tienda que teclea el lote a mano acabará vendiendo del equivocado, y una que
+teclea el precio registrará un margen que no es el que cobró la caja.
+
+**La fecha es opcional, y por eso existe `sql/17`.** El procedimiento sellaba
+siempre `CURRENT_TIMESTAMP`, que es lo correcto cuando la venta se teclea en la
+caja. Con la carga por Excel deja de serlo: una tienda sube las ventas del día al
+cerrar, o recupera una semana atrasada, y apilarlas todas en el momento de la
+subida descuadra la ventana de 30 días sobre la que se calcula la rotación de
+*todo* el catálogo. Celda vacía sigue significando "ahora".
+
+### Las dos decisiones que costaron más que el código
+
+**Una línea mala no se lleva por delante a las buenas.** En PostgreSQL un error
+aborta la transacción entera: sin un savepoint por fila, la primera línea sin
+stock haría fallar todas las de detrás con *current transaction is aborted*, y el
+operario vería diez filas en cuarentena cuando sólo una estaba mal. Cada llamada
+al procedimiento va en su propio savepoint (`BulkSaleRegistrar`). Para comprobar
+que esa pieza carga de verdad se cambió `PROPAGATION_NESTED` por `REQUIRED` y
+cinco pruebas fallaron con ese error exacto.
+
+**Una carga de ventas no se puede revertir, y el sistema lo dice.** Revertir
+inventario borra lotes que no habían pasado nada; deshacer una venta significa
+devolver unidades a un lote que entretanto pudo agotarse, darse de baja por merma
+o canjearse al proveedor. Sin una guarda explícita, la reversión *parecería*
+funcionar: no encontraría lotes que borrar, marcaría la carga como revertida y
+devolvería un éxito —y además liberaría la huella, de modo que volver a subir el
+archivo registraría las ventas por segunda vez. Una venta mal registrada se
+corrige como en una tienda de verdad: por el circuito de mermas o el de canjes,
+que sí dejan rastro de quién decidió qué.
+
+Lo que no entra vuelve a la pantalla con su motivo —*"Faltaron 96 unidades"*— y
+se corrige ahí mismo. Lo que se reenvía son **las filas sueltas, nunca el
+archivo**: un Excel con una línea arreglada tiene otra huella, pasaría la guarda
+de duplicados y registraría otra vez todo lo que ya había entrado bien.
+
+---
+
 ## Cómo funciona
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
@@ -229,7 +286,7 @@ y enseña el máximo como contexto.
 | Visión | **Gemini Flash** | Extracción de guías con cadena de modelos de respaldo ante 429/503 |
 | PDF | **PDFBox** | Apache-2.0: sin la pregunta de licencia que trae LGPL |
 | Seguridad | **Spring Security 6** · JWT HS256 · BCrypt | Sin estado en servidor: el contenedor puede reiniciarse sin perder sesiones |
-| Interfaz | **HTML + Tailwind (CDN) + JS sin framework** | Se sirve desde el mismo jar; no hay build de front |
+| Interfaz | **HTML + Tailwind (CDN) + JS sin framework** | Se sirve desde el mismo jar; no hay build de front. Node existe sólo para probarla: `vitest` carga el `index.html` y el `app.js` de verdad en jsdom |
 | Contrato de la API | **springdoc-openapi** | Sale de los controladores, así que no hay documentación que mantener aparte del código |
 | Despliegue | **Render** (backend) · **Supabase** (datos) | Capa gratuita, con heartbeat para que ninguno hiberne |
 
@@ -264,7 +321,7 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/16, en orden numérico
+-- luego sql/01 … sql/18, en orden numérico
 ```
 
 `sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
@@ -273,7 +330,8 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 238 unitarias + 132 de integración
+mvn verify    # 238 unitarias + 153 de integración
+npm ci && npm test   # 18 de la SPA, en jsdom (Node solo para probar)
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le

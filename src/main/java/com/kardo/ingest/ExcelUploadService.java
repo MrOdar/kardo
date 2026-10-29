@@ -56,7 +56,7 @@ public class ExcelUploadService {
     public IngestSummaryResponseDto upload(long storeId, Supplier<InputStream> streams, UploadContext context) {
         String fileHash = hash(streams);
 
-        uploadRepository.findByHash(storeId, fileHash).ifPresent(previous -> {
+        uploadRepository.findByHash(storeId, fileHash, InventoryUploadRepository.Kind.INVENTORY).ifPresent(previous -> {
             log.info("Carga rechazada por duplicada en la tienda {}: {} ya procesado el {}",
                     storeId, context.fileName(), previous.createdAt());
             throw new DuplicateUploadException(previous);
@@ -67,7 +67,7 @@ public class ExcelUploadService {
         // y la restriccion de unicidad rechaza a la segunda de dos peticiones
         // simultaneas antes de que ninguna de las dos haga trabajo.
         long uploadId = uploadRepository.record(storeId, fileHash, context.fileName(), context.sizeBytes(),
-                context.userEmail(), context.clientIp());
+                context.userEmail(), context.clientIp(), InventoryUploadRepository.Kind.INVENTORY);
 
         IngestSummaryResponseDto summary;
         try (InputStream stream = streams.get()) {

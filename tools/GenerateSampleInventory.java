@@ -145,9 +145,23 @@ public class GenerateSampleInventory {
         System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPathAsset);
 
         // Generar script de migración SQL para que sp_reset_demo_environment() siembre estos 88 productos
+        //
+        // Bajo bandera y no por defecto: sql/16 se edito a mano despues de
+        // generarlo -la huella de la carga sembrada, y la siembra de 30 dias de
+        // ventas sin la cual el analisis por familias sale vacio- y regenerarlo
+        // borra esas 137 lineas sin decir nada. Se perdieron una vez por
+        // ejecutar esto para rehacer solo el Excel.
         String sqlMigrationPath = "sql/16_demo_expanded_catalog.sql";
-        generateMigrationSql(items, sqlMigrationPath);
-        System.out.println("EXITO: Generada migracion SQL en " + sqlMigrationPath);
+        boolean regenerarSql = List.of(args).contains("--sql");
+        if (regenerarSql) {
+            generateMigrationSql(items, sqlMigrationPath);
+            System.out.println("EXITO: Generada migracion SQL en " + sqlMigrationPath);
+            System.out.println("AVISO: revisa 'git diff " + sqlMigrationPath + "': lo escrito a mano"
+                    + " encima de la version generada se acaba de perder.");
+        } else {
+            System.out.println("OMITIDO: " + sqlMigrationPath + " no se toca."
+                    + " Pasa --sql si de verdad quieres regenerarlo desde el catalogo.");
+        }
 
         // Verificación con el parser real de Kardo
         verifyWithKardoParser(cleanPathAsset, items.size());
@@ -350,6 +364,52 @@ public class GenerateSampleInventory {
         }
     }
 
+    /**
+     * Una linea de la hoja de ventas.
+     *
+     * <p>No lleva lote ni precio a proposito. El lote lo elige el motor FEFO
+     * -del mas proximo a vencer al mas lejano- y el precio sale de ese lote, ya
+     * con su rebaja si la tiene. Pedirselos a quien llena el Excel seria
+     * deshacer las dos cosas que hace el producto, y abriria la puerta a vender
+     * del lote equivocado al precio equivocado.
+     *
+     * @param daysAgo dias hacia atras desde hoy; 0 es hoy
+     * @param conFecha false deja la celda de fecha vacia, que es como se dice
+     *                 "ahora mismo"
+     */
+    private record Sale(String sku, int qty, int daysAgo, boolean conFecha) {}
+
+    private static List<Sale> sampleSales() {
+        List<Sale> sales = new ArrayList<>();
+
+        // Cuatro dias de una tienda normal: lo de mas rotacion aparece casi
+        // todos los dias, y las cantidades se quedan muy por debajo del stock
+        // que siembra la hoja de Inventario para que el archivo se pueda subir
+        // entero sin que nada caiga en cuarentena por falta de existencias.
+        sales.add(new Sale("BEB-INC-001", 12, 3, true));
+        sales.add(new Sale("BEB-COC-003", 9, 3, true));
+        sales.add(new Sale("BEB-SLU-007", 15, 3, true));
+        sales.add(new Sale("SNK-SUB-007", 6, 3, true));
+
+        sales.add(new Sale("BEB-INC-001", 10, 2, true));
+        sales.add(new Sale("ABA-COS-001", 8, 2, true));
+        sales.add(new Sale("LAC-GLO-001", 6, 2, true));
+
+        sales.add(new Sale("BEB-INC-001", 14, 1, true));
+        sales.add(new Sale("BEB-SMA-008", 7, 1, true));
+        sales.add(new Sale("LIC-PIL-003", 4, 1, true));
+        sales.add(new Sale("SNK-PRI-008", 5, 1, true));
+
+        // Hoy, y la ultima sin fecha: la columna es opcional y una celda vacia
+        // se registra en el momento de la carga. Conviene que el evaluador lo
+        // vea en el propio archivo y no solo leido en el README.
+        sales.add(new Sale("BEB-COC-003", 11, 0, true));
+        sales.add(new Sale("ABA-FLO-007", 9, 0, true));
+        sales.add(new Sale("LAC-GLO-001", 4, 0, false));
+
+        return sales;
+    }
+
     private static void writeWorkbook(String filePath, List<Item> items, LocalDate today) throws Exception {
         List<String> headers = List.of(
                 "SKU", "Codigo de barras", "Producto", "Categoria", "Unidad",
@@ -386,7 +446,44 @@ public class GenerateSampleInventory {
                 rowIdx++;
             }
 
+            writeSalesSheet(workbook, today);
+
             workbook.finish();
         }
+    }
+
+    /**
+     * La segunda hoja: ventas.
+     *
+     * <p><b>Va despues de Inventario, y eso importa.</b>
+     * {@code ExcelStreamingIngestService} lee con {@code getFirstSheet()}, de
+     * modo que mientras Inventario sea la primera, la ingesta de inventario no
+     * nota que este libro trae una hoja mas. La de ventas se pide por nombre.
+     */
+    private static void writeSalesSheet(Workbook workbook, LocalDate today) {
+        List<String> headers = List.of("SKU", "Cantidad", "Fecha");
+
+        Worksheet sheet = workbook.newWorksheet("Ventas");
+
+        for (int col = 0; col < headers.size(); col++) {
+            sheet.value(0, col, headers.get(col));
+        }
+        sheet.range(0, 0, 0, headers.size() - 1).style().bold().set();
+
+        int rowIdx = 1;
+        for (Sale sale : sampleSales()) {
+            sheet.value(rowIdx, 0, sale.sku());
+            sheet.value(rowIdx, 1, sale.qty());
+            if (sale.conFecha()) {
+                sheet.value(rowIdx, 2, today.minusDays(sale.daysAgo()).toString());
+            }
+            rowIdx++;
+        }
+
+        // Las columnas de la hoja de inventario se ven solas porque el texto es
+        // largo; aqui son tres cortas y quedarian apretadas contra el borde.
+        sheet.width(0, 18);
+        sheet.width(1, 10);
+        sheet.width(2, 14);
     }
 }

@@ -3,10 +3,14 @@ package com.kardo.web;
 import com.kardo.dto.BulkFixRequestDto;
 import com.kardo.dto.IngestSummaryResponseDto;
 import com.kardo.dto.RollbackResponseDto;
+import com.kardo.dto.SalesFixRequestDto;
+import com.kardo.dto.SalesIngestSummaryDto;
 import com.kardo.dto.UploadAuditDto;
 import com.kardo.exception.CorruptSpreadsheetException;
 import com.kardo.ingest.BulkFixService;
 import com.kardo.ingest.ExcelUploadService;
+import com.kardo.ingest.SalesExcelIngestService;
+import com.kardo.ingest.SalesUploadService;
 import com.kardo.ingest.UploadRollbackService;
 import com.kardo.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,13 +40,19 @@ public class InventoryIngestController {
     private final BulkFixService bulkFixService;
     private final ExcelUploadService uploadService;
     private final UploadRollbackService rollbackService;
+    private final SalesUploadService salesUploadService;
+    private final SalesExcelIngestService salesIngestService;
 
     public InventoryIngestController(BulkFixService bulkFixService,
                                      ExcelUploadService uploadService,
-                                     UploadRollbackService rollbackService) {
+                                     UploadRollbackService rollbackService,
+                                     SalesUploadService salesUploadService,
+                                     SalesExcelIngestService salesIngestService) {
         this.bulkFixService = bulkFixService;
         this.uploadService = uploadService;
         this.rollbackService = rollbackService;
+        this.salesUploadService = salesUploadService;
+        this.salesIngestService = salesIngestService;
     }
 
     /**
@@ -71,6 +81,51 @@ public class InventoryIngestController {
         // La tienda sale del token, no de la peticion: nadie carga inventario
         // en una tienda que no es la suya.
         return ResponseEntity.ok(uploadService.upload(user.storeId(), () -> openStream(file), context));
+    }
+
+    /**
+     * Registra las ventas de la hoja "Ventas" del mismo Excel.
+     *
+     * <p>Mismo archivo que la carga de inventario y mismo mecanismo de huella,
+     * pero otra operacion: la carga queda marcada como {@code SALES}, de modo
+     * que subir la plantilla primero para el inventario y luego para las ventas
+     * no se confunde con subirla dos veces.
+     *
+     * <p>Operario y gerente, igual que una venta por la caja: cargar las ventas
+     * del dia es trabajo de turno, no un acto de supervision.
+     */
+    @PostMapping(value = "/ventas", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<SalesIngestSummaryDto> ingestSales(@RequestPart("file") MultipartFile file,
+                                                             HttpServletRequest request) {
+        if (file.isEmpty()) {
+            throw new CorruptSpreadsheetException("El archivo esta vacio.", 0);
+        }
+
+        var user = CurrentUser.require();
+        var context = new ExcelUploadService.UploadContext(
+                sanitizedName(file),
+                file.getSize(),
+                user.email(),
+                request.getRemoteAddr());
+
+        // La tienda sale del token: nadie descuenta stock de una tienda ajena.
+        return ResponseEntity.ok(salesUploadService.upload(user.storeId(), () -> openStream(file), context));
+    }
+
+    /**
+     * Registra las ventas que el operario corrigio en pantalla.
+     *
+     * <p>Vuelven las filas sueltas y nunca el archivo: un Excel con una linea
+     * arreglada tiene otra huella, pasaria la guarda de duplicados y registraria
+     * por segunda vez todo lo que ya habia entrado bien.
+     */
+    @PostMapping(value = "/ventas/correcciones", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<SalesIngestSummaryDto> registerFixedSales(@Valid @RequestBody SalesFixRequestDto request) {
+        long storeId = StoreScope.requireMatching(request.storeId());
+        return ResponseEntity.ok(salesIngestService.registerFixedRows(
+                storeId, request.rows(), CurrentUser.require().email()));
     }
 
     /**

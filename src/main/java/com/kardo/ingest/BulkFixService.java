@@ -46,14 +46,14 @@ public class BulkFixService {
                                           String userEmail, String clientIp) {
         String fingerprint = fingerprint(rows);
 
-        var previous = uploadRepository.findByHash(storeId, fingerprint);
+        var previous = uploadRepository.findByHash(storeId, fingerprint, InventoryUploadRepository.Kind.INVENTORY);
         if (previous.isPresent()) {
             throw new com.kardo.exception.DuplicateUploadException(previous.get());
         }
 
         long uploadId = uploadRepository.record(storeId, fingerprint,
                 "correcciones-" + rows.size() + "-filas.json", payload(rows).length(),
-                userEmail, clientIp);
+                userEmail, clientIp, InventoryUploadRepository.Kind.INVENTORY);
 
         IngestSummaryResponseDto summary = ingestService.ingestFixedRows(storeId, rows, uploadId);
 

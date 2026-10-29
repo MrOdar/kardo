@@ -42,7 +42,7 @@ public class UploadRollbackService {
             """;
 
     private static final String FIND_UPLOAD = """
-            SELECT file_name, rolled_back_at IS NOT NULL AS already_rolled_back
+            SELECT file_name, kind, rolled_back_at IS NOT NULL AS already_rolled_back
             FROM inventory_uploads
             WHERE upload_id = ? AND store_id = ?
             """;
@@ -61,7 +61,8 @@ public class UploadRollbackService {
     public RollbackResponseDto rollback(long storeId, long uploadId, String requestedBy) {
         var upload = jdbcTemplate.query(FIND_UPLOAD,
                         rs -> rs.next()
-                                ? new Upload(rs.getString("file_name"), rs.getBoolean("already_rolled_back"))
+                                ? new Upload(rs.getString("file_name"), rs.getString("kind"),
+                                        rs.getBoolean("already_rolled_back"))
                                 : null,
                         uploadId, storeId);
 
@@ -71,6 +72,24 @@ public class UploadRollbackService {
         if (upload.alreadyRolledBack()) {
             throw new UploadNotRevertibleException(
                     "La carga " + uploadId + " ya fue revertida.", List.of());
+        }
+
+        // Una carga de ventas no se revierte, y es la diferencia de fondo entre
+        // las dos: revertir inventario borra lotes que no habian pasado nada,
+        // mientras que deshacer una venta significa devolver unidades a un lote
+        // que pudo agotarse, darse de baja por merma o canjearse entretanto.
+        //
+        // Sin esta guarda la reversion "funcionaria": no encontraria lotes que
+        // borrar, marcaria la carga como revertida y devolveria un exito. El
+        // gerente creeria que deshizo 120 unidades de venta que siguen
+        // descontadas, y ademas la huella dejaria de bloquear el archivo, de
+        // modo que volver a subirlo las registraria otra vez.
+        if ("SALES".equals(upload.kind())) {
+            throw new UploadNotRevertibleException(
+                    "La carga " + uploadId + " es de ventas y no se puede revertir: "
+                            + "las unidades ya salieron del inventario. Para corregir una venta mal "
+                            + "registrada usa el circuito de mermas o el de canjes al proveedor.",
+                    List.of());
         }
 
         List<UploadRollback.BatchState> batches = jdbcTemplate.query(LOAD_BATCHES,
@@ -108,6 +127,6 @@ public class UploadRollbackService {
                 "Carga revertida: se eliminaron " + removed + " lote(s). El catalogo no se modifico.");
     }
 
-    private record Upload(String fileName, boolean alreadyRolledBack) {
+    private record Upload(String fileName, String kind, boolean alreadyRolledBack) {
     }
 }

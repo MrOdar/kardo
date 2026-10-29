@@ -15,15 +15,15 @@ public class InventoryUploadRepository {
     private static final String FIND_BY_HASH = """
             SELECT upload_id, store_id, file_hash, file_name, file_size_bytes,
                    total_rows, inserted_rows, quarantined_rows, uploaded_by, client_ip, created_at,
-                   rolled_back_at, rolled_back_by
+                   rolled_back_at, rolled_back_by, kind
             FROM inventory_uploads
-            WHERE store_id = ? AND file_hash = ? AND rolled_back_at IS NULL
+            WHERE store_id = ? AND file_hash = ? AND kind = ? AND rolled_back_at IS NULL
             """;
 
     private static final String INSERT = """
             INSERT INTO inventory_uploads (store_id, file_hash, file_name, file_size_bytes,
-                                           uploaded_by, client_ip)
-            VALUES (?, ?, ?, ?, ?, ?)
+                                           uploaded_by, client_ip, kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING upload_id
             """;
 
@@ -36,7 +36,7 @@ public class InventoryUploadRepository {
     private static final String LIST_RECENT = """
             SELECT upload_id, store_id, file_hash, file_name, file_size_bytes,
                    total_rows, inserted_rows, quarantined_rows, uploaded_by, client_ip, created_at,
-                   rolled_back_at, rolled_back_by
+                   rolled_back_at, rolled_back_by, kind
             FROM inventory_uploads
             WHERE store_id = ?
             ORDER BY created_at DESC
@@ -50,13 +50,26 @@ public class InventoryUploadRepository {
     }
 
     /**
-     * @return la carga previa VIGENTE con ese contenido. Una carga revertida no
-     *         cuenta: tras deshacerla, volver a subir el archivo es legitimo.
+     * Para que sirvio una carga.
+     *
+     * <p>Entra en la guarda de unicidad porque la plantilla de Kardo trae las
+     * dos hojas en el MISMO archivo: subirla para cargar el inventario y
+     * volver a subirla para registrar las ventas son dos operaciones distintas
+     * con la misma huella. Sin esto, la segunda daria 409.
      */
-    public Optional<UploadAuditDto> findByHash(long storeId, String fileHash) {
+    public enum Kind {
+        INVENTORY, SALES
+    }
+
+    /**
+     * @return la carga previa VIGENTE con ese contenido Y para lo mismo. Una
+     *         carga revertida no cuenta: tras deshacerla, volver a subir el
+     *         archivo es legitimo.
+     */
+    public Optional<UploadAuditDto> findByHash(long storeId, String fileHash, Kind kind) {
         try {
-            return Optional.ofNullable(
-                    jdbcTemplate.queryForObject(FIND_BY_HASH, InventoryUploadRepository::toDto, storeId, fileHash));
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    FIND_BY_HASH, InventoryUploadRepository::toDto, storeId, fileHash, kind.name()));
         } catch (EmptyResultDataAccessException ex) {
             return Optional.empty();
         }
@@ -65,14 +78,15 @@ public class InventoryUploadRepository {
     /**
      * Deja constancia de la carga.
      *
-     * <p>La restriccion {@code uq_upload_hash_store} es la ultima palabra: si dos
-     * peticiones identicas llegan a la vez, la segunda falla aqui y su
-     * transaccion entera se deshace, de modo que no quedan lotes duplicados.
+     * <p>El indice {@code uq_upload_hash_store_kind_vigente} es la ultima
+     * palabra: si dos peticiones identicas llegan a la vez, la segunda falla
+     * aqui y su transaccion entera se deshace, de modo que no quedan lotes ni
+     * ventas duplicadas.
      */
     public long record(long storeId, String fileHash, String fileName, long fileSizeBytes,
-                       String uploadedBy, String clientIp) {
+                       String uploadedBy, String clientIp, Kind kind) {
         Long uploadId = jdbcTemplate.queryForObject(INSERT, Long.class,
-                storeId, fileHash, fileName, fileSizeBytes, uploadedBy, clientIp);
+                storeId, fileHash, fileName, fileSizeBytes, uploadedBy, clientIp, kind.name());
         if (uploadId == null) {
             throw new IllegalStateException("No se pudo registrar la carga " + fileName);
         }
@@ -101,7 +115,8 @@ public class InventoryUploadRepository {
                 rs.getString("client_ip"),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 instantOrNull(rs.getObject("rolled_back_at", OffsetDateTime.class)),
-                rs.getString("rolled_back_by"));
+                rs.getString("rolled_back_by"),
+                rs.getString("kind"));
     }
 
     private static java.time.Instant instantOrNull(OffsetDateTime value) {

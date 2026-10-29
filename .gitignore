@@ -34,3 +34,8 @@ application-local.properties
 
 # Fotos de guias de remision reales: son datos de negocio del cliente
 samples/
+
+# Las pruebas de la SPA usan Node, pero el proyecto no lo necesita para
+# construirse: app.js e index.html se sirven tal cual desde el jar. Render no
+# instala Node y no tiene por que.
+node_modules/

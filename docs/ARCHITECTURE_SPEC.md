@@ -346,6 +346,8 @@ Para garantizar una integración fluida entre Render y Supabase, se definen los 
   | `14_supplier_returns.sql` | Canje al proveedor: recupera el costo, y por eso no cabe en `waste_log`, cuya columna de pérdida es generada |
   | `15_tenant_scoped_resolution.sql` | La tienda entra en `sp_approve_waste`, `sp_reject_waste`, `sp_credit_return` y `sp_refuse_return`; retira sus firmas sin tienda |
   | `16_demo_expanded_catalog.sql` | Reescribe `sp_reset_demo_environment()`: 88 productos, proveedores y guía con discrepancia, con fechas relativas a `CURRENT_DATE`, y **siembra 30 días de ventas** —la ventana que mira el análisis— sin los cuales la cobertura y el gráfico por familias saldrían vacíos |
+  | `17_dated_fefo_sale.sql` | `sp_process_fefo_sale` acepta una fecha opcional: sin ella sella el momento, con ella ese día. Retira la firma de 4 parámetros para que la llamada no quede ambigua. `P0010` si la fecha es futura |
+  | `18_sales_uploads.sql` | `kind` en `inventory_uploads` y dentro de la unicidad: la plantilla trae las dos hojas en el mismo archivo, así que subirla para inventario y para ventas son dos cargas con la misma huella |
 * **Dialecto fijado en el arranque:** `JdbcConfig` declara el dialecto PostgreSQL en lugar de dejar que Spring Data JDBC lo deduzca abriendo una conexión durante el refresco del contexto. Sin eso, una base pausada o una red caída impiden que el contenedor levante y, por tanto, que responda `/api/v1/ping`, que es justo el endpoint encargado de mantenerlo vivo.
 * **Límite de Conexiones HikariCP (evita saturación en capa gratuita):**
   ```properties
@@ -467,7 +469,7 @@ en verde.
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta **132 pruebas** repartidas en dieciséis clases, sobre lo que de verdad
+y ejecuta **153 pruebas** repartidas en diecisiete clases, sobre lo que de verdad
 puede romperse en silencio:
 
 | Clase | Qué protege |
@@ -488,6 +490,7 @@ puede romperse en silencio:
 | `InventoryInsightsIT` | Lo que el análisis **puede afirmar y lo que no**: sin ventas la cobertura es desconocida y no cero, una venta antigua no cuenta como ritmo de hoy, lo que entró sin guía se agrupa aparte en vez de repartirse entre los proveedores conocidos, varias bajas sobre un lote no multiplican su valor, y el reparto por familia ordena por lo que se pierde y no por lo que vale |
 | `AuditRetentionIT` | Que una corrección manual deje **el mismo asiento que un archivo**, con su autor y sus lotes ligados, que reenviarla no duplique la mercadería, y que la IP —dato personal— se borre pasada la ventana de retención sin llevarse el resto del asiento |
 | `DemoResetIT` | La puerta de entrada del evaluador, ejercitada de verdad. `sp_reset_demo_environment()` son mil líneas de PL/pgSQL que hasta ahora solo tocaban pruebas con el repositorio simulado. Vigila un fallo concreto: `daily_sales`, `waste_log` y `supplier_returns` son `ON DELETE RESTRICT`, así que la demo **se atranca en cuanto alguien la usa**, que es para lo que está. Por eso la prueba primero la gasta y luego la restaura |
+| `SalesIngestIT` | El registro de ventas por Excel, y sobre todo lo que puede dejar datos mal sin que nada se rompa: que **una línea sin stock no se lleve por delante a las que vienen detrás** —en PostgreSQL un error aborta la transacción entera, así que cada fila va en su savepoint—, que la fecha de la hoja llegue a `daily_sales` (si no, la ventana de rotación de todo el catálogo sale mal), que el precio sea el rebajado del lote y no el de lista, que el mismo archivo no se registre dos veces, que el mismo archivo **sí** sirva para inventario y para ventas, y que **una carga de ventas no se pueda revertir**: sin esa guarda la reversión parecería funcionar y liberaría la huella |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
@@ -583,6 +586,34 @@ Para confirmar que las pruebas muerden se anuló la rama de `ErrorResponse` y
 fallaron tres con **500 donde esperaban 405, 404 y 400**; y se hizo que el 403
 devolviera su motivo real, con lo que la prueba lo delató citando
 `la tienda 77 con una sesion de la tienda 1`.
+
+#### La SPA, ejercitada y no sólo leída
+`SpaContractTest` comprobaba el contrato **estático** —que cada `id` que busca
+el guion exista, que no haya `id` repetidos, que toda ruta que la interfaz llama
+la sirva algún controlador, que el hash de la CSP corresponda al script en
+línea—, pero no ejecutaba nada. Frente a eso, `app.js` e `index.html` suman
+4.200 líneas: era la mitad del producto que el evaluador toca, con cero pruebas
+de comportamiento.
+
+`vitest` carga ahora el **`index.html` y el `app.js` de verdad** en jsdom y los
+ejercita, en **18 pruebas**. No se tocó el artefacto para poder probarlo:
+`app.js` sigue siendo un script clásico sin módulos, servido tal cual desde el
+jar. El arnés lo inyecta como un `<script>`, igual que el navegador, y sustituye
+sólo `fetch`, que es el único límite entre la página y el servidor.
+
+| Archivo | Qué fija |
+|---|---|
+| `grafico-categorias.test.js` | El filtro por familias: que quitar una la saque del gráfico pero no de los chips, que la escala se rehaga con lo que queda —si no, quitar la familia grande dejaría el resto aplastado y filtrar no serviría—, que una cobertura desconocida no se pinte como cero, y que **el chip pulsado siga siendo el mismo nodo y conserve el foco**: la primera versión reconstruía todos los chips en cada pulsación, lo que con teclado dejaba el gráfico inutilizable a partir del segundo filtro y con ratón no se nota |
+| `errores-y-escape.test.js` | Las dos fronteras con el servidor. Que un error llegue con **el mensaje del servidor** y no como "409 Conflict" —el otro extremo de lo que fija `GlobalExceptionHandlerTest`—, que un cuerpo que no es JSON no rompa, que el token viaje en la cabecera y no se invente cuando no hay; y que `escapeHtml` cierre la vía de entrada más plausible que tiene este producto para un script ajeno: un nombre de producto tecleado en un Excel y pintado con `innerHTML` |
+
+Las tres mutaciones que confirman que muerden: reconstruir los chips en cada
+pulsación, quitar `parsed?.message` de `request()`, y dejar de escapar las
+comillas en `escapeHtml`. Cada una tumba exactamente una prueba.
+
+**Node no entra en el build.** El job de la SPA va aparte en el CI y Maven no lo
+conoce: Render construye el jar con `mvn package` y no instala Node, de modo que
+atar el build de Maven a npm tumbaría el despliegue.
+
 
 #### Pruebas de la cadena de seguridad
 Las pruebas anteriores cubrían el SQL y la lógica con dobles, de modo que **borrar

@@ -1,0 +1,15 @@
+{
+  "name": "kardo-spa-pruebas",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Pruebas de la SPA. No construye nada: app.js e index.html se sirven tal cual desde el jar.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "vitest": "3.2.4"
+  }
+}

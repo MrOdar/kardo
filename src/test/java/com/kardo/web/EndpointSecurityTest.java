@@ -175,6 +175,12 @@ class EndpointSecurityTest {
     private UploadRollbackService rollbackService;
 
     @MockBean
+    private com.kardo.ingest.SalesUploadService salesUploadService;
+
+    @MockBean
+    private com.kardo.ingest.SalesExcelIngestService salesIngestService;
+
+    @MockBean
     private ProductCatalogRepository productCatalogRepository;
 
     @MockBean

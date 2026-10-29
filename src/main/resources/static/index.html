@@ -807,10 +807,16 @@
 
   <!-- ═════════ Pestaña 4: Excel, cuarentena y versionado ═════════ -->
   <section id="panel-excel" role="tabpanel" aria-labelledby="tab-excel" class="hidden pt-10">
-    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Cargar inventario desde Excel</h2>
+    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Cargar desde Excel</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
-      El archivo se procesa en streaming. Las filas que no pasan la compuerta de calidad vuelven aquí
-      para corregirlas sin volver a subir nada.
+      El mismo archivo trae dos hojas: <strong>Inventario</strong>, que crea los lotes, y
+      <strong>Ventas</strong>, que los descuenta por FEFO. El archivo se procesa en streaming y las
+      filas que no pasan la compuerta de calidad vuelven aquí para corregirlas sin volver a subirlo.
+    </p>
+
+    <h3 class="mt-8 text-lg font-semibold">1 · Inventario</h3>
+    <p class="mt-1 max-w-prose text-sm text-ink-soft">
+      Una fila por lote. Es lo que tiene que entrar primero: sin lotes no hay de dónde descontar.
     </p>
 
     <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -868,7 +874,7 @@
             </svg>
             Descargar un Excel de ejemplo
           </a>
-          <p class="mt-1 text-xs text-ink-faint">88 productos reales · 12 KB</p>
+          <p class="mt-1 text-xs text-ink-faint">88 productos · 14 ventas de ejemplo · 13 KB</p>
         </div>
       </div>
 
@@ -884,6 +890,112 @@
           <dt class="text-ink-faint">En cuarentena</dt><dd id="s-quarantined" class="num font-semibold text-risk-red">0</dd>
         </div>
       </dl>
+    </div>
+
+    <!-- ───────────────────────── Ventas ───────────────────────── -->
+    <!-- Mismo archivo, otra hoja. Va en la misma pestaña y no en una propia
+         porque es un solo gesto del operario: baja la plantilla, la llena y la
+         sube dos veces. Separarlas en dos pestañas obligaría a explicar dos
+         veces de dónde sale el archivo. -->
+    <div class="mt-12 border-t border-line pt-8">
+      <h3 class="text-lg font-semibold">2 · Ventas</h3>
+      <p class="mt-1 max-w-prose text-sm text-ink-soft">
+        Sube <strong>el mismo archivo</strong>: se lee la hoja <strong>Ventas</strong>. Cada línea
+        descuenta por FEFO, del lote que vence antes, y al precio de ese lote con su rebaja si la
+        tiene.
+      </p>
+
+      <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div id="sales-dropzone"
+             class="flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg
+                    border-2 border-dashed border-line-strong bg-surface px-6 py-10 text-center
+                    transition-colors hover:border-brand hover:bg-brand-tint"
+             tabindex="0" role="button">
+          <svg class="h-9 w-9 text-ink-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 3v18h18"/><path d="m7 14 4-5 3 3 4-6"/>
+          </svg>
+          <p class="font-semibold">Arrastra el archivo con la hoja Ventas</p>
+          <p class="text-sm text-ink-faint">o haz clic para elegirlo · máximo 10 MB</p>
+          <input id="file-sales" type="file" accept=".xlsx" class="sr-only">
+        </div>
+
+        <div class="rounded-lg border border-line bg-surface p-5 shadow-card">
+          <h4 class="text-sm font-semibold">Qué espera la hoja</h4>
+          <p class="mt-2 text-sm text-ink-soft">
+            Tres columnas: <strong>SKU</strong>, <strong>Cantidad</strong> y <strong>Fecha</strong>.
+            Nada más.
+          </p>
+          <ul class="mt-4 space-y-2.5 border-t border-line pt-4 text-sm text-ink-soft">
+            <li class="flex gap-2.5">
+              <span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-brand" aria-hidden="true"></span>
+              No lleva lote ni precio: el lote lo elige FEFO y el precio sale de ese lote.
+            </li>
+            <li class="flex gap-2.5">
+              <span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-brand" aria-hidden="true"></span>
+              La fecha es opcional. Vacía significa ahora; con fecha puedes cargar el día al cerrar.
+            </li>
+            <li class="flex gap-2.5">
+              <span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-brand" aria-hidden="true"></span>
+              Una línea sin stock no tumba el archivo: cae abajo y la corriges aquí.
+            </li>
+          </ul>
+        </div>
+
+        <dl id="sales-summary"
+            class="hidden content-start gap-3 rounded-lg border border-line bg-surface p-5 text-sm shadow-card">
+          <div class="flex justify-between gap-4">
+            <dt class="text-ink-faint">Líneas leídas</dt><dd id="v-read" class="num font-semibold">0</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-ink-faint">Ventas registradas</dt>
+            <dd id="v-registered" class="num font-semibold text-risk-green">0</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-ink-faint">Unidades</dt><dd id="v-units" class="num font-semibold">0</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-ink-faint">Facturado</dt><dd id="v-revenue" class="num font-semibold">—</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-ink-faint">Sin registrar</dt>
+            <dd id="v-quarantined" class="num font-semibold text-risk-red">0</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- Tabla propia y no la de inventario: una venta rechazada tiene tres
+           campos corregibles, no diez, y meterla en la tabla de once columnas
+           dejaría ocho vacías que el operario tendría que ignorar. -->
+      <div id="sales-quarantine" class="mt-8 hidden">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h4 class="text-base font-semibold">Líneas sin registrar</h4>
+            <p class="mt-1 max-w-prose text-sm text-ink-soft">
+              Corrige la cantidad o el SKU y reenvía solo estas. No vuelvas a subir el archivo: las
+              líneas que ya entraron se registrarían otra vez.
+            </p>
+          </div>
+          <button id="btn-sales-fix"
+                  class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:opacity-60">
+            Registrar correcciones
+          </button>
+        </div>
+        <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+          <table class="w-full border-collapse text-sm">
+            <thead class="border-b border-line bg-canvas text-left">
+              <tr class="text-ink-soft">
+                <th class="th px-4 py-2.5">Fila</th>
+                <th class="th px-4 py-2.5">SKU</th>
+                <th class="th px-4 py-2.5">Cantidad</th>
+                <th class="th px-4 py-2.5">Fecha</th>
+                <th class="th px-4 py-2.5">Qué pasó</th>
+              </tr>
+            </thead>
+            <tbody id="sales-quarantine-rows" class="divide-y divide-line"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <div id="upload-history" class="mt-8 hidden">

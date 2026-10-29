@@ -47,6 +47,34 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # La SPA
+  # ---------------------------------------------------------------------------
+  # Job aparte, y no un paso del build de Maven, a proposito: Render construye
+  # el jar con `mvn package` y no instala Node. Si el build de Maven dependiera
+  # de npm, el despliegue se caeria. La SPA se sirve tal cual desde el jar -sin
+  # empaquetador, sin paso de construccion- y eso se queda asi: Node existe aqui
+  # solo para las pruebas.
+  spa:
+    name: Pruebas de la SPA
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Cargan el index.html y el app.js de verdad en jsdom y los ejercitan:
+      # el filtro del grafico por familias, el escape de lo que viene de la
+      # base, y que un error del servidor llegue al operario con su mensaje.
+      - run: npm test
+
+  # ---------------------------------------------------------------------------
   # Lo que las pruebas no pueden ver
   # ---------------------------------------------------------------------------
   # El build estuvo verde dos anos sobre un Spring Boot sin soporte: las pruebas

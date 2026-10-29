@@ -34,9 +34,15 @@ public class DuplicateUploadException extends RuntimeException {
     private static String describe(UploadAuditDto previous) {
         boolean corrections = previous.fileName() != null && previous.fileName().endsWith(".json");
         String subject = corrections ? "Estas correcciones ya se enviaron" : "Este archivo ya se cargo";
-        String created = previous.insertedRows() == 1
-                ? "1 lote creado"
-                : previous.insertedRows() + " lotes creados";
+
+        // Una carga de ventas guarda en la misma columna el numero de ventas
+        // registradas, no de lotes. Decir "14 lotes creados" tras subir la hoja
+        // de ventas manda al operario a buscar al inventario unos lotes que
+        // nadie creo.
+        int cuantas = previous.insertedRows();
+        String created = previous.isSales()
+                ? (cuantas == 1 ? "1 venta registrada" : cuantas + " ventas registradas")
+                : (cuantas == 1 ? "1 lote creado" : cuantas + " lotes creados");
 
         return subject + " el " + WHEN.format(previous.createdAt())
                 + " por " + previous.uploadedBy() + " (" + created + "). No se volvio a procesar.";

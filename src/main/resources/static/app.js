@@ -11,6 +11,7 @@ const state = {
   token: null,
   storeId: 999,
   quarantine: [],   // filas devueltas por la ingesta, editables en la tabla
+  salesQuarantine: [], // lo mismo para la hoja de ventas: otros campos, otra tabla
   scan: null,       // ultima guia leida por la IA
   catalog: [],      // productos para el selector de SKU
 
@@ -1687,6 +1688,167 @@ async function uploadExcel(file) {
   }
 }
 
+/* ─────────────────────────── ventas por Excel ─────────────────────────── */
+
+/**
+ * Sube el mismo archivo para que se lea su hoja de Ventas.
+ *
+ * <p>Gemelo de uploadExcel, con dos diferencias que vienen de que aqui se
+ * descuenta stock de verdad: el resumen cuenta unidades y facturacion -que es
+ * lo que el operario cuadra contra la cinta de la caja- y la cuarentena no se
+ * corrige reenviando el archivo, porque las lineas que ya entraron se
+ * registrarian otra vez.
+ */
+async function uploadSales(file) {
+  if (!state.token) {
+    toast('Primero restaura la tienda demo para obtener acceso.', 'error');
+    return;
+  }
+  const form = new FormData();
+  form.append('file', file);
+
+  toast(`Registrando las ventas de ${file.name}…`);
+  try {
+    const summary = await request('/inventory/ingest/ventas', { method: 'POST', body: form });
+    pintarResumenDeVentas(summary);
+
+    state.salesQuarantine = summary.quarantinedRows.map((row) => ({
+      ...row, values: { ...row.originalValues }
+    }));
+    renderSalesQuarantine();
+
+    // Una venta mueve el semaforo, las alertas y la rotacion: el tablero que se
+    // estaba mirando ya no dice la verdad.
+    await refreshDashboard();
+    await loadUploadHistory();
+
+    toast(summary.totalQuarantined
+      ? `${plural(summary.totalRegistered, 'venta registrada', 'ventas registradas')} y `
+        + `${plural(summary.totalQuarantined, 'linea sin registrar', 'lineas sin registrar')}.`
+      : `${plural(summary.totalRegistered, 'venta registrada', 'ventas registradas')}: `
+        + `${summary.totalUnits} unidades, ${money(summary.revenue)}.`,
+      summary.totalQuarantined ? 'info' : 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function pintarResumenDeVentas(summary) {
+  $('v-read').textContent = summary.totalRowsProcessed;
+  $('v-registered').textContent = summary.totalRegistered;
+  $('v-units').textContent = summary.totalUnits;
+  $('v-revenue').textContent = money(summary.revenue);
+  $('v-quarantined').textContent = summary.totalQuarantined;
+  $('sales-summary').classList.remove('hidden');
+  $('sales-summary').classList.add('grid');
+}
+
+/** Los tres campos corregibles de una venta, en el orden de la tabla. */
+const SALES_FIELDS = ['sku', 'quantity', 'saleDate'];
+
+function renderSalesQuarantine() {
+  const panel = $('sales-quarantine');
+  const body = $('sales-quarantine-rows');
+  const filas = state.salesQuarantine ?? [];
+
+  if (!filas.length) {
+    panel.classList.add('hidden');
+    body.replaceChildren();
+    return;
+  }
+  panel.classList.remove('hidden');
+
+  body.replaceChildren(...filas.map((row, index) => {
+    const tr = document.createElement('tr');
+    tr.className = 'align-top';
+    const cells = SALES_FIELDS.map((field) => `
+      <td class="px-4 py-2.5">
+        <span contenteditable="true" data-sales-row="${index}" data-field="${field}"
+              class="block min-w-[5rem] rounded px-1 ${campoCulpableDeVenta(row.errorCode, field)
+                ? 'bg-risk-red/10 ring-1 ring-risk-red/40'
+                : ''}">${escapeHtml(row.values[field] ?? '')}</span>
+      </td>`).join('');
+
+    tr.innerHTML = `
+      <td class="num px-4 py-2.5 text-ink-faint">${row.rowNumber}</td>
+      ${cells}
+      <td class="px-4 py-2.5 text-risk-red">${escapeHtml(row.message)}</td>`;
+    return tr;
+  }));
+}
+
+/**
+ * Resalta la celda que causo el rechazo.
+ *
+ * <p>SIN_STOCK señala la cantidad y no el SKU a proposito: el producto existe y
+ * esta bien escrito, lo que no cuadra es cuantas unidades se pidieron.
+ */
+function campoCulpableDeVenta(errorCode, field) {
+  const culpable = {
+    SKU_VACIO: 'sku',
+    SKU_LARGO: 'sku',
+    SKU_DESCONOCIDO: 'sku',
+    CANTIDAD_INVALIDA: 'quantity',
+    CANTIDAD_NO_POSITIVA: 'quantity',
+    CANTIDAD_EXCESIVA: 'quantity',
+    SIN_STOCK: 'quantity',
+    FECHA_INVALIDA: 'saleDate',
+    FECHA_FUTURA: 'saleDate'
+  }[errorCode];
+  return culpable === field;
+}
+
+/** Reenvia solo las lineas corregidas, nunca el archivo. */
+async function sendSalesFix() {
+  const filas = state.salesQuarantine ?? [];
+  if (!filas.length) return;
+
+  // Se lee del DOM y no de un manejador por celda: las celdas son
+  // contenteditable y el valor bueno es el que esta en pantalla al pulsar.
+  document.querySelectorAll('[data-sales-row]').forEach((celda) => {
+    const fila = filas[Number(celda.dataset.salesRow)];
+    if (fila) fila.values[celda.dataset.field] = celda.textContent.trim();
+  });
+
+  const payload = {
+    storeId: state.storeId,
+    rows: filas.map((fila) => ({
+      rowNumber: fila.rowNumber,
+      sku: fila.values.sku,
+      quantity: Number(fila.values.quantity),
+      saleDate: fila.values.saleDate || null
+    }))
+  };
+
+  const boton = $('btn-sales-fix');
+  boton.disabled = true;
+  try {
+    const summary = await request('/inventory/ingest/ventas/correcciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    pintarResumenDeVentas(summary);
+
+    state.salesQuarantine = summary.quarantinedRows.map((row) => ({
+      ...row, values: { ...row.originalValues }
+    }));
+    renderSalesQuarantine();
+    await refreshDashboard();
+
+    toast(summary.totalQuarantined
+      ? `${plural(summary.totalRegistered, 'venta registrada', 'ventas registradas')}. `
+        + `Quedan ${plural(summary.totalQuarantined, 'linea', 'lineas')} por corregir.`
+      : `${plural(summary.totalRegistered, 'venta registrada', 'ventas registradas')}. `
+        + 'No queda ninguna linea pendiente.',
+      summary.totalQuarantined ? 'info' : 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 const fechaHora = new Intl.DateTimeFormat('es-PE', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
 });
@@ -1713,7 +1875,9 @@ async function loadUploadHistory() {
   $('history-rows').replaceChildren(...history.map((entry) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="px-4 py-2.5 font-mono text-xs">${escapeHtml(entry.fileName)}</td>
+      <td class="px-4 py-2.5 font-mono text-xs">
+        ${escapeHtml(entry.fileName)}${etiquetaDeCarga(entry)}
+      </td>
       <td class="px-4 py-2.5 text-ink-soft">${escapeHtml(entry.uploadedBy)}</td>
       <td class="num px-4 py-2.5 text-ink-soft">${fechaHora.format(new Date(entry.createdAt))}</td>
       <td class="num px-4 py-2.5">${entry.totalRows}</td>
@@ -1725,10 +1889,31 @@ async function loadUploadHistory() {
   }));
 }
 
+/**
+ * Distingue una carga de ventas de una de inventario.
+ *
+ * <p>Hace falta porque son el MISMO archivo: la plantilla trae las dos hojas y
+ * el operario la sube dos veces, de modo que sin esto el historial muestra dos
+ * filas con el mismo nombre, la misma huella y casi la misma hora, y la columna
+ * "Lotes" diria 88 en una y 14 en la otra sin que nada explique por que.
+ */
+function etiquetaDeCarga(entry) {
+  if (entry.kind !== 'SALES') return '';
+  return ` <span class="ml-1 rounded-full bg-brand-soft px-2 py-0.5 align-middle font-sans
+                       text-[0.65rem] font-semibold text-brand-deep">ventas</span>`;
+}
+
 /** Revertir es decision del gerente; al operario se le muestra el estado, sin boton. */
 function revertAction(entry) {
   if (entry.rolledBackAt) {
     return '<span class="text-sm text-ink-faint">Revertida</span>';
+  }
+  // Las ventas no se revierten: las unidades ya salieron. El servidor lo
+  // rechaza igualmente, pero ofrecer el botón sería prometer algo que no
+  // existe, y el gerente lo descubriría después de pulsarlo.
+  if (entry.kind === 'SALES') {
+    return '<span class="text-sm text-ink-faint" title="Las unidades ya salieron del inventario">'
+      + 'No reversible</span>';
   }
   if (state.session?.role !== 'MANAGER') {
     return '<span class="text-sm text-ink-faint">—</span>';
@@ -2819,10 +3004,12 @@ $('btn-export').addEventListener('click', () => exportInventory('xlsx'));
 $('btn-export-pdf').addEventListener('click', () => exportInventory('pdf'));
 $('btn-labels').addEventListener('click', downloadMarkdownLabels);
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
+$('btn-sales-fix').addEventListener('click', sendSalesFix);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 
 wireDropzone('dropzone', 'file-excel', uploadExcel);
 wireDropzone('scan-dropzone', 'file-scan', uploadReceipt);
+wireDropzone('sales-dropzone', 'file-sales', uploadSales);
 
 renderToday();
 pingBackend();
