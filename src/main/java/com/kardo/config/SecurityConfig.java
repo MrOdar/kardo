@@ -17,6 +17,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import com.kardo.security.JwtAuthenticationFilter;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -55,6 +57,38 @@ public class SecurityConfig {
 
     public SecurityConfig(SecurityProperties securityProperties) {
         this.securityProperties = securityProperties;
+    }
+
+    /**
+     * Impide que el contenedor de servlets registre el filtro JWT por su cuenta.
+     *
+     * <p><b>El fallo que esto evita, y es silencioso.</b>
+     * {@code JwtAuthenticationFilter} es un {@code @Component} que extiende
+     * {@code OncePerRequestFilter}, de modo que Spring Boot lo da de alta
+     * automaticamente como filtro del servlet, <em>ademas</em> de donde lo
+     * ponemos nosotros con {@code addFilterBefore}. Queda registrado dos veces y
+     * el orden lo arruina todo:
+     *
+     * <ol>
+     *   <li>el registro automatico corre <b>antes</b> de la cadena de seguridad,
+     *   lee el token y deja la autenticacion en el contexto;</li>
+     *   <li>ya dentro de la cadena, {@code SecurityContextHolderFilter} carga el
+     *   contexto del repositorio -vacio, porque somos sin estado- y
+     *   <b>sustituye</b> el que acababa de poner el filtro;</li>
+     *   <li>cuando le toca el turno al filtro en su sitio correcto,
+     *   {@code OncePerRequestFilter} ve que esta peticion ya paso por el y
+     *   <b>se salta</b>, asi que no vuelve a autenticar.</li>
+     * </ol>
+     *
+     * <p>Resultado: un token perfectamente valido acaba en 401. No lo delata
+     * ningun error en el log, solo el codigo de respuesta.
+     */
+    @Bean
+    FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterSoloEnLaCadena(
+            JwtAuthenticationFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

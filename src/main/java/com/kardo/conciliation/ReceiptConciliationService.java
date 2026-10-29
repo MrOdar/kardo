@@ -1,6 +1,6 @@
 package com.kardo.conciliation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.kardo.config.MatchingProperties;
 import com.kardo.dto.ConciliationLineDto;
 import com.kardo.dto.ConfirmedLineDto;

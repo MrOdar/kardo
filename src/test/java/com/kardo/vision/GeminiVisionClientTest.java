@@ -8,7 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.kardo.config.GeminiProperties;
 import com.kardo.dto.ExtractedReceiptDto;
 import com.kardo.exception.GeminiExtractionException;
@@ -183,7 +183,7 @@ class GeminiVisionClientTest {
                 3,
                 Duration.ofSeconds(20),
                 Duration.ofSeconds(20));
-        return new GeminiVisionClient(builder, properties, new ObjectMapper().findAndRegisterModules(),
+        return new GeminiVisionClient(builder, properties, new ObjectMapper(),
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 }
