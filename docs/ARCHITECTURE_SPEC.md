@@ -469,7 +469,7 @@ en verde.
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta **153 pruebas** repartidas en diecisiete clases, sobre lo que de verdad
+y ejecuta **172 pruebas** repartidas en diecinueve clases, sobre lo que de verdad
 puede romperse en silencio:
 
 | Clase | Qué protege |
@@ -491,6 +491,8 @@ puede romperse en silencio:
 | `AuditRetentionIT` | Que una corrección manual deje **el mismo asiento que un archivo**, con su autor y sus lotes ligados, que reenviarla no duplique la mercadería, y que la IP —dato personal— se borre pasada la ventana de retención sin llevarse el resto del asiento |
 | `DemoResetIT` | La puerta de entrada del evaluador, ejercitada de verdad. `sp_reset_demo_environment()` son mil líneas de PL/pgSQL que hasta ahora solo tocaban pruebas con el repositorio simulado. Vigila un fallo concreto: `daily_sales`, `waste_log` y `supplier_returns` son `ON DELETE RESTRICT`, así que la demo **se atranca en cuanto alguien la usa**, que es para lo que está. Por eso la prueba primero la gasta y luego la restaura |
 | `SalesIngestIT` | El registro de ventas por Excel, y sobre todo lo que puede dejar datos mal sin que nada se rompa: que **una línea sin stock no se lleve por delante a las que vienen detrás** —en PostgreSQL un error aborta la transacción entera, así que cada fila va en su savepoint—, que la fecha de la hoja llegue a `daily_sales` (si no, la ventana de rotación de todo el catálogo sale mal), que el precio sea el rebajado del lote y no el de lista, que el mismo archivo no se registre dos veces, que el mismo archivo **sí** sirva para inventario y para ventas, y que **una carga de ventas no se pueda revertir**: sin esa guarda la reversión parecería funcionar y liberaría la huella |
+| `SalesLedgerIT` | La pantalla que faltaba: durante un tiempo `daily_sales` se escribía desde tres sitios y se leía desde uno solo, como insumo, de modo que no había dónde mirar las ventas. Fija que cada fila traiga **el lote que atendió la venta** —el FEFO fila a fila—, que una venta repartida entre dos lotes salga como dos líneas con el costo de cada uno, que el precio sea el rebajado del lote y se marque como tal, y que **los totales sean de la ventana entera y no de las filas que caben en pantalla**: deducirlos del `LIMIT` daría dos cifras que se contradicen |
+| `ProductCreationIT` | El alta manual de producto, y **lo que la separa de la ingesta masiva**: aquélla hace `ON CONFLICT DO UPDATE` porque un archivo del proveedor trae el catálogo entero, mientras que aquí un SKU repetido se rechaza con el nombre del que ya lo ocupa —pisar en silencio el precio de un producto existente no se ve hasta que la caja cobra de menos—. Fija también que con unidades haga falta vencimiento (sin él, el lote sería invisible al FEFO), que la familia se normalice, y que el SKU sea único **por compañía** y no globalmente |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
@@ -638,7 +640,7 @@ línea—, pero no ejecutaba nada. Frente a eso, `app.js` e `index.html` suman
 de comportamiento.
 
 `vitest` carga ahora el **`index.html` y el `app.js` de verdad** en jsdom y los
-ejercita, en **18 pruebas**. No se tocó el artefacto para poder probarlo:
+ejercita, en **32 pruebas**. No se tocó el artefacto para poder probarlo:
 `app.js` sigue siendo un script clásico sin módulos, servido tal cual desde el
 jar. El arnés lo inyecta como un `<script>`, igual que el navegador, y sustituye
 sólo `fetch`, que es el único límite entre la página y el servidor.
@@ -647,6 +649,7 @@ sólo `fetch`, que es el único límite entre la página y el servidor.
 |---|---|
 | `grafico-categorias.test.js` | El filtro por familias: que quitar una la saque del gráfico pero no de los chips, que la escala se rehaga con lo que queda —si no, quitar la familia grande dejaría el resto aplastado y filtrar no serviría—, que una cobertura desconocida no se pinte como cero, y que **el chip pulsado siga siendo el mismo nodo y conserve el foco**: la primera versión reconstruía todos los chips en cada pulsación, lo que con teclado dejaba el gráfico inutilizable a partir del segundo filtro y con ratón no se nota |
 | `errores-y-escape.test.js` | Las dos fronteras con el servidor. Que un error llegue con **el mensaje del servidor** y no como "409 Conflict" —el otro extremo de lo que fija `GlobalExceptionHandlerTest`—, que un cuerpo que no es JSON no rompa, que el token viaje en la cabecera y no se invente cuando no hay; y que `escapeHtml` cierre la vía de entrada más plausible que tiene este producto para un script ajeno: un nombre de producto tecleado en un Excel y pintado con `innerHTML` |
+| `buscador-de-producto.test.js` | El combobox que sustituyó al `<select>` del formulario de venta. Lo que un `<select>` traía de serie y uno a mano tiene que ganarse: flechas con vuelta por los dos extremos, Enter, Escape, y `aria-activedescendant`. Y la que de verdad paga el archivo: **lo que se ve es el nombre y lo que se envía es el SKU**, y reescribir invalida la elección anterior —si no, quien eligió Coca Cola, borró y escribió "Inca" vendería Coca Cola con "Inca" a la vista— |
 
 Las tres mutaciones que confirman que muerden: reconstruir los chips en cada
 pulsación, quitar `parsed?.message` de `request()`, y dejar de escapar las

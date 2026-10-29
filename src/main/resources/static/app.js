@@ -12,6 +12,7 @@ const state = {
   storeId: 999,
   quarantine: [],   // filas devueltas por la ingesta, editables en la tabla
   salesQuarantine: [], // lo mismo para la hoja de ventas: otros campos, otra tabla
+  salesLedger: null,   // las ventas ya registradas, para la pestaña que las muestra
   scan: null,       // ultima guia leida por la IA
   catalog: [],      // productos para el selector de SKU
 
@@ -92,7 +93,7 @@ async function request(path, options = {}) {
 
 /* ──────────────────────── navegacion por pestañas ──────────────────────── */
 
-const TABS = ['inicio', 'semaforo', 'alertas', 'inventario', 'excel', 'recepcion', 'analisis', 'diagnostico'];
+const TABS = ['inicio', 'semaforo', 'alertas', 'inventario', 'excel', 'recepcion', 'ventas', 'analisis', 'diagnostico'];
 
 /**
  * Muestra una pestaña.
@@ -128,6 +129,11 @@ function showTab(name) {
   }
   if (name === 'recepcion' && state.token) {
     loadQuota();
+  }
+  // Se recargan al entrar: una venta por caja o una carga de Excel las cambia,
+  // y una lista de ventas desactualizada es peor que no tenerla.
+  if (name === 'ventas' && state.token) {
+    loadSalesLedger();
   }
   if (name === 'analisis' && state.token) {
     loadInsights();
@@ -1076,15 +1082,242 @@ async function loadCatalog() {
   renderSaleOptions();
 }
 
+/* ──────────────────── alta manual de producto ──────────────────── */
+/*
+ * Hasta aquí el catálogo sólo crecía por carga de Excel: sensato para 88
+ * productos, absurdo para añadir una gaseosa de otra marca.
+ */
+
+function toggleProductForm(abrir) {
+  const form = $('product-form');
+  const visible = abrir ?? form.classList.contains('hidden');
+  form.classList.toggle('hidden', !visible);
+  $('btn-nuevo-producto').setAttribute('aria-expanded', String(visible));
+  if (visible) {
+    rellenarFamiliasConocidas();
+    $('np-sku').focus();
+  }
+}
+
+/**
+ * Ofrece las familias que ya existen.
+ *
+ * <p>El gráfico por familias agrupa por este campo tal cual, de modo que
+ * "BEBIDAS" y "Bebidas" serían dos barras distintas para lo mismo. Sugerir las
+ * que ya hay evita la mitad de esos choques; la otra mitad la cierra el
+ * servidor, que las guarda en mayúsculas.
+ */
+function rellenarFamiliasConocidas() {
+  const familias = [...new Set((state.catalog ?? []).map((p) => p.category).filter(Boolean))].sort();
+  $('np-categories').replaceChildren(...familias.map((f) => {
+    const option = document.createElement('option');
+    option.value = f;
+    return option;
+  }));
+}
+
+/** El vencimiento sólo es obligatorio si hay unidades: sin lote no hace falta. */
+function sincronizarObligatoriedadDeVencimiento() {
+  const conStock = Number($('np-qty').value) > 0;
+  $('np-expires').required = conStock;
+  $('np-expires-req').classList.toggle('hidden', !conStock);
+  $('np-hint').textContent = conStock
+    ? 'Con unidades hace falta la fecha de vencimiento: es lo que ordena el FEFO.'
+    : 'Sin unidades no hay lote, y sin lote el producto no se puede vender todavía.';
+}
+
+async function createProduct(event) {
+  event.preventDefault();
+
+  const cantidad = Number($('np-qty').value) || 0;
+  const payload = {
+    sku: $('np-sku').value.trim(),
+    name: $('np-name').value.trim(),
+    category: $('np-category').value.trim(),
+    unitCost: $('np-cost').value || '0',
+    retailPrice: $('np-price').value || '0',
+    initialQty: cantidad,
+    expirationDate: cantidad > 0 ? ($('np-expires').value || null) : null,
+    batchCode: $('np-batch').value.trim() || null
+  };
+
+  const boton = event.submitter ?? $('product-form').querySelector('button[type="submit"]');
+  boton.disabled = true;
+  try {
+    const creado = await request('/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    toast(cantidad > 0
+      ? `${creado.name} creado con ${plural(cantidad, 'unidad', 'unidades')}. Ya se puede vender.`
+      : `${creado.name} creado en el catálogo, sin existencias todavía.`, 'ok');
+
+    $('product-form').reset();
+    toggleProductForm(false);
+
+    // El catálogo en memoria alimenta el buscador de la venta y el global: sin
+    // recargarlo, el producto recién creado no se podría buscar.
+    await loadCatalog();
+    if (cantidad > 0) await loadBatches();
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+/* ───────────────── buscador de producto para la venta ───────────────── */
+/*
+ * Era un <select> con las 91 opciones del catálogo, y con un catálogo de verdad
+ * eso obliga a recorrer la lista entera para encontrar "Inca Kola". Aquí se
+ * escribe y se filtra.
+ *
+ * Es un combobox a mano y no un <datalist>: éste deja escribir cualquier cosa y
+ * obliga a resolverla después contra el catálogo, y su aspecto lo decide el
+ * navegador. El precio de hacerlo a mano es el teclado, que hay que atender
+ * explícitamente —flechas, Enter, Escape— porque un <select> lo traía de serie
+ * y perderlo sería cambiar un problema por otro peor.
+ */
+
+/** Índice de la opción resaltada; -1 es "ninguna". */
+let saleHighlight = -1;
+
 function renderSaleOptions() {
-  const select = $('sale-sku');
-  if (!state.catalog.length) {
-    select.innerHTML = '<option value="">Restaura la demo para cargar el catálogo</option>';
+  const input = $('sale-sku');
+  const vacio = !state.catalog.length;
+  input.disabled = vacio;
+  input.placeholder = vacio ? 'Restaura la demo para cargar el catálogo' : 'Escribe para buscar…';
+  input.value = '';
+  $('sale-sku-value').value = '';
+  cerrarListaDeProductos();
+}
+
+/**
+ * Los que coinciden con lo escrito, por nombre o por SKU.
+ *
+ * <p>Sin término devuelve los primeros, no la lista entera: abrir el desplegable
+ * y que caigan 91 filas es volver al problema de partida.
+ */
+function productosQueCoinciden(termino) {
+  const t = termino.trim().toLowerCase();
+  const fuente = state.catalog ?? [];
+  if (!t) return fuente.slice(0, 8);
+  return fuente
+    .filter((p) => `${p.name} ${p.sku} ${p.category ?? ''}`.toLowerCase().includes(t))
+    .slice(0, 8);
+}
+
+function renderListaDeProductos() {
+  const lista = $('sale-sku-list');
+  const input = $('sale-sku');
+  const encontrados = productosQueCoinciden(input.value);
+
+  if (!encontrados.length) {
+    // Se dice qué pasó, en vez de cerrar la lista sin más: un desplegable que
+    // desaparece al teclear parece que la tecla no funcionó.
+    lista.innerHTML = `<li class="px-3 py-2.5 text-sm text-ink-faint">
+      Ningún producto coincide con “${escapeHtml(input.value.trim())}”.</li>`;
+    lista.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+    saleHighlight = -1;
     return;
   }
-  select.innerHTML = state.catalog
-    .map((product) => `<option value="${escapeHtml(product.sku)}">${escapeHtml(product.name)}</option>`)
-    .join('');
+
+  lista.replaceChildren(...encontrados.map((p, i) => {
+    const li = document.createElement('li');
+    li.id = `sale-sku-opt-${i}`;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', String(i === saleHighlight));
+    li.dataset.sku = p.sku;
+    li.dataset.nombre = p.name;
+    li.className = 'cursor-pointer px-3 py-2 text-sm '
+      + (i === saleHighlight ? 'bg-brand-tint text-brand-deep' : 'hover:bg-canvas');
+    li.innerHTML = `<div class="font-medium">${escapeHtml(p.name)}</div>
+      <div class="num text-xs text-ink-faint">${escapeHtml(p.sku)} · ${money(p.retail_price)}</div>`;
+    return li;
+  }));
+
+  lista.classList.remove('hidden');
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-activedescendant',
+    saleHighlight >= 0 ? `sale-sku-opt-${saleHighlight}` : '');
+}
+
+function cerrarListaDeProductos() {
+  $('sale-sku-list').classList.add('hidden');
+  $('sale-sku').setAttribute('aria-expanded', 'false');
+  $('sale-sku').removeAttribute('aria-activedescendant');
+  saleHighlight = -1;
+}
+
+/** Fija la elección: el nombre a la vista, el SKU al campo que se envía. */
+function elegirProducto(sku, nombre) {
+  $('sale-sku').value = nombre;
+  $('sale-sku-value').value = sku;
+  cerrarListaDeProductos();
+}
+
+function moverResaltado(paso) {
+  const total = productosQueCoinciden($('sale-sku').value).length;
+  if (!total) return;
+  // Da la vuelta por los dos extremos: llegar al final y quedarse clavado
+  // obliga a subir una por una.
+  //
+  // Sin nada resaltado, arriba va al ÚLTIMO y abajo al primero, que es lo que
+  // hace cualquier desplegable. Con la fórmula a secas, arriba también caía en
+  // el primero y había que recorrer la lista entera para llegar al final.
+  const desde = saleHighlight < 0 ? (paso > 0 ? -1 : 0) : saleHighlight;
+  saleHighlight = (desde + paso + total) % total;
+  renderListaDeProductos();
+}
+
+function wireSaleCombobox() {
+  const input = $('sale-sku');
+  const lista = $('sale-sku-list');
+
+  input.addEventListener('input', () => {
+    // Escribir invalida la elección anterior: si no, cambiar el texto y enviar
+    // vendería el producto de antes con otro nombre a la vista.
+    $('sale-sku-value').value = '';
+    saleHighlight = -1;
+    renderListaDeProductos();
+  });
+
+  input.addEventListener('focus', renderListaDeProductos);
+
+  input.addEventListener('keydown', (event) => {
+    const abierta = !lista.classList.contains('hidden');
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (!abierta) { renderListaDeProductos(); return; }
+      moverResaltado(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moverResaltado(-1);
+    } else if (event.key === 'Enter' && abierta && saleHighlight >= 0) {
+      // Solo intercepta el Enter si hay algo resaltado; si no, deja enviar el
+      // formulario, que es lo que espera quien ya eligió.
+      event.preventDefault();
+      const opcion = productosQueCoinciden(input.value)[saleHighlight];
+      if (opcion) elegirProducto(opcion.sku, opcion.name);
+    } else if (event.key === 'Escape' && abierta) {
+      event.preventDefault();
+      cerrarListaDeProductos();
+    }
+  });
+
+  lista.addEventListener('mousedown', (event) => {
+    // mousedown y no click: con click, el blur del input cierra la lista antes
+    // de que el click llegue a su destino.
+    const opcion = event.target.closest('[data-sku]');
+    if (!opcion) return;
+    event.preventDefault();
+    elegirProducto(opcion.dataset.sku, opcion.dataset.nombre);
+  });
+
+  input.addEventListener('blur', () => window.setTimeout(cerrarListaDeProductos, 120));
 }
 
 /**
@@ -1095,10 +1328,15 @@ function renderSaleOptions() {
  */
 async function registerSale(event) {
   event.preventDefault();
-  const sku = $('sale-sku').value;
+  // El SKU sale del campo oculto, no del texto visible: lo que se ve es el
+  // nombre del producto y lo que vende el backend es su codigo.
+  const sku = $('sale-sku-value').value;
   const quantity = Number($('sale-qty').value);
   if (!sku) {
-    toast('Restaura la tienda demo para cargar el catálogo.', 'error');
+    toast(state.catalog?.length
+      ? 'Elige un producto de la lista antes de registrar la salida.'
+      : 'Restaura la tienda demo para cargar el catálogo.', 'error');
+    $('sale-sku').focus();
     return;
   }
 
@@ -1688,6 +1926,130 @@ async function uploadExcel(file) {
   }
 }
 
+/* ──────────────────────── ventas registradas ──────────────────────── */
+
+/**
+ * Trae las ventas de la ventana elegida y las pinta.
+ *
+ * <p>Hasta que existio esta pantalla, `daily_sales` se escribia desde la caja y
+ * desde la carga por Excel, alimentaba la cobertura y el reparto por familias,
+ * y no habia donde mirarla: se registraban 72 ventas y luego no se encontraban.
+ */
+/**
+ * Lleva al formulario de venta, que vive en el semaforo.
+ *
+ * <p>No abre un formulario propio: registrar una venta ya se hace junto a la
+ * cola de salida, donde ademas se ve que lotes consumio. Tener dos seria dos
+ * implementaciones que mantener y dos que se desincronizan. Lo que faltaba era
+ * el camino desde esta pantalla.
+ *
+ * <p>Deja el foco en el selector de producto: quien pulsa un boton llamado
+ * "registrar una venta" quiere escribir, no buscar donde hacerlo. Sin esto el
+ * foco se quedaria en un boton de otra pestaña, que con teclado es un callejon.
+ */
+function irARegistrarVenta() {
+  showTab('semaforo');
+  const selector = $('sale-sku');
+
+  // El foco va PRIMERO y el desplazamiento después, protegido. Al revés, un
+  // scrollIntoView que falle -no existe en todos los entornos- se lleva por
+  // delante el foco, que es lo único que de verdad hace falta: enfocar ya
+  // desplaza el elemento a la vista, el scroll suave solo lo hace bonito.
+  selector.focus();
+  try {
+    selector.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  } catch {
+    // Sin desplazamiento suave se vive igual; sin foco, no.
+  }
+}
+
+async function loadSalesLedger() {
+  const dias = Number($('sales-days').value) || 30;
+  try {
+    const ledger = await request(`/inventory/sales?days=${dias}&limit=100`);
+    state.salesLedger = ledger;
+    renderSalesLedger(ledger);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function renderSalesLedger(ledger) {
+  $('sl-count').textContent = ledger.totalSales;
+  $('sl-units').textContent = ledger.totalUnits;
+  $('sl-amount').textContent = money(ledger.totalAmount);
+  $('sl-margin').textContent = money(ledger.totalMargin);
+
+  const cuerpo = $('sales-ledger-rows');
+  const nota = $('sales-ledger-note');
+
+  if (!ledger.sales.length) {
+    cuerpo.replaceChildren();
+    // Se dice qué hacer, no solo que está vacío: desde esta pantalla no se
+    // registra nada, así que hay que mandar a donde sí.
+    cuerpo.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-sm text-ink-faint">
+      No hay ventas en los últimos ${ledger.windowDays} días.
+      Regístralas en <strong>Excel y versionado</strong> o vende desde el semáforo.
+    </td></tr>`;
+    nota.textContent = '';
+    return;
+  }
+
+  cuerpo.replaceChildren(...ledger.sales.map(filaDeVenta));
+
+  // Los totales son de la ventana entera y la tabla viene acotada: si no
+  // coinciden hay que decirlo, o parecerá que una de las dos cifras miente.
+  nota.textContent = ledger.sales.length < ledger.totalSales
+    ? `Se muestran las ${ledger.sales.length} más recientes de ${ledger.totalSales}. `
+      + `Los totales de arriba son de los ${ledger.windowDays} días completos.`
+    : `Todas las ventas de los últimos ${ledger.windowDays} días`
+      + (ledger.from ? `, del ${fechaCorta(ledger.from)} al ${fechaCorta(ledger.to)}.` : '.');
+}
+
+function filaDeVenta(venta) {
+  const tr = document.createElement('tr');
+  tr.className = 'align-top';
+
+  // El margen negativo se señala: una venta por debajo del costo del lote pasa
+  // cuando la rebaja se fue de la mano, y es justo lo que hay que poder ver.
+  const margen = Number(venta.margin);
+  const tonoMargen = margen < 0 ? 'text-risk-red font-semibold' : 'text-ink-soft';
+
+  const rebaja = venta.discounted
+    ? ` <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[0.65rem] font-semibold text-amber-800"
+             title="Se cobró el precio rebajado del lote, no el de catálogo">rebajado</span>`
+    : '';
+
+  tr.innerHTML = `
+    <td class="num px-4 py-2.5 whitespace-nowrap text-ink-soft">${fechaHoraCorta(venta.soldAt)}</td>
+    <td class="px-4 py-2.5">
+      <div class="font-medium">${escapeHtml(venta.productName)}</div>
+      <div class="num text-xs text-ink-faint">${escapeHtml(venta.sku)}</div>
+    </td>
+    <td class="px-4 py-2.5">
+      <div class="num text-xs">${escapeHtml(venta.batchCode ?? '—')}</div>
+      <div class="text-xs text-ink-faint">vence ${fechaCorta(venta.expiresOn)}</div>
+    </td>
+    <td class="num px-4 py-2.5 text-right">${venta.quantity}</td>
+    <td class="num px-4 py-2.5 text-right whitespace-nowrap">${money(venta.price)}${rebaja}</td>
+    <td class="num px-4 py-2.5 text-right">${money(venta.amount)}</td>
+    <td class="num px-4 py-2.5 text-right ${tonoMargen}">${money(venta.margin)}</td>`;
+  return tr;
+}
+
+const soloFecha = new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' });
+const fechaYHora = new Intl.DateTimeFormat('es-PE', {
+  day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+});
+
+function fechaCorta(iso) {
+  return iso ? soloFecha.format(new Date(iso)) : '—';
+}
+
+function fechaHoraCorta(iso) {
+  return iso ? fechaYHora.format(new Date(iso)) : '—';
+}
+
 /* ─────────────────────────── ventas por Excel ─────────────────────────── */
 
 /**
@@ -2027,6 +2389,7 @@ const FINDER_SECTIONS = [
   { tab: 'inventario', label: 'Inventario y lotes', hint: 'Buscador, exportación y mermas' },
   { tab: 'excel', label: 'Excel y versionado', hint: 'Cargas, cuarentena y reversión' },
   { tab: 'recepcion', label: 'Recepción con IA', hint: 'Guías de remisión por foto' },
+  { tab: 'ventas', label: 'Ventas registradas', hint: 'Qué se vendió y de qué lote salió' },
   { tab: 'analisis', label: 'Análisis', hint: 'Tendencia, cobertura y proveedores' },
   { tab: 'diagnostico', label: 'Diagnóstico', hint: 'Quién va lento' }
 ];
@@ -3015,11 +3378,20 @@ $('btn-export-pdf').addEventListener('click', () => exportInventory('pdf'));
 $('btn-labels').addEventListener('click', downloadMarkdownLabels);
 $('btn-bulkfix').addEventListener('click', sendBulkFix);
 $('btn-sales-fix').addEventListener('click', sendSalesFix);
+$('sales-days').addEventListener('change', loadSalesLedger);
+$('btn-nueva-venta').addEventListener('click', irARegistrarVenta);
 $('btn-confirm').addEventListener('click', confirmReceipt);
 
 wireDropzone('dropzone', 'file-excel', uploadExcel);
 wireDropzone('scan-dropzone', 'file-scan', uploadReceipt);
 wireDropzone('sales-dropzone', 'file-sales', uploadSales);
+
+wireSaleCombobox();
+
+$('btn-nuevo-producto').addEventListener('click', () => toggleProductForm());
+$('btn-cancelar-producto').addEventListener('click', () => toggleProductForm(false));
+$('np-qty').addEventListener('input', sincronizarObligatoriedadDeVencimiento);
+$('product-form').addEventListener('submit', createProduct);
 
 renderToday();
 pingBackend();

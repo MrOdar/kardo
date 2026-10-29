@@ -1,10 +1,19 @@
 package com.kardo.web;
 
+import com.kardo.dto.ProductCreateRequestDto;
+import com.kardo.inventory.ProductCreationService;
 import com.kardo.repository.ProductCatalogRepository;
+import com.kardo.security.CurrentUser;
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -19,9 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProductCatalogController {
 
     private final ProductCatalogRepository repository;
+    private final ProductCreationService creationService;
 
-    public ProductCatalogController(ProductCatalogRepository repository) {
+    public ProductCatalogController(ProductCatalogRepository repository,
+                                    ProductCreationService creationService) {
         this.repository = repository;
+        this.creationService = creationService;
     }
 
     @GetMapping
@@ -29,4 +41,22 @@ public class ProductCatalogController {
         // Cada usuario ve el catalogo de su propia compania, nunca el de otra.
         return ResponseEntity.ok(repository.listByStore(StoreScope.current()));
     }
+    /**
+     * Alta manual de un producto, con su primer lote si lo trae.
+     *
+     * <p>Lo pueden hacer operario y gerente, igual que la carga por Excel: esa
+     * ya crea productos, de modo que exigir aqui un rol superior no cerraria
+     * nada y solo obligaria al operario a dar el rodeo de armar un archivo.
+     *
+     * <p>Responde 409 si el SKU ya existe, en lugar de actualizarlo en silencio
+     * como hace la ingesta masiva.
+     */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
+    public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody ProductCreateRequestDto request) {
+        var user = CurrentUser.require();
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(creationService.create(user.storeId(), request, user.email()));
+    }
+
 }

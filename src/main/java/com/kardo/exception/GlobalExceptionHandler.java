@@ -154,6 +154,11 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    @ExceptionHandler(DuplicateSkuException.class)
+    public ResponseEntity<ApiError> handleDuplicateSku(DuplicateSkuException ex) {
+        return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(DuplicateAccountException.class)
     public ResponseEntity<ApiError> handleDuplicateAccount(DuplicateAccountException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());

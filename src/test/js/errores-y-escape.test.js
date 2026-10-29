@@ -146,6 +146,35 @@ describe('navegacion por pestañas', () => {
     expect($('panel-excel').classList.contains('hidden')).toBe(false);
   });
 
+  /**
+   * El boton de "Registrar una venta" de la pestaña Ventas no abre un
+   * formulario propio: lleva al que ya existe en el semaforo, junto a la cola
+   * de salida. Lo que se fija aqui es que el viaje termine util -en el selector
+   * de producto, listo para escribir- y no dejando al usuario en otra pestaña
+   * buscando donde estaba el formulario. Con raton se nota a medias; con
+   * teclado, el foco se quedaria en un boton que ya no se ve.
+   */
+  it('registrar una venta lleva al formulario y deja el foco dentro', () => {
+    pagina = abrirPagina();
+    const { evaluar, $, document } = pagina;
+
+    evaluar("showTab('ventas')");
+    $('btn-nueva-venta').click();
+
+    expect($('panel-semaforo').classList.contains('hidden')).toBe(false);
+    expect($('panel-ventas').classList.contains('hidden')).toBe(true);
+    expect(document.activeElement).toBe($('sale-sku'));
+  });
+
+  it('no hay dos formularios de venta: el de registrar es uno solo', () => {
+    pagina = abrirPagina();
+
+    // Si alguien duplica el formulario en la pestaña Ventas, esto lo delata:
+    // serian dos implementaciones del mismo gesto, que se desincronizan.
+    expect(pagina.document.querySelectorAll('#sale-form')).toHaveLength(1);
+    expect(pagina.document.querySelectorAll('[id$="sale-qty"]')).toHaveLength(1);
+  });
+
   it('cada pestaña declarada tiene su panel en el HTML', () => {
     pagina = abrirPagina();
 

@@ -190,6 +190,17 @@
 
       <!-- Las preguntas de alrededor de una rebaja: si va a mejor o a peor, por
            qué se compró de más y de quién viene lo que acaba en riesgo. -->
+      <button role="tab" id="tab-ventas" aria-controls="panel-ventas" aria-selected="false"
+              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
+                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+          <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
+        </svg>
+        Ventas
+      </button>
+
       <button role="tab" id="tab-analisis" aria-controls="panel-analisis" aria-selected="false"
               class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
                      text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
@@ -504,12 +515,25 @@
         <!-- Salida rápida: el modo más directo de ver el motor FEFO trabajando.
              Vive junto a la cola porque es la misma pregunta: qué sale ahora. -->
         <form id="sale-form" class="flex flex-wrap items-end gap-2.5">
-          <div>
+          <!-- Escribir y filtrar, no desplegar 91 opciones. Con un catálogo de
+               verdad, una lista plana obliga a recorrerla entera para encontrar
+               "Inca Kola": aquí se teclea "inca" y quedan dos.
+               Es un combobox a mano y no un <datalist> porque éste último deja
+               escribir cualquier cosa y hay que resolverla después, y porque su
+               aspecto lo decide el navegador. -->
+          <div class="relative">
             <label for="sale-sku" class="block text-xs font-medium text-ink-faint">Producto</label>
-            <select id="sale-sku"
-                    class="mt-1 w-56 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm">
-              <option value="">Restaura la demo para cargar el catálogo</option>
-            </select>
+            <input id="sale-sku" type="text" role="combobox" autocomplete="off"
+                   aria-expanded="false" aria-controls="sale-sku-list" aria-autocomplete="list"
+                   placeholder="Escribe para buscar…"
+                   class="mt-1 w-64 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm
+                          focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+            <!-- El SKU elegido vive aquí y no en el texto visible: lo que se ve
+                 es "Gaseosa Inca Kola 500ml" y lo que se envía es BEB-INC-001. -->
+            <input id="sale-sku-value" type="hidden" value="">
+            <ul id="sale-sku-list" role="listbox" aria-label="Productos del catálogo"
+                class="absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-64 overflow-y-auto
+                       rounded-md border border-line bg-surface py-1 shadow-lg"></ul>
           </div>
           <div>
             <label for="sale-qty" class="block text-xs font-medium text-ink-faint">Unidades</label>
@@ -625,8 +649,91 @@
                 class="rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink shadow-sm hover:border-brand hover:text-brand">
           Informe firmable (.pdf)
         </button>
+        <button id="btn-nuevo-producto" type="button" aria-expanded="false" aria-controls="product-form"
+                class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep">
+          Añadir producto
+        </button>
       </span>
     </div>
+
+    <!-- ──────────────── alta manual de producto ────────────────
+         Hasta aquí el catálogo sólo crecía por carga de Excel, que es lo
+         sensato para 88 productos pero absurdo para añadir uno.
+         Va plegado: es un gesto ocasional y desplegado empujaría hacia abajo
+         la tabla, que es a lo que se entra a esta pestaña. -->
+    <form id="product-form" class="mt-6 hidden rounded-lg border border-line bg-surface p-5 shadow-card">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 class="text-base font-semibold">Añadir un producto al catálogo</h3>
+        <p class="text-sm text-ink-faint">
+          Con existencias entra directo al semáforo; sin ellas queda sólo en el catálogo.
+        </p>
+      </div>
+
+      <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <label for="np-sku" class="block text-xs font-medium text-ink-faint">SKU *</label>
+          <input id="np-sku" required maxlength="50" placeholder="BEB-PEP-020"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-sm">
+        </div>
+        <div class="lg:col-span-2">
+          <label for="np-name" class="block text-xs font-medium text-ink-faint">Nombre *</label>
+          <input id="np-name" required maxlength="200" placeholder="Gaseosa Pepsi Botella 500ml"
+                 class="mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-sm">
+        </div>
+        <div>
+          <label for="np-category" class="block text-xs font-medium text-ink-faint">Familia *</label>
+          <input id="np-category" required maxlength="80" list="np-categories" placeholder="BEBIDAS"
+                 class="mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-sm">
+          <!-- Las familias que ya existen, para no inventar una nueva por un
+               acento o un plural: el gráfico por familias agrupa por este campo. -->
+          <datalist id="np-categories"></datalist>
+        </div>
+        <div>
+          <label for="np-cost" class="block text-xs font-medium text-ink-faint">Costo</label>
+          <input id="np-cost" type="number" min="0" step="0.01" value="0.00"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-right text-sm">
+        </div>
+        <div>
+          <label for="np-price" class="block text-xs font-medium text-ink-faint">Precio</label>
+          <input id="np-price" type="number" min="0" step="0.01" value="0.00"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-right text-sm">
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 border-t border-line pt-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <label for="np-qty" class="block text-xs font-medium text-ink-faint">Unidades iniciales</label>
+          <input id="np-qty" type="number" min="0" step="1" value="0"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-right text-sm">
+        </div>
+        <div>
+          <label for="np-expires" class="block text-xs font-medium text-ink-faint">
+            Vence <span id="np-expires-req" class="hidden text-risk-red">*</span>
+          </label>
+          <input id="np-expires" type="date"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-sm">
+        </div>
+        <div>
+          <label for="np-batch" class="block text-xs font-medium text-ink-faint">Lote (opcional)</label>
+          <input id="np-batch" maxlength="50" placeholder="se genera solo"
+                 class="num mt-1 w-full rounded-md border border-line px-2.5 py-1.5 text-sm">
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
+        <p id="np-hint" class="mr-auto text-sm text-ink-faint">
+          Sin unidades no hay lote, y sin lote el producto no se puede vender todavía.
+        </p>
+        <button type="button" id="btn-cancelar-producto"
+                class="rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink-soft hover:border-line-strong">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:opacity-60">
+          Guardar producto
+        </button>
+      </div>
+    </form>
 
     <div class="mt-6 flex flex-wrap items-end gap-3">
       <div class="min-w-[16rem] flex-1">
@@ -1140,6 +1247,91 @@
   <!-- ═════════ Pestaña 7: por qué pasa lo que pasa ═════════
        El resto de la aplicación responde «qué pasa hoy». Esto responde las dos
        preguntas de alrededor: si la cosa mejora, y por qué se compró de más. -->
+  <!-- ───────────────────────── Ventas ───────────────────────── -->
+  <!-- Esta pantalla existe porque faltaba: las ventas se registraban desde la
+       caja y desde el Excel, alimentaban la cobertura y el reparto por
+       familias, y no había dónde verlas. Lo que enseña y ninguna otra puede es
+       el LOTE que atendió cada una: eso es el FEFO fila a fila. -->
+  <section id="panel-ventas" role="tabpanel" aria-labelledby="tab-ventas" class="hidden pt-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Ventas registradas</h2>
+        <p id="sales-window" class="mt-1 max-w-prose text-sm text-ink-soft">
+          Cada línea con el lote del que salió. Ahí se ve el FEFO: la unidad sale del lote que
+          vence antes, y al precio de ese lote.
+        </p>
+      </div>
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="flex items-center gap-2 text-sm text-ink-soft">
+          Ventana
+          <select id="sales-days"
+                  class="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink
+                         focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+            <option value="7">7 días</option>
+            <option value="30" selected>30 días</option>
+            <option value="90">90 días</option>
+          </select>
+        </label>
+
+        <!-- Lleva al formulario, no es un segundo formulario. Registrar una
+             venta ya se hace en el semáforo, junto a la cola de salida, porque
+             allí se ve qué lotes consumió; duplicarlo aquí serían dos sitios
+             que mantener y dos que se desincronizan. Lo que faltaba era el
+             camino desde esta pantalla, no la funcionalidad. -->
+        <button id="btn-nueva-venta" type="button"
+                class="inline-flex items-center gap-2 rounded-md bg-brand px-3.5 py-2 text-sm
+                       font-semibold text-white transition-colors hover:bg-brand-deep
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+                       focus-visible:outline-brand">
+          <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Registrar una venta
+        </button>
+      </div>
+    </div>
+
+    <dl id="sales-ledger-totals" class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-lg border border-line bg-surface p-4 shadow-card">
+        <dt class="text-xs text-ink-faint">Ventas</dt>
+        <dd id="sl-count" class="num mt-1 text-2xl font-bold">—</dd>
+      </div>
+      <div class="rounded-lg border border-line bg-surface p-4 shadow-card">
+        <dt class="text-xs text-ink-faint">Unidades</dt>
+        <dd id="sl-units" class="num mt-1 text-2xl font-bold">—</dd>
+      </div>
+      <div class="rounded-lg border border-line bg-surface p-4 shadow-card">
+        <dt class="text-xs text-ink-faint">Facturado</dt>
+        <dd id="sl-amount" class="num mt-1 text-2xl font-bold">—</dd>
+      </div>
+      <!-- El margen va aparte y no dentro de lo facturado: es la cifra que
+           cambia cuando se rebaja, y mezclarla la escondería. -->
+      <div class="rounded-lg border border-line bg-surface p-4 shadow-card">
+        <dt class="text-xs text-ink-faint">Margen</dt>
+        <dd id="sl-margin" class="num mt-1 text-2xl font-bold text-risk-green">—</dd>
+      </div>
+    </dl>
+
+    <div class="mt-6 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+      <table class="w-full border-collapse text-sm">
+        <thead class="border-b border-line bg-canvas text-left">
+          <tr class="text-ink-soft">
+            <th class="th px-4 py-2.5">Cuándo</th>
+            <th class="th px-4 py-2.5">Producto</th>
+            <th class="th px-4 py-2.5">Lote</th>
+            <th class="th px-4 py-2.5 text-right">Unidades</th>
+            <th class="th px-4 py-2.5 text-right">Precio</th>
+            <th class="th px-4 py-2.5 text-right">Importe</th>
+            <th class="th px-4 py-2.5 text-right">Margen</th>
+          </tr>
+        </thead>
+        <tbody id="sales-ledger-rows" class="divide-y divide-line"></tbody>
+      </table>
+    </div>
+    <p id="sales-ledger-note" class="mt-3 text-xs text-ink-faint"></p>
+  </section>
+
   <section id="panel-analisis" role="tabpanel" aria-labelledby="tab-analisis" class="hidden pt-10">
     <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Análisis</h2>
     <p class="mt-1.5 max-w-prose text-sm text-ink-soft">

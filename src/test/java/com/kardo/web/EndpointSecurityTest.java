@@ -181,6 +181,12 @@ class EndpointSecurityTest {
     private com.kardo.ingest.SalesExcelIngestService salesIngestService;
 
     @MockitoBean
+    private com.kardo.sales.SalesLedgerService salesLedgerService;
+
+    @MockitoBean
+    private com.kardo.inventory.ProductCreationService productCreationService;
+
+    @MockitoBean
     private ProductCatalogRepository productCatalogRepository;
 
     @MockitoBean

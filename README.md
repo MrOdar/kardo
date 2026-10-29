@@ -136,6 +136,40 @@ cerrar, o recupera una semana atrasada, y apilarlas todas en el momento de la
 subida descuadra la ventana de 30 días sobre la que se calcula la rotación de
 *todo* el catálogo. Celda vacía sigue significando "ahora".
 
+### Dónde se ven después
+
+Durante un tiempo esto fue un hueco de verdad: las ventas se registraban desde
+la caja y desde el Excel, alimentaban la cobertura y el reparto por familias, y
+**no había ninguna pantalla donde mirarlas**. `daily_sales` se escribía desde
+tres sitios y se leía desde uno solo, y ahí como insumo. Se podían registrar 72
+ventas y luego no encontrarlas.
+
+![La pestaña Ventas registradas: totales de la ventana arriba y, debajo, una línea por venta con su lote y su fecha de vencimiento](docs/img/ventas-registradas.jpg)
+
+La pestaña **Ventas** las muestra con el dato que ninguna otra pantalla puede
+dar: **el lote del que salió cada una**. Eso es el FEFO fila a fila —se ve que
+la unidad salió del que vencía antes— y es también donde se comprueba que el
+precio cobrado fue el de ese lote, con su rebaja si la tenía, y no el del
+catálogo. Una venta rebajada lleva su marca; un margen negativo sale en rojo,
+porque una venta por debajo del costo del lote es exactamente lo que hay que
+poder ver.
+
+**El botón "Registrar una venta" no abre un formulario propio**: lleva al que ya
+existe en el semáforo, junto a la cola de salida, porque allí se ve qué lotes
+consumió la venta. Duplicarlo serían dos implementaciones del mismo gesto que se
+desincronizan. Lo que faltaba era el camino desde esta pantalla, no la
+funcionalidad.
+
+Dos detalles que no se notan pero sostienen la pantalla:
+
+* **Los totales no se deducen de la tabla.** Esa lista viene acotada, así que
+  sumarla daría el total de lo que cabe en pantalla y no el de la ventana. Son
+  dos consultas a propósito, y cuando no coinciden el pie lo dice: *"Se muestran
+  las 100 más recientes de 2222"*. Dos cifras que se contradicen sin explicación
+  son peores que una consulta de más.
+* **El margen se calcula, no se guarda.** `unit_retail_price` y `lot_unit_cogs`
+  ya están congelados en cada fila, así que la resta da siempre lo mismo.
+
 ### Las dos decisiones que costaron más que el código
 
 **Una línea mala no se lleva por delante a las buenas.** En PostgreSQL un error
@@ -162,6 +196,48 @@ archivo**: un Excel con una línea arreglada tiene otra huella, pasaría la guar
 de duplicados y registraría otra vez todo lo que ya había entrado bien.
 
 ---
+
+
+### Encontrar un producto, y añadir uno
+
+El formulario de venta tenía un `<select>` con el catálogo entero. Con 91
+productos eso obliga a recorrer la lista para encontrar "Inca Kola", y con el
+catálogo de una tienda de verdad deja de ser usable.
+
+![El buscador de producto: escribiendo "gaseosa" quedan las que coinciden, cada una con su SKU y su precio](docs/img/buscador-de-producto.jpg)
+
+Ahora se escribe y se filtra, por nombre, por SKU o por familia. Es un combobox
+a mano y no un `<datalist>`: éste deja escribir cualquier cosa y obliga a
+resolverla después, y su aspecto lo decide el navegador. El precio de hacerlo a
+mano es el teclado, que un `<select>` traía de serie: flechas con vuelta por los
+dos extremos, Enter para elegir, Escape para cerrar, y `aria-activedescendant`
+para que un lector de pantalla anuncie la opción resaltada sin mover el foco.
+
+**Lo que se ve es el nombre y lo que se envía es el SKU.** Son dos campos, no
+uno. Si el formulario leyera el texto visible, el procedimiento recibiría
+"Gaseosa Inca Kola..." como SKU; y reescribir sin elegir invalida la selección
+anterior, porque si no, quien eligió Coca Cola, borró y escribió "Inca" acabaría
+vendiendo Coca Cola con "Inca" a la vista.
+
+**Y el catálogo ya crece sin pasar por Excel.** Había un hueco raro: añadir una
+gaseosa de otra marca obligaba a armar un archivo. El botón *Añadir producto* de
+la pestaña de inventario da de alta el producto y, si lleva unidades, su primer
+lote —porque un producto sin lote no sale en el semáforo, no se puede vender y
+no aparece en el análisis, así que darlo de alta solo dejaría la sensación de
+que no pasó nada—.
+
+Dos reglas que lo separan de la carga masiva:
+
+* **Un SKU repetido se rechaza con 409, no se actualiza.** La ingesta por Excel
+  hace `ON CONFLICT DO UPDATE`, y ahí es correcto: un archivo del proveedor trae
+  el catálogo entero y se espera que actualice precios. Un alta manual es el
+  gesto contrario, y pisar en silencio el precio de un producto existente es un
+  error que nadie ve hasta que la caja cobra de menos. El mensaje nombra al que
+  ya ocupa ese código.
+* **Con unidades, la fecha de vencimiento es obligatoria.** El FEFO ordena por
+  ella: un lote sin fecha sería invisible al motor y nunca saldría a la venta,
+  que es peor que no crearlo porque el operario creería tener existencias.
+
 
 ## Cómo funciona
 
@@ -292,9 +368,9 @@ y enseña el máximo como contexto.
 
 La aplicación abre en **lo primero de hoy**: las prioridades de la tienda
 ordenadas por lo que cuesta dejarlas para mañana, cada una con el botón que
-lleva adonde se resuelve. Detrás, siete secciones: semáforo FEFO, qué rebajar
-hoy, inventario y lotes, Excel y versionado, recepción con IA, análisis y
-diagnóstico de rendimiento. `Ctrl+K` abre el buscador global.
+lleva adonde se resuelve. Detrás, ocho secciones: semáforo FEFO, qué rebajar
+hoy, inventario y lotes, Excel y versionado, recepción con IA, ventas
+registradas, análisis y diagnóstico de rendimiento. `Ctrl+K` abre el buscador global.
 
 ---
 
@@ -330,8 +406,8 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 238 unitarias + 153 de integración
-npm ci && npm test   # 18 de la SPA, en jsdom (Node solo para probar)
+mvn verify    # 238 unitarias + 172 de integración
+npm ci && npm test   # 32 de la SPA, en jsdom (Node solo para probar)
 ```
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
