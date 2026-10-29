@@ -239,6 +239,34 @@ Dos reglas que lo separan de la carga masiva:
   que es peor que no crearlo porque el operario creería tener existencias.
 
 
+**Y se puede corregir, no sólo crear.** Faltaba: cambiar un precio obligaba a
+armar un Excel, que es justo el rodeo que el alta manual vino a quitar. El mismo
+formulario hace las dos cosas —si el SKU que escribes ya existe, pasa a modo
+corrección y se rellena solo—, así que no hace falta un segundo formulario ni un
+selector de "qué producto quiero editar": el SKU ya es esa pregunta.
+
+Tres reglas, y la segunda es la que sorprende:
+
+* **Sólo el gerente.** Dar de alta es meter datos y lo hace cualquiera; cambiar
+  un precio es cambiar lo que cobra la caja en cada venta futura, y a diferencia
+  de una merma o un canje, aquí no hay nadie que lo resuelva después. Es la
+  misma línea que separa declarar una merma de aprobarla.
+* **El precio nuevo rige desde la próxima venta, también para los lotes que ya
+  están en el anaquel** —el procedimiento lee el precio del catálogo salvo que
+  el lote tenga rebaja propia—, pero **el costo nuevo no toca los lotes
+  existentes**. Cada lote guarda el costo al que entró *su* mercadería, y eso es
+  lo que ancla el margen de lo ya recibido: si corregir la ficha reescribiera el
+  costo de lo comprado hace tres meses, el margen histórico cambiaría
+  retroactivamente y el análisis dejaría de poder compararse consigo mismo. La
+  interfaz lo avisa y dice cuántos lotes conservan el suyo.
+* **El SKU no se corrige.** Es la clave con la que la ingesta por Excel reconoce
+  el producto: cambiarlo haría que la próxima carga creara uno nuevo al lado y
+  el histórico quedara repartido entre dos fichas sin que nadie lo note.
+
+**El libro de ventas pagina.** Con 2.200 ventas en treinta días, el tope de 100
+dejaba las más viejas fuera de alcance, y ensanchar la ventana no servía porque
+el tope seguía cortando por arriba. Ahora hay un botón que trae las siguientes.
+
 ## Cómo funciona
 
 **La tienda sale del token, nunca de la petición.** Cada usuario pertenece a una
@@ -406,7 +434,7 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 ### Pruebas
 
 ```bash
-mvn verify    # 238 unitarias + 172 de integración
+mvn verify    # 251 unitarias + 182 de integración
 npm ci && npm test   # 32 de la SPA, en jsdom (Node solo para probar)
 ```
 
@@ -416,7 +444,7 @@ paralelo de pruebas. Sin Docker se saltan y el build sigue verde, así que
 `mvn verify` es seguro en cualquier máquina; GitHub Actions las ejecuta de
 verdad sobre Linux.
 
-De las unitarias, **78 son de seguridad** (`EndpointSecurityTest`): 35 endpoints
+De las unitarias, **91 son de seguridad** (`EndpointSecurityTest`): 40 endpoints
 que sin token responden 401, tokens caducados y firmados con otra clave, los
 `@PreAuthorize` de cada rol, y el ataque que importa en un SaaS multi-inquilino
 —token legítimo de una tienda, cuerpo apuntando a otra—, que debe cortarse antes

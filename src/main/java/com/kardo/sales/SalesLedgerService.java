@@ -57,8 +57,11 @@ public class SalesLedgerService {
               JOIN inventory_batches b ON b.batch_id = s.batch_id
              WHERE s.store_id = ?
                AND s.sale_timestamp >= CURRENT_TIMESTAMP - make_interval(days => ?)
+             -- sale_id desempata: dos ventas del mismo instante -las de una
+             -- carga de Excel comparten hora- se ordenarian al azar entre
+             -- paginas, y una fila podria salir dos veces o ninguna.
              ORDER BY s.sale_timestamp DESC, s.sale_id DESC
-             LIMIT ?
+             LIMIT ? OFFSET ?
             """;
 
     /**
@@ -87,10 +90,12 @@ public class SalesLedgerService {
 
     /**
      * @param days  ventana hacia atras; la misma que mira el analisis por defecto
-     * @param limit tope de filas devueltas, para no volcar un mes entero
+     * @param limit  tope de filas devueltas, para no volcar un mes entero
+     * @param offset cuantas saltar: es lo que permite seguir leyendo hacia
+     *               atras sin tener que ensanchar la ventana
      */
     @Transactional(readOnly = true)
-    public SalesLedgerDto recent(long storeId, int days, int limit) {
+    public SalesLedgerDto recent(long storeId, int days, int limit, int offset) {
         List<SaleRecordDto> ventas = jdbcTemplate.query(RECENT,
                 (rs, rowNum) -> new SaleRecordDto(
                         rs.getLong("sale_id"),
@@ -107,10 +112,11 @@ public class SalesLedgerService {
                         rs.getBigDecimal("margen"),
                         rs.getBoolean("rebajado"),
                         rs.getString("operario")),
-                storeId, days, limit);
+                storeId, days, limit, offset);
 
         return jdbcTemplate.queryForObject(TOTALS, (rs, rowNum) -> new SalesLedgerDto(
                 days,
+                offset,
                 rs.getInt("ventas"),
                 rs.getInt("unidades"),
                 rs.getBigDecimal("importe"),

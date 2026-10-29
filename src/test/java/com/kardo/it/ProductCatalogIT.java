@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kardo.dto.ProductCreateRequestDto;
+import com.kardo.dto.ProductUpdateRequestDto;
 import com.kardo.exception.DuplicateSkuException;
 import com.kardo.exception.InvalidQuantityException;
-import com.kardo.inventory.ProductCreationService;
+import com.kardo.exception.ProductNotFoundException;
+import com.kardo.inventory.ProductCatalogService;
 import com.kardo.sales.FefoSaleService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -27,13 +29,13 @@ import org.springframework.beans.factory.annotation.Autowired;
  * el gesto contrario, y pisar en silencio el precio de un SKU existente es un
  * error que nadie ve hasta que la caja cobra de menos.
  */
-@DisplayName("Alta de producto")
-class ProductCreationIT extends PostgresIntegrationTest {
+@DisplayName("Catalogo de productos: alta y correccion")
+class ProductCatalogIT extends PostgresIntegrationTest {
 
     private static final String AUTOR = "operario@kardo.pe";
 
     @Autowired
-    private ProductCreationService service;
+    private ProductCatalogService service;
 
     @Autowired
     private FefoSaleService ventas;
@@ -188,6 +190,121 @@ class ProductCreationIT extends PostgresIntegrationTest {
         assertThatThrownBy(() -> ventas.sell(otraTienda, "BEB-PEP-020", 1, AUTOR))
                 .hasMessageContaining("Stock insuficiente");
     }
+    // -----------------------------------------------------------------------
+    // Correccion de la ficha
+    // -----------------------------------------------------------------------
+
+    /**
+     * La parte que hay que entender de corregir un precio: rige desde la
+     * proxima venta, tambien para los lotes que ya estan en el anaquel, porque
+     * el procedimiento lee el precio del catalogo salvo que el lote tenga
+     * rebaja propia.
+     */
+    @Test
+    @DisplayName("El precio nuevo rige desde la proxima venta, tambien en lotes ya recibidos")
+    void elPrecioNuevoRigeDeInmediato() {
+        service.create(storeId, gaseosa(20, LocalDate.now().plusDays(90)), AUTOR);
+        var antes = ventas.sell(storeId, "BEB-PEP-020", 2, AUTOR);
+        assertThat(antes.revenue()).isEqualByComparingTo("6.40");   // 2 x 3.20
+
+        service.update(storeId, "BEB-PEP-020", new ProductUpdateRequestDto(
+                "Gaseosa Pepsi Botella 500ml", "BEBIDAS", null, "BOTELLA",
+                new BigDecimal("2.10"), new BigDecimal("4.00")), AUTOR);
+
+        // Mismo lote, precio nuevo.
+        var despues = ventas.sell(storeId, "BEB-PEP-020", 2, AUTOR);
+        assertThat(despues.revenue()).isEqualByComparingTo("8.00");
+    }
+
+    /**
+     * Y la que sorprende: el costo NO se propaga. Cada lote guarda el costo al
+     * que entro SU mercaderia, y eso es lo que ancla el margen de lo ya
+     * recibido. Si corregir la ficha reescribiera el costo de lo comprado hace
+     * tres meses, el margen historico cambiaria retroactivamente y el analisis
+     * dejaria de poder compararse consigo mismo.
+     */
+    @Test
+    @DisplayName("El costo nuevo no toca los lotes que ya entraron")
+    void elCostoNoSePropagaALosLotes() {
+        service.create(storeId, gaseosa(20, LocalDate.now().plusDays(90)), AUTOR);
+
+        var corregido = service.update(storeId, "BEB-PEP-020", new ProductUpdateRequestDto(
+                "Gaseosa Pepsi Botella 500ml", "BEBIDAS", null, "BOTELLA",
+                new BigDecimal("9.99"), new BigDecimal("3.20")), AUTOR);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT unit_cost FROM inventory_batches WHERE store_id = ?", BigDecimal.class, storeId))
+                .isEqualByComparingTo("2.10");
+        // Y se dice cuantos lotes conservan el suyo, para poder avisar.
+        assertThat(corregido).containsEntry("batchesKeepingTheirCost", 1);
+
+        // El margen de la venta sale del costo del LOTE, no del de la ficha.
+        var venta = ventas.sell(storeId, "BEB-PEP-020", 1, AUTOR);
+        assertThat(venta.cogs()).isEqualByComparingTo("2.10");
+    }
+
+    @Test
+    @DisplayName("Las ventas ya registradas no se mueven")
+    void lasVentasPasadasQuedanCongeladas() {
+        service.create(storeId, gaseosa(20, LocalDate.now().plusDays(90)), AUTOR);
+        ventas.sell(storeId, "BEB-PEP-020", 3, AUTOR);
+
+        service.update(storeId, "BEB-PEP-020", new ProductUpdateRequestDto(
+                "Gaseosa Pepsi Botella 500ml", "BEBIDAS", null, "BOTELLA",
+                new BigDecimal("9.99"), new BigDecimal("9.99")), AUTOR);
+
+        // daily_sales congela precio y costo en cada fila: el historico es
+        // historico, no una vista del catalogo de hoy.
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT unit_retail_price FROM daily_sales WHERE store_id = ?",
+                BigDecimal.class, storeId))
+                .isEqualByComparingTo("3.20");
+    }
+
+    @Test
+    @DisplayName("Corregir un SKU que no existe es 404, no un alta silenciosa")
+    void corregirLoQueNoExiste() {
+        assertThatThrownBy(() -> service.update(storeId, "NO-EXISTE", new ProductUpdateRequestDto(
+                "Fantasma", "VARIOS", null, "UNIDAD",
+                new BigDecimal("1.00"), new BigDecimal("2.00")), AUTOR))
+                .isInstanceOf(ProductNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("No se puede corregir el producto de otra compania")
+    void noSeCorrigeElDeOtraCompania() {
+        service.create(storeId, gaseosa(5, LocalDate.now().plusDays(30)), AUTOR);
+        long ajena = new Fixtures(jdbcTemplate).company("Ajena SAC", "2111").store("AJENA");
+
+        // Mismo SKU, otra compania: para ella ese producto no existe.
+        assertThatThrownBy(() -> service.update(ajena, "BEB-PEP-020", new ProductUpdateRequestDto(
+                "Secuestrado", "VARIOS", null, "UNIDAD",
+                new BigDecimal("1.00"), new BigDecimal("1.00")), AUTOR))
+                .isInstanceOf(ProductNotFoundException.class);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT p.name FROM products p JOIN stores s ON s.company_id = p.company_id
+                 WHERE s.store_id = ? AND p.sku = 'BEB-PEP-020'
+                """, String.class, storeId))
+                .isEqualTo("Gaseosa Pepsi Botella 500ml");
+    }
+
+    @Test
+    @DisplayName("La familia tambien se normaliza al corregir")
+    void familiaNormalizadaAlCorregir() {
+        service.create(storeId, gaseosa(0, null), AUTOR);
+
+        service.update(storeId, "BEB-PEP-020", new ProductUpdateRequestDto(
+                "Gaseosa Pepsi Botella 500ml", "  bebidas  ", null, "BOTELLA",
+                new BigDecimal("2.10"), new BigDecimal("3.20")), AUTOR);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT p.category FROM products p JOIN stores s ON s.company_id = p.company_id
+                 WHERE s.store_id = ? AND p.sku = 'BEB-PEP-020'
+                """, String.class, storeId))
+                .isEqualTo("BEBIDAS");
+    }
+
     /**
      * Acotado a la compania de la tienda, no global: Fixtures no limpia tablas
      * entre pruebas -es mas barato y obliga a que las consultas esten bien

@@ -50,16 +50,22 @@ public class SalesController {
      * la caja y desde la carga por Excel, y solo se leia como insumo del ritmo
      * de salida. Despues de registrar 72 ventas no habia donde verlas.
      *
-     * @param days  ventana hacia atras, acotada a un ano
-     * @param limit tope de filas, acotado para no volcar un mes entero al SPA
+     * @param days   ventana hacia atras, acotada a un ano
+     * @param limit  tope de filas, acotado para no volcar un mes entero al SPA
+     * @param offset cuantas saltar. Con 2.000 ventas en treinta dias, el tope
+     *               dejaba las mas viejas fuera de alcance: la unica salida era
+     *               ensanchar la ventana, que tampoco servia porque el tope
+     *               seguia cortando por arriba
      */
     @GetMapping
     @PreAuthorize("hasAnyRole('OPERATOR', 'MANAGER')")
     public ResponseEntity<SalesLedgerDto> recent(
             @RequestParam(name = "days", defaultValue = "30") int days,
-            @RequestParam(name = "limit", defaultValue = "100") int limit) {
+            @RequestParam(name = "limit", defaultValue = "100") int limit,
+            @RequestParam(name = "offset", defaultValue = "0") int offset) {
         return ResponseEntity.ok(ledgerService.recent(
-                CurrentUser.storeId(), Math.clamp(days, 1, 365), Math.clamp(limit, 1, 500)));
+                CurrentUser.storeId(), Math.clamp(days, 1, 365),
+                Math.clamp(limit, 1, 500), Math.max(offset, 0)));
     }
 
 }

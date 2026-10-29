@@ -469,7 +469,7 @@ en verde.
 El SQL que sostiene el proyecto ya no se verifica solo a mano. Cada build levanta
 un **PostgreSQL 17 efímero** (Testcontainers) que aplica **los mismos scripts de
 `sql/`** que se usan en Supabase —no un esquema paralelo escrito para los tests—
-y ejecuta **172 pruebas** repartidas en diecinueve clases, sobre lo que de verdad
+y ejecuta **182 pruebas** repartidas en diecinueve clases, sobre lo que de verdad
 puede romperse en silencio:
 
 | Clase | Qué protege |
@@ -492,7 +492,7 @@ puede romperse en silencio:
 | `DemoResetIT` | La puerta de entrada del evaluador, ejercitada de verdad. `sp_reset_demo_environment()` son mil líneas de PL/pgSQL que hasta ahora solo tocaban pruebas con el repositorio simulado. Vigila un fallo concreto: `daily_sales`, `waste_log` y `supplier_returns` son `ON DELETE RESTRICT`, así que la demo **se atranca en cuanto alguien la usa**, que es para lo que está. Por eso la prueba primero la gasta y luego la restaura |
 | `SalesIngestIT` | El registro de ventas por Excel, y sobre todo lo que puede dejar datos mal sin que nada se rompa: que **una línea sin stock no se lleve por delante a las que vienen detrás** —en PostgreSQL un error aborta la transacción entera, así que cada fila va en su savepoint—, que la fecha de la hoja llegue a `daily_sales` (si no, la ventana de rotación de todo el catálogo sale mal), que el precio sea el rebajado del lote y no el de lista, que el mismo archivo no se registre dos veces, que el mismo archivo **sí** sirva para inventario y para ventas, y que **una carga de ventas no se pueda revertir**: sin esa guarda la reversión parecería funcionar y liberaría la huella |
 | `SalesLedgerIT` | La pantalla que faltaba: durante un tiempo `daily_sales` se escribía desde tres sitios y se leía desde uno solo, como insumo, de modo que no había dónde mirar las ventas. Fija que cada fila traiga **el lote que atendió la venta** —el FEFO fila a fila—, que una venta repartida entre dos lotes salga como dos líneas con el costo de cada uno, que el precio sea el rebajado del lote y se marque como tal, y que **los totales sean de la ventana entera y no de las filas que caben en pantalla**: deducirlos del `LIMIT` daría dos cifras que se contradicen |
-| `ProductCreationIT` | El alta manual de producto, y **lo que la separa de la ingesta masiva**: aquélla hace `ON CONFLICT DO UPDATE` porque un archivo del proveedor trae el catálogo entero, mientras que aquí un SKU repetido se rechaza con el nombre del que ya lo ocupa —pisar en silencio el precio de un producto existente no se ve hasta que la caja cobra de menos—. Fija también que con unidades haga falta vencimiento (sin él, el lote sería invisible al FEFO), que la familia se normalice, y que el SKU sea único **por compañía** y no globalmente |
+| `ProductCatalogIT` | El alta y la corrección de un producto, y **lo que la separa de la ingesta masiva**: aquélla hace `ON CONFLICT DO UPDATE` porque un archivo del proveedor trae el catálogo entero, mientras que aquí un SKU repetido se rechaza con el nombre del que ya lo ocupa —pisar en silencio el precio de un producto existente no se ve hasta que la caja cobra de menos—. Fija también que con unidades haga falta vencimiento (sin él, el lote sería invisible al FEFO), que la familia se normalice, y que el SKU sea único **por compañía** y no globalmente |
 
 Donde no hay Docker las pruebas se **saltan** y el build sigue verde, de modo que
 `mvn verify` es seguro en cualquier máquina. GitHub Actions comprueba `docker info`
@@ -582,7 +582,7 @@ distintas a propósito:
 actualización —agrupadas, porque Spring Boot gobierna las versiones de casi todo
 lo demás a través de `spring-boot-dependencies` y separarlas produce conflictos
 entre los propios PRs—. Como el CI corre contra cada PR, cada propuesta llega ya
-con las 391 pruebas pasadas o con el fallo a la vista: eso es lo que hace barata
+con las 465 pruebas pasadas o con el fallo a la vista: eso es lo que hace barata
 la actualización, porque el coste no es leer el changelog, es no saber si rompe
 algo.
 
@@ -665,11 +665,11 @@ Las pruebas anteriores cubrían el SQL y la lógica con dobles, de modo que **bo
 un `@PreAuthorize` dejaba la suite verde**. `EndpointSecurityTest` levanta la
 cadena de filtros real, con el filtro JWT real y tokens firmados de verdad, y
 responde desde fuera a las tres preguntas que importan —quién entra, con qué rol,
-y sobre qué tienda acaba escribiendo— en **78 pruebas**:
+y sobre qué tienda acaba escribiendo— en **91 pruebas**:
 
 | Grupo | Qué fija |
 |---|---|
-| `SinToken` | Los 35 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
+| `SinToken` | Los 40 endpoints protegidos responden **401** (no 403: la SPA distingue por el código), y el rechazo no llega a ningún servicio ni a la base |
 | `Publicos` | Lo que debe seguir abierto sigue abierto: `ping` por GET y HEAD (si dejara de serlo, Render apagaría el servicio), `demo/reset` y `auth/login` |
 | `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
 | `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |
@@ -680,6 +680,20 @@ Los dobles sin usar son aquí la afirmación más fuerte: comprueban que la peti
 nunca llegó al servicio. Para confirmar que las pruebas muerden se quitó el
 `@PreAuthorize` de la aprobación de mermas y la suite falló con **200 donde
 esperaba 403** — el operario aprobando su propia pérdida.
+
+**Lo que esto dejó a la vista.** Las cuatro rutas que llegaron con las ventas y
+el alta de productos —`GET /inventory/sales`, las dos de carga y corrección de
+ventas, y `POST /products`— **no habían entrado en esa lista**. Funcionaban bien,
+porque las cubre `anyRequest().authenticated()`, pero nada lo comprobaba: un
+`permitAll` de más o un matcher reordenado las habría abierto con la suite en
+verde, que es exactamente lo que esta clase existe para impedir. Es el tipo de
+hueco que no abre un agujero, sino que quita la red.
+
+Las dos mutaciones que confirman que ahora sí muerden: abrir
+`POST /api/v1/products` con un `permitAll` da **415 donde se esperaba 401** —la
+petición atravesó la seguridad y llegó al controlador—, y quitar
+`StoreScope.requireMatching` de la corrección de ventas da **200 donde se
+esperaba 403**, con el cuerpo mandando sobre el token.
 
 **Residuo que esto dejó a la vista:** sin ningún `UserDetailsService` propio,
 Spring Boot sembraba un usuario `user` en memoria con contraseña aleatoria y la

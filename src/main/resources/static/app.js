@@ -1095,7 +1095,8 @@ function toggleProductForm(abrir) {
   $('btn-nuevo-producto').setAttribute('aria-expanded', String(visible));
   if (visible) {
     rellenarFamiliasConocidas();
-    $('np-sku').focus();
+    sincronizarModoDelProducto();
+    $("np-sku").focus();
   }
 }
 
@@ -1126,8 +1127,77 @@ function sincronizarObligatoriedadDeVencimiento() {
     : 'Sin unidades no hay lote, y sin lote el producto no se puede vender todavía.';
 }
 
+/**
+ * El SKU que se está escribiendo, si ya existe en el catálogo.
+ *
+ * <p>Es lo que convierte este formulario en dos: con un SKU libre crea, con uno
+ * ocupado corrige. Evita un segundo formulario y, sobre todo, evita el selector
+ * de "qué producto quiero editar": el SKU ya es esa pregunta.
+ */
+function productoExistente() {
+  const sku = $('np-sku').value.trim().toUpperCase();
+  if (!sku) return null;
+  return (state.catalog ?? []).find((p) => String(p.sku).toUpperCase() === sku) ?? null;
+}
+
+function esGerente() {
+  return state.session?.role === 'MANAGER';
+}
+
+/** Pasa el formulario a modo corrección, o lo devuelve a modo alta. */
+function sincronizarModoDelProducto() {
+  const existente = productoExistente();
+  const banner = $('np-edit-banner');
+
+  if (!existente) {
+    $('np-title').textContent = 'Añadir un producto al catálogo';
+    $('np-subtitle').textContent =
+      'Con existencias entra directo al semáforo; sin ellas queda sólo en el catálogo.';
+    $('np-lot-fields').classList.remove('hidden');
+    $('np-submit').textContent = 'Guardar producto';
+    $('np-submit').disabled = false;
+    banner.classList.add('hidden');
+    return;
+  }
+
+  $('np-title').textContent = 'Corregir un producto del catálogo';
+  $('np-subtitle').textContent = 'Ese SKU ya existe.';
+  // Las existencias no se tocan al corregir: un lote es mercadería que ya
+  // entró, y crearle otro desde aquí sería inventar stock.
+  $('np-lot-fields').classList.add('hidden');
+
+  if (!esGerente()) {
+    // Mejor decirlo ahora que dejarle rellenar el formulario para un 403.
+    banner.textContent = `"${existente.name}" ya usa ese SKU. Corregir un producto `
+      + 'cambia lo que cobra la caja, así que lo hace el gerente. Usa otro código para crear uno nuevo.';
+    banner.classList.remove('hidden');
+    $('np-submit').disabled = true;
+    return;
+  }
+
+  // Se rellena con lo que hay, para que corregir el precio no obligue a
+  // reescribir el nombre y la familia de memoria.
+  $('np-name').value = existente.name ?? '';
+  $('np-category').value = existente.category ?? '';
+  $('np-cost').value = existente.unit_cost ?? '0';
+  $('np-price').value = existente.retail_price ?? '0';
+
+  banner.textContent = 'El precio nuevo rige desde la próxima venta, también para los lotes '
+    + 'que ya están en el anaquel. El costo nuevo sólo vale para lo que entre a partir de ahora: '
+    + 'los lotes existentes conservan el costo al que entraron.';
+  banner.classList.remove('hidden');
+  $('np-submit').textContent = 'Guardar corrección';
+  $('np-submit').disabled = false;
+}
+
 async function createProduct(event) {
   event.preventDefault();
+
+  const existente = productoExistente();
+  if (existente) {
+    await updateProduct(event, existente.sku);
+    return;
+  }
 
   const cantidad = Number($('np-qty').value) || 0;
   const payload = {
@@ -1161,6 +1231,39 @@ async function createProduct(event) {
     // recargarlo, el producto recién creado no se podría buscar.
     await loadCatalog();
     if (cantidad > 0) await loadBatches();
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+/** Corrige la ficha. No toca existencias: eso es mercadería, no datos. */
+async function updateProduct(event, sku) {
+  const boton = event.submitter ?? $('np-submit');
+  boton.disabled = true;
+  try {
+    const corregido = await request(`/products/${encodeURIComponent(sku)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('np-name').value.trim(),
+        category: $('np-category').value.trim(),
+        unitCost: $('np-cost').value || '0',
+        retailPrice: $('np-price').value || '0'
+      })
+    });
+
+    // Se dice cuántos lotes NO cambian de costo: es la parte que sorprende.
+    toast(corregido.batchesKeepingTheirCost > 0
+      ? `${corregido.name} corregido. ${plural(corregido.batchesKeepingTheirCost,
+          'lote conserva', 'lotes conservan')} el costo al que entró.`
+      : `${corregido.name} corregido.`, 'ok');
+
+    $('product-form').reset();
+    toggleProductForm(false);
+    await loadCatalog();
+    await loadBatches();
   } catch (error) {
     toast(error.message, 'error');
   } finally {
@@ -1963,12 +2066,28 @@ function irARegistrarVenta() {
   }
 }
 
-async function loadSalesLedger() {
+/** Cuántas trae cada página. */
+const SALES_PAGE = 100;
+
+/**
+ * @param acumular true añade la página siguiente a lo ya pintado, en vez de
+ *                 reemplazarlo. Es lo que hace el botón "Ver más": con 2.000
+ *                 ventas en treinta días, el tope dejaba las más viejas fuera
+ *                 de alcance y ensanchar la ventana no servía, porque el tope
+ *                 seguía cortando por arriba.
+ */
+async function loadSalesLedger(acumular = false) {
   const dias = Number($('sales-days').value) || 30;
+  const previas = acumular ? (state.salesLedger?.sales ?? []) : [];
+
   try {
-    const ledger = await request(`/inventory/sales?days=${dias}&limit=100`);
-    state.salesLedger = ledger;
-    renderSalesLedger(ledger);
+    const ledger = await request(
+      `/inventory/sales?days=${dias}&limit=${SALES_PAGE}&offset=${previas.length}`);
+
+    // Las páginas se concatenan en el estado, no sólo en el DOM: así un
+    // repintado posterior no pierde lo que el usuario ya había pedido.
+    state.salesLedger = { ...ledger, sales: [...previas, ...ledger.sales] };
+    renderSalesLedger(state.salesLedger);
   } catch (error) {
     toast(error.message, 'error');
   }
@@ -1999,11 +2118,19 @@ function renderSalesLedger(ledger) {
 
   // Los totales son de la ventana entera y la tabla viene acotada: si no
   // coinciden hay que decirlo, o parecerá que una de las dos cifras miente.
-  nota.textContent = ledger.sales.length < ledger.totalSales
+  const quedan = ledger.totalSales - ledger.sales.length;
+  nota.textContent = quedan > 0
     ? `Se muestran las ${ledger.sales.length} más recientes de ${ledger.totalSales}. `
       + `Los totales de arriba son de los ${ledger.windowDays} días completos.`
     : `Todas las ventas de los últimos ${ledger.windowDays} días`
       + (ledger.from ? `, del ${fechaCorta(ledger.from)} al ${fechaCorta(ledger.to)}.` : '.');
+
+  // El botón sólo existe mientras quede algo detrás: uno que no hace nada es
+  // peor que no tenerlo.
+  $('btn-sales-more').classList.toggle('hidden', quedan <= 0);
+  $('btn-sales-more').textContent = quedan > SALES_PAGE
+    ? `Ver ${SALES_PAGE} más`
+    : `Ver las ${quedan} restantes`;
 }
 
 function filaDeVenta(venta) {
@@ -3391,7 +3518,9 @@ wireSaleCombobox();
 $('btn-nuevo-producto').addEventListener('click', () => toggleProductForm());
 $('btn-cancelar-producto').addEventListener('click', () => toggleProductForm(false));
 $('np-qty').addEventListener('input', sincronizarObligatoriedadDeVencimiento);
+$('np-sku').addEventListener('input', sincronizarModoDelProducto);
 $('product-form').addEventListener('submit', createProduct);
+$('btn-sales-more').addEventListener('click', () => loadSalesLedger(true));
 
 renderToday();
 pingBackend();

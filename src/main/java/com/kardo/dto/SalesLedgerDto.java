@@ -18,6 +18,9 @@ import java.util.List;
  */
 public record SalesLedgerDto(
         int windowDays,
+
+        /** Cuantas filas se saltaron: lo que permite pedir la pagina siguiente. */
+        int offset,
         int totalSales,
         int totalUnits,
         BigDecimal totalAmount,
@@ -25,4 +28,9 @@ public record SalesLedgerDto(
         LocalDate from,
         LocalDate to,
         List<SaleRecordDto> sales) {
+
+    /** Quedan mas hacia atras de las que trae esta pagina. */
+    public boolean hasMore() {
+        return offset + sales.size() < totalSales;
+    }
 }

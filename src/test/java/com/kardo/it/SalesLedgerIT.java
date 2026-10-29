@@ -2,6 +2,7 @@ package com.kardo.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kardo.dto.SaleRecordDto;
 import com.kardo.sales.FefoSaleService;
 import com.kardo.sales.SalesLedgerService;
 import java.time.LocalDate;
@@ -58,7 +59,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
 
         ventas.sell(storeId, "LECHE-1", 4, OPERARIO);
 
-        var libro = ledger.recent(storeId, 30, 100);
+        var libro = ledger.recent(storeId, 30, 100, 0);
 
         assertThat(libro.sales()).singleElement().satisfies(v -> {
             assertThat(v.batchCode()).isEqualTo("L-PRONTO");
@@ -82,7 +83,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
 
         ventas.sell(storeId, "PAN-1", 12, OPERARIO);
 
-        var libro = ledger.recent(storeId, 30, 100);
+        var libro = ledger.recent(storeId, 30, 100, 0);
 
         // Dos asientos con el costo de SU lote: por eso el margen de cada linea
         // es distinto aunque el precio cobrado sea el mismo.
@@ -108,7 +109,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
 
         ventas.sell(storeId, "YOG-1", 3, OPERARIO);
 
-        assertThat(ledger.recent(storeId, 30, 100).sales()).singleElement().satisfies(v -> {
+        assertThat(ledger.recent(storeId, 30, 100, 0).sales()).singleElement().satisfies(v -> {
             assertThat(v.price()).isEqualByComparingTo("4.90");
             assertThat(v.discounted()).isTrue();
             // 3 x (4.90 - 4.00): el margen que queda tras ceder la rebaja
@@ -124,7 +125,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
 
         ventas.sell(storeId, "GAS-1", 2, OPERARIO);
 
-        assertThat(ledger.recent(storeId, 30, 100).sales())
+        assertThat(ledger.recent(storeId, 30, 100, 0).sales())
                 .singleElement()
                 .satisfies(v -> assertThat(v.discounted()).isFalse());
     }
@@ -144,7 +145,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
             ventas.sell(storeId, "ABA-1", 2, OPERARIO);
         }
 
-        var acotado = ledger.recent(storeId, 30, 2);
+        var acotado = ledger.recent(storeId, 30, 2, 0);
 
         assertThat(acotado.sales()).hasSize(2);
         assertThat(acotado.totalSales()).isEqualTo(6);
@@ -166,10 +167,10 @@ class SalesLedgerIT extends PostgresIntegrationTest {
                  WHERE store_id = ? AND batch_id = ?
                 """, storeId, lote);
 
-        assertThat(ledger.recent(storeId, 7, 100).sales()).isEmpty();
-        assertThat(ledger.recent(storeId, 7, 100).totalSales()).isZero();
+        assertThat(ledger.recent(storeId, 7, 100, 0).sales()).isEmpty();
+        assertThat(ledger.recent(storeId, 7, 100, 0).totalSales()).isZero();
         // Pero en una ventana que la abarque, sigue estando.
-        assertThat(ledger.recent(storeId, 30, 100).totalSales()).isEqualTo(1);
+        assertThat(ledger.recent(storeId, 30, 100, 0).totalSales()).isEqualTo(1);
     }
 
     @Test
@@ -182,7 +183,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
         ventas.sell(storeId, "ORD-1", 2, OPERARIO);
         ventas.sell(storeId, "ORD-1", 3, OPERARIO);
 
-        assertThat(ledger.recent(storeId, 30, 100).sales())
+        assertThat(ledger.recent(storeId, 30, 100, 0).sales())
                 .extracting("quantity")
                 .containsExactly(3, 2, 1);
     }
@@ -198,7 +199,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
         ventas.sell(storeId, "AIS-1", 2, OPERARIO);
         ventas.sell(otra, "AIS-1", 7, "otro@kardo.pe");
 
-        var mio = ledger.recent(storeId, 30, 100);
+        var mio = ledger.recent(storeId, 30, 100, 0);
         assertThat(mio.totalSales()).isEqualTo(1);
         assertThat(mio.sales()).singleElement()
                 .satisfies(v -> assertThat(v.batchCode()).isEqualTo("L-MIO"));
@@ -207,7 +208,7 @@ class SalesLedgerIT extends PostgresIntegrationTest {
     @Test
     @DisplayName("Una tienda sin ventas devuelve una lista vacia y ceros, no nulos")
     void sinVentas() {
-        var vacio = ledger.recent(storeId, 30, 100);
+        var vacio = ledger.recent(storeId, 30, 100, 0);
 
         assertThat(vacio.sales()).isEmpty();
         assertThat(vacio.totalSales()).isZero();
@@ -227,10 +228,110 @@ class SalesLedgerIT extends PostgresIntegrationTest {
         ventas.sell(storeId, "TKT-1", 2, OPERARIO);   // 6.00
         ventas.sell(storeId, "TKT-1", 4, OPERARIO);   // 12.00
 
-        var libro = ledger.recent(storeId, 30, 1);
+        var libro = ledger.recent(storeId, 30, 1, 0);
 
         assertThat(libro.sales()).hasSize(1);
         // 18.00 / 2 ventas, aunque solo se muestre una.
         assertThat(SalesLedgerService.averageTicket(libro)).isEqualByComparingTo("9.00");
+    }
+
+    // -----------------------------------------------------------------------
+    // Paginacion
+    // -----------------------------------------------------------------------
+
+    /**
+     * El hueco que la paginacion vino a cerrar: con 2.000 ventas en treinta
+     * dias, el tope dejaba las mas viejas fuera de alcance, y ensanchar la
+     * ventana tampoco servia porque el tope seguia cortando por arriba.
+     */
+    @Test
+    @DisplayName("Con offset se sigue leyendo hacia atras, sin repetir ni saltarse ninguna")
+    void paginaHaciaAtras() {
+        long producto = fixtures.product(storeId, "PAG-1", "Paginado", "ABARROTES", "1.00", "2.00");
+        fixtures.batch(storeId, producto, "L-PAG", LocalDate.now().plusDays(90), 100, "1.00");
+
+        for (int i = 0; i < 7; i++) {
+            ventas.sell(storeId, "PAG-1", 1, OPERARIO);
+        }
+
+        var primera = ledger.recent(storeId, 30, 3, 0);
+        var segunda = ledger.recent(storeId, 30, 3, 3);
+        var tercera = ledger.recent(storeId, 30, 3, 6);
+
+        assertThat(primera.sales()).hasSize(3);
+        assertThat(segunda.sales()).hasSize(3);
+        assertThat(tercera.sales()).hasSize(1);
+
+        // Ni una repetida ni una perdida entre paginas: siete ids distintos.
+        var ids = java.util.stream.Stream.of(primera, segunda, tercera)
+                .flatMap(p -> p.sales().stream())
+                .map(SaleRecordDto::saleId)
+                .toList();
+        assertThat(ids).hasSize(7).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("hasMore dice si queda algo detras, y deja de decirlo al final")
+    void sabeCuandoSeAcabo() {
+        long producto = fixtures.product(storeId, "FIN-1", "Final", "ABARROTES", "1.00", "2.00");
+        fixtures.batch(storeId, producto, "L-FIN", LocalDate.now().plusDays(90), 50, "1.00");
+
+        for (int i = 0; i < 5; i++) {
+            ventas.sell(storeId, "FIN-1", 1, OPERARIO);
+        }
+
+        assertThat(ledger.recent(storeId, 30, 2, 0).hasMore()).isTrue();
+        assertThat(ledger.recent(storeId, 30, 2, 2).hasMore()).isTrue();
+        // La ultima pagina trae una sola y ya no queda nada detras.
+        assertThat(ledger.recent(storeId, 30, 2, 4).hasMore()).isFalse();
+    }
+
+    /**
+     * Las ventas de una carga de Excel comparten la hora del archivo, asi que
+     * la paginacion tiene que seguir siendo correcta cuando el criterio de
+     * orden empata en todas las filas.
+     *
+     * <p><b>Limite de esta prueba, dicho para que nadie se confie.</b> La
+     * consulta desempata por {@code sale_id} precisamente para esto, pero
+     * quitar ese desempate <em>no</em> la hace fallar: con seis filas
+     * PostgreSQL elige el mismo plan y devuelve un orden estable de todos
+     * modos. Hace falta mas volumen, o un plan distinto, para que el orden
+     * arbitrario se manifieste. Queda como prueba de la propiedad que
+     * importa -no repetir ni perder filas entre paginas- y no como guardia del
+     * {@code ORDER BY}, que se sostiene por lectura del SQL.
+     */
+    @Test
+    @DisplayName("Ventas del mismo instante no se repiten ni se pierden entre paginas")
+    void empateDeFechaNoRompeLaPaginacion() {
+        long producto = fixtures.product(storeId, "EMP-1", "Empate", "ABARROTES", "1.00", "2.00");
+        long lote = fixtures.batch(storeId, producto, "L-EMP", LocalDate.now().plusDays(90), 50, "1.00");
+
+        for (int i = 0; i < 6; i++) {
+            ventas.sell(storeId, "EMP-1", 1, OPERARIO);
+        }
+        // Todas al mismo instante, como las de un archivo.
+        jdbcTemplate.update("""
+                UPDATE daily_sales SET sale_timestamp = CURRENT_TIMESTAMP - INTERVAL '1 hour'
+                 WHERE store_id = ? AND batch_id = ?
+                """, storeId, lote);
+
+        var ids = java.util.stream.Stream.of(
+                        ledger.recent(storeId, 30, 2, 0),
+                        ledger.recent(storeId, 30, 2, 2),
+                        ledger.recent(storeId, 30, 2, 4))
+                .flatMap(p -> p.sales().stream())
+                .map(SaleRecordDto::saleId)
+                .toList();
+
+        assertThat(ids).hasSize(6).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("Un offset mas alla del final devuelve vacio, no un error")
+    void offsetDemasiadoGrande() {
+        var vacio = ledger.recent(storeId, 30, 10, 500);
+
+        assertThat(vacio.sales()).isEmpty();
+        assertThat(vacio.hasMore()).isFalse();
     }
 }

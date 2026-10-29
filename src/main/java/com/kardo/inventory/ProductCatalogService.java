@@ -1,8 +1,10 @@
 package com.kardo.inventory;
 
 import com.kardo.dto.ProductCreateRequestDto;
+import com.kardo.dto.ProductUpdateRequestDto;
 import com.kardo.exception.DuplicateSkuException;
 import com.kardo.exception.InvalidQuantityException;
+import com.kardo.exception.ProductNotFoundException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
@@ -14,7 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Alta manual de un producto del catalogo, con su primer lote si lo trae.
+ * Lo que se puede hacer con una ficha de producto: crearla y corregirla.
  *
  * <p><b>Por que no reutiliza la ingesta.</b> {@code InventoryIngestRepository}
  * inserta con {@code ON CONFLICT (company_id, sku) DO UPDATE}, y ahi es lo
@@ -26,9 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
  * lo unico que permite entender el choque.
  */
 @Service
-public class ProductCreationService {
+public class ProductCatalogService {
 
-    private static final Logger log = LoggerFactory.getLogger(ProductCreationService.class);
+    private static final Logger log = LoggerFactory.getLogger(ProductCatalogService.class);
 
     private static final String COMPANY_OF_STORE =
             "SELECT company_id FROM stores WHERE store_id = ?";
@@ -52,7 +54,7 @@ public class ProductCreationService {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public ProductCreationService(JdbcTemplate jdbcTemplate) {
+    public ProductCatalogService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -111,6 +113,77 @@ public class ProductCreationService {
                 "name", request.name().trim(),
                 "batchId", batchId == null ? "" : batchId,
                 "initialQty", cantidad);
+    }
+
+    private static final String UPDATE_PRODUCT = """
+            UPDATE products
+               SET name            = ?,
+                   category        = ?,
+                   barcode         = COALESCE(?, barcode),
+                   unit_of_measure = ?,
+                   unit_cost       = ?,
+                   retail_price    = ?
+             WHERE company_id = ? AND sku = ?
+            RETURNING product_id, name, category, unit_cost, retail_price
+            """;
+
+    /**
+     * Corrige un producto que ya existe.
+     *
+     * <p><b>Lo que cambia y lo que no, que es la parte que hay que entender.</b>
+     *
+     * <p>El {@code retail_price} SI afecta a las ventas futuras, incluidas las
+     * de los lotes que ya estan en el anaquel: {@code sp_process_fefo_sale} lee
+     * el precio del catalogo salvo que el lote tenga rebaja propia. Subir el
+     * precio aqui es subirlo en la caja a partir del siguiente cliente.
+     *
+     * <p>El {@code unit_cost} NO toca los lotes existentes. Cada
+     * {@code inventory_batches} guarda el costo al que entro SU mercaderia, y
+     * eso es lo que ancla el margen de lo ya recibido: si corregir la ficha
+     * reescribiera el costo de lo comprado hace tres meses, el margen historico
+     * cambiaria retroactivamente y el analisis dejaria de poder compararse
+     * consigo mismo. El costo nuevo vale para lo que entre a partir de ahora.
+     *
+     * <p>Y las ventas ya registradas no se mueven en absoluto:
+     * {@code daily_sales} congela precio y costo en cada fila.
+     *
+     * @return el producto corregido y cuantos lotes suyos conservan su costo
+     */
+    @Transactional
+    public Map<String, Object> update(long storeId, String sku, ProductUpdateRequestDto request,
+                                      String updatedBy) {
+        Long companyId = jdbcTemplate.queryForObject(COMPANY_OF_STORE, Long.class, storeId);
+
+        Map<String, Object> actualizado;
+        try {
+            actualizado = jdbcTemplate.queryForMap(UPDATE_PRODUCT,
+                    request.name().trim(),
+                    request.category().trim().toUpperCase(),
+                    blankToNull(request.barcode()),
+                    blankOr(request.unitOfMeasure(), "UNIDAD"),
+                    request.unitCost(),
+                    request.retailPrice(),
+                    companyId, sku.trim());
+        } catch (EmptyResultDataAccessException noExiste) {
+            throw new ProductNotFoundException(sku);
+        }
+
+        Integer lotesConCostoPropio = jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM inventory_batches
+                 WHERE store_id = ? AND product_id = ? AND current_qty > 0
+                """, Integer.class, storeId, actualizado.get("product_id"));
+
+        log.info("Producto {} corregido en la tienda {} por {}: precio {}, costo {}",
+                sku, storeId, updatedBy, request.retailPrice(), request.unitCost());
+
+        return Map.of(
+                "productId", actualizado.get("product_id"),
+                "sku", sku.trim(),
+                "name", actualizado.get("name"),
+                "retailPrice", actualizado.get("retail_price"),
+                "unitCost", actualizado.get("unit_cost"),
+                // Para que la interfaz pueda avisar: el costo nuevo no los toca.
+                "batchesKeepingTheirCost", lotesConCostoPropio);
     }
 
     private static String blankToNull(String value) {

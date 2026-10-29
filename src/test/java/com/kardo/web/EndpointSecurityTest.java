@@ -11,7 +11,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -33,7 +35,15 @@ import com.kardo.dto.NewStoreRequestDto;
 import com.kardo.dto.NewUserRequestDto;
 import com.kardo.dto.RegisterRequestDto;
 import com.kardo.dto.ReturnRequestDto;
+import com.kardo.dto.ProductCreateRequestDto;
+import com.kardo.dto.ProductUpdateRequestDto;
+import java.util.Map;
+import org.springframework.mock.web.MockMultipartFile;
 import com.kardo.dto.RollbackResponseDto;
+import com.kardo.dto.SalesFixRequestDto;
+import com.kardo.dto.SalesFixRowDto;
+import com.kardo.dto.SalesIngestSummaryDto;
+import com.kardo.dto.SalesLedgerDto;
 import com.kardo.dto.SaleRequestDto;
 import com.kardo.dto.SaleResponseDto;
 import com.kardo.dto.SessionDto;
@@ -184,7 +194,7 @@ class EndpointSecurityTest {
     private com.kardo.sales.SalesLedgerService salesLedgerService;
 
     @MockitoBean
-    private com.kardo.inventory.ProductCreationService productCreationService;
+    private com.kardo.inventory.ProductCatalogService productCatalogService;
 
     @MockitoBean
     private ProductCatalogRepository productCatalogRepository;
@@ -244,6 +254,8 @@ class EndpointSecurityTest {
         @CsvSource({
                 "GET,  /api/v1/auth/me",
                 "GET,  /api/v1/products",
+                "POST, /api/v1/products",
+                "PUT,  /api/v1/products/SKU-1",
                 "GET,  /api/v1/inventory/batches",
                 "GET,  /api/v1/inventory/alerts",
                 "GET,  /api/v1/inventory/alerts/history",
@@ -261,11 +273,14 @@ class EndpointSecurityTest {
                 "GET,  /api/v1/inventory/ingest/history",
                 "POST, /api/v1/inventory/ingest/excel",
                 "POST, /api/v1/inventory/ingest/bulk-fix",
+                "POST, /api/v1/inventory/ingest/ventas",
+                "POST, /api/v1/inventory/ingest/ventas/correcciones",
                 "POST, /api/v1/inventory/ingest/7/rollback",
                 "POST, /api/v1/receipts/scan",
                 "GET,  /api/v1/receipts/quota",
                 "POST, /api/v1/receipts/confirm",
                 "POST, /api/v1/inventory/sales",
+                "GET,  /api/v1/inventory/sales",
                 "GET,  /api/v1/inventory/returns",
                 "POST, /api/v1/inventory/returns",
                 "POST, /api/v1/inventory/returns/9/credit",
@@ -536,6 +551,52 @@ class EndpointSecurityTest {
         }
 
         /**
+         * Corregir un precio no es meter datos: es cambiar lo que cobra la caja
+         * en cada venta futura, y a diferencia de una merma o un canje, aqui no
+         * hay nadie que lo resuelva despues. Es la misma linea que separa
+         * declarar una merma de aprobarla.
+         */
+        @Test
+        @DisplayName("El operario no corrige un producto: el precio lo cambia el gerente")
+        void elOperarioNoCorrigeProductos() throws Exception {
+            mockMvc.perform(json(put("/api/v1/products/BEB-PEP-020"), productoCorregido())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isForbidden());
+
+            verifyNoInteractions(productCatalogService);
+        }
+
+        /**
+         * Dar de alta si, en cambio: un producto nuevo es meter datos, y el
+         * operario ya puede crear productos subiendo un Excel. Exigir un rol
+         * superior aqui no cerraria nada y solo le obligaria al rodeo.
+         */
+        @Test
+        @DisplayName("El operario si puede dar de alta un producto")
+        void elOperarioSiDaDeAlta() throws Exception {
+            when(productCatalogService.create(anyLong(), any(), anyString()))
+                    .thenReturn(Map.of("productId", 1L, "sku", "NUEVO-1"));
+
+            mockMvc.perform(json(post("/api/v1/products"), nuevoProducto())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("El gerente si corrige, y con la tienda y el correo de su token")
+        void elGerenteCorrigeProductos() throws Exception {
+            when(productCatalogService.update(anyLong(), anyString(), any(), anyString()))
+                    .thenReturn(Map.of("productId", 1L, "sku", "BEB-PEP-020",
+                            "name", "Gaseosa Pepsi", "batchesKeepingTheirCost", 2));
+
+            mockMvc.perform(json(put("/api/v1/products/BEB-PEP-020"), productoCorregido())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + managerToken))
+                    .andExpect(status().isOk());
+
+            verify(productCatalogService).update(eq(TOKEN_STORE), eq("BEB-PEP-020"), any(), eq(MANAGER));
+        }
+
+        /**
          * Declararlo si, en cambio: el operario ve la fecha de cerca y sabe lo
          * que le cabe al camion de mañana, igual que declara una merma.
          */
@@ -696,6 +757,101 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk());
 
             verify(bulkFixService).apply(eq(TOKEN_STORE), any(), eq(OPERATOR), any());
+        }
+
+        /**
+         * El mismo ataque sobre la via de ventas, que llego despues.
+         *
+         * <p>{@code /ventas/correcciones} recibe la tienda en el cuerpo igual
+         * que {@code bulk-fix}, pero lo que escribe no son lotes sino salidas de
+         * stock: descontaria mercaderia de la tienda ajena y dejaria asientos en
+         * su {@code daily_sales} a nombre de un operario que no es suyo. Y al
+         * reves que una carga de inventario, eso no se puede revertir.
+         */
+        @Test
+        @DisplayName("Corregir ventas apuntando a otra tienda se rechaza sin descontar nada")
+        void correccionDeVentasConOtraTienda() throws Exception {
+            mockMvc.perform(json(post("/api/v1/inventory/ingest/ventas/correcciones"),
+                            new SalesFixRequestDto(OTHER_STORE, List.of(ventaCorregida())))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isForbidden());
+
+            // El doble sin usar es la afirmacion: no se llego a tocar el stock.
+            verifyNoInteractions(salesIngestService);
+        }
+
+        @Test
+        @DisplayName("Coincidiendo con la del token, la correccion se registra en la del token")
+        void correccionDeVentasCoincidente() throws Exception {
+            when(salesIngestService.registerFixedRows(anyLong(), any(), anyString()))
+                    .thenReturn(new SalesIngestSummaryDto(1, 1, 0, 2, new BigDecimal("7.00"), List.of()));
+
+            mockMvc.perform(json(post("/api/v1/inventory/ingest/ventas/correcciones"),
+                            new SalesFixRequestDto(TOKEN_STORE, List.of(ventaCorregida())))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            // La tienda y el operario salen del token, no del cuerpo.
+            verify(salesIngestService).registerFixedRows(eq(TOKEN_STORE), any(), eq(OPERATOR));
+        }
+
+        /**
+         * La carga de ventas por archivo no recibe tienda en ningun sitio, asi
+         * que lo que hay que fijar es que no haya forma de sugerirsela.
+         */
+        @Test
+        @DisplayName("La carga de ventas usa la tienda del token, aunque la URL diga otra")
+        void laCargaDeVentasUsaElToken() throws Exception {
+            when(salesUploadService.upload(anyLong(), any(), any()))
+                    .thenReturn(new SalesIngestSummaryDto(1, 1, 0, 1, new BigDecimal("3.50"), List.of()));
+
+            mockMvc.perform(multipart("/api/v1/inventory/ingest/ventas")
+                            .file(new MockMultipartFile("file", "ventas.xlsx",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    "contenido".getBytes(StandardCharsets.UTF_8)))
+                            .param("storeId", String.valueOf(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            verify(salesUploadService).upload(eq(TOKEN_STORE), any(), any());
+        }
+
+        /**
+         * El alta de producto tampoco recibe tienda: cuelga de la compania de la
+         * del token. Un producto creado en el catalogo de otro cliente seria una
+         * fuga entre inquilinos sin necesidad de leer un solo dato ajeno.
+         */
+        @Test
+        @DisplayName("El alta de producto usa la tienda del token")
+        void elAltaDeProductoUsaElToken() throws Exception {
+            when(productCatalogService.create(anyLong(), any(), anyString()))
+                    .thenReturn(Map.of("productId", 1L, "sku", "NUEVO-1"));
+
+            mockMvc.perform(json(post("/api/v1/products"), nuevoProducto())
+                            .param("storeId", String.valueOf(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isCreated());
+
+            verify(productCatalogService).create(eq(TOKEN_STORE), any(), eq(OPERATOR));
+        }
+
+        /**
+         * El libro de ventas solo lee, pero leer el de otra tienda es la mitad
+         * de un problema multi-inquilino: precios, margenes y lotes ajenos.
+         */
+        @Test
+        @DisplayName("El libro de ventas se ciñe a la tienda del token")
+        void elLibroDeVentasSeCineAlToken() throws Exception {
+            when(salesLedgerService.recent(anyLong(), anyInt(), anyInt(), anyInt()))
+                    .thenReturn(new SalesLedgerDto(30, 0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO,
+                            null, null, List.of()));
+
+            mockMvc.perform(get("/api/v1/inventory/sales")
+                            .param("storeId", String.valueOf(OTHER_STORE))
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + operatorToken))
+                    .andExpect(status().isOk());
+
+            verify(salesLedgerService).recent(eq(TOKEN_STORE), anyInt(), anyInt(), anyInt());
         }
 
         /**
@@ -992,6 +1148,23 @@ class EndpointSecurityTest {
 
     private MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder builder, Object body) throws Exception {
         return builder.contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body));
+    }
+
+    /** Una venta corregida cualquiera: lo que importa es la tienda, no la fila. */
+    private static SalesFixRowDto ventaCorregida() {
+        return new SalesFixRowDto(2, "SKU-SEG-1", 2, null);
+    }
+
+    /** Una correccion cualquiera: lo que importa es el rol, no los campos. */
+    private static ProductUpdateRequestDto productoCorregido() {
+        return new ProductUpdateRequestDto("Gaseosa Pepsi Botella 500ml", "BEBIDAS", null,
+                "BOTELLA", new BigDecimal("2.10"), new BigDecimal("3.50"));
+    }
+
+    /** Un producto nuevo cualquiera, sin existencias para no arrastrar reglas de lote. */
+    private static ProductCreateRequestDto nuevoProducto() {
+        return new ProductCreateRequestDto("NUEVO-1", null, "Producto nuevo", "VARIOS",
+                "UNIDAD", new BigDecimal("1.00"), new BigDecimal("2.00"), null, 0, null);
     }
 
     private static SpreadsheetRowDto fila() {
