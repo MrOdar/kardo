@@ -1525,7 +1525,7 @@ function renderBatches(batches, query) {
       <td class="num px-4 py-2.5 text-right">${batch.currentQty}</td>
       <td class="num px-4 py-2.5 text-right ${batch.quarantinedQty ? 'text-risk-amber font-semibold' : 'text-ink-faint'}">${batch.quarantinedQty}</td>
       <td class="num px-4 py-2.5 text-right font-semibold">${money(batch.value)}</td>
-      <td class="px-4 py-2.5 text-xs text-ink-soft">${escapeHtml(batch.status)}</td>`;
+      <td class="px-4 py-2.5 text-xs text-ink-soft">${escapeHtml(estadoDeLote(batch.status))}</td>`;
     return tr;
   }));
 }
@@ -1666,6 +1666,25 @@ async function loadPendingWaste() {
 }
 
 /* ───────────────────────── historial de bajas ───────────────────────── */
+
+/**
+ * El estado del lote, dicho en el idioma de la tienda.
+ *
+ * <p>La columna venia pintando el literal de la base —`ACTIVE`, `DEPLETED`—,
+ * que es el unico sitio de la interfaz donde el operario leia en ingles el
+ * nombre interno de una columna. Si apareciera un estado nuevo en la base, se
+ * muestra tal cual en vez de dejar el hueco vacio: un estado sin traducir se
+ * nota y se arregla, uno invisible no.
+ */
+const BATCH_STATUS = {
+  ACTIVE: 'Activo',
+  DEPLETED: 'Agotado',
+  EXPIRED: 'Vencido'
+};
+
+function estadoDeLote(status) {
+  return BATCH_STATUS[status] ?? status;
+}
 
 const WASTE_STATUS = {
   PENDING_APPROVAL: { label: 'Pendiente', tone: 'text-risk-amber' },

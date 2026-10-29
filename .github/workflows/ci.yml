@@ -74,6 +74,20 @@ jobs:
       # base, y que un error del servidor llegue al operario con su mensaje.
       - run: npm test
 
+      # El CSS compilado se versiona porque Render no tiene Node: el jar tiene
+      # que llevarlo ya hecho. Eso abre la puerta a que se quede viejo -alguien
+      # añade una clase de Tailwind en app.js, no recompila, y esa clase no
+      # existe en la hoja: no falla nada, solo sale un elemento sin estilo-.
+      # Aqui se reconstruye y se compara con lo que hay en el repositorio.
+      - name: El CSS compilado esta al dia
+        run: |
+          npm run css
+          if ! git diff --quiet -- src/main/resources/static/kardo.css; then
+            echo "::error file=src/main/resources/static/kardo.css::La hoja compilada no corresponde al fuente. Ejecuta 'npm run css' y commitea el resultado."
+            git diff --stat -- src/main/resources/static/kardo.css
+            exit 1
+          fi
+
   # ---------------------------------------------------------------------------
   # Lo que las pruebas no pueden ver
   # ---------------------------------------------------------------------------

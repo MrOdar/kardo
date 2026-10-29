@@ -59,8 +59,10 @@ firmada y comprobable en los libros.
 
 - Contenedor de **512 MB** en capa gratuita: todo el diseño de datos evita cargar
   colecciones completas en memoria.
-- La interfaz se sirve desde el mismo jar, **sin build de front**: HTML, Tailwind
-  por CDN y JavaScript sin framework. Cualquier rediseño vive dentro de eso.
+- La interfaz se sirve desde el mismo jar: HTML y JavaScript sin framework, sin
+  empaquetador ni framework de front. Lo único que se compila es el CSS de
+  Tailwind (`npm run css`), y el resultado se versiona porque Render no tiene
+  Node. Cualquier rediseño vive dentro de eso.
 - La tienda sale del token; la interfaz nunca elige sobre qué tienda escribe.
 - Una sola tienda demo compartida, restaurable con un botón, que convive con las
   empresas reales dadas de alta desde fuera.
@@ -82,5 +84,7 @@ buscador global (`Ctrl+K`) se recorre con flechas y se cierra con `Esc`.
 
 ## Brand commitments
 
-Nombre **Kardo**. Sin logotipo ni paleta heredada de un manual: el aspecto actual
-es una primera iteración propia, no un compromiso de marca.
+Nombre **Kardo**. Sin paleta heredada de un manual: el aspecto es una iteración
+propia, no un compromiso de marca. El logotipo —tres lotes en cola, el de
+arriba desplazado y opaco— se dibujó aquí y dice la regla del producto, de modo
+que es sustituible si algún día llega una identidad de verdad.

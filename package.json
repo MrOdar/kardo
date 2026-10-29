@@ -3,13 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Pruebas de la SPA. No construye nada: app.js e index.html se sirven tal cual desde el jar.",
+  "description": "Pruebas de la SPA y compilacion del CSS. app.js e index.html se sirven tal cual desde el jar; kardo.css se compila aqui y se versiona.",
   "scripts": {
+    "css": "tailwindcss -i src/main/css/kardo.css -o src/main/resources/static/kardo.css --minify",
+    "css:watch": "tailwindcss -i src/main/css/kardo.css -o src/main/resources/static/kardo.css --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "jsdom": "26.1.0",
+    "tailwindcss": "3.4.17",
     "vitest": "3.2.4"
   }
 }

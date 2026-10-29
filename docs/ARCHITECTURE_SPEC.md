@@ -562,8 +562,8 @@ suba de versión se va a encontrar lo mismo.
 
 El resultado se comprobó además fuera de las pruebas, contra la aplicación
 levantada: login real, endpoint protegido con token (200) y sin él (401),
-`actuator/health` público y `actuator/metrics` cerrado, la CSP con su hash
-intacta, 405 y 404 con el cuerpo `ApiError` de siempre, la carga de ventas por
+`actuator/health` público y `actuator/metrics` cerrado, la CSP con
+`script-src 'self'` intacta, 405 y 404 con el cuerpo `ApiError` de siempre, la carga de ventas por
 Excel registrando sus 14 líneas, y la SPA cargando sin un solo error de consola.
 
 **El chequeo que faltaba.** El job `dependencias` del CI hace dos cosas
@@ -634,8 +634,7 @@ devolviera su motivo real, con lo que la prueba lo delató citando
 #### La SPA, ejercitada y no sólo leída
 `SpaContractTest` comprobaba el contrato **estático** —que cada `id` que busca
 el guion exista, que no haya `id` repetidos, que toda ruta que la interfaz llama
-la sirva algún controlador, que el hash de la CSP corresponda al script en
-línea—, pero no ejecutaba nada. Frente a eso, `app.js` e `index.html` suman
+la sirva algún controlador, que no quede nada en línea en el HTML—, pero no ejecutaba nada. Frente a eso, `app.js` e `index.html` suman
 4.200 líneas: era la mitad del producto que el evaluador toca, con cero pruebas
 de comportamiento.
 
@@ -674,7 +673,7 @@ y sobre qué tienda acaba escribiendo— en **91 pruebas**:
 | `TokensInvalidos` | Firma ajena, token expirado, **token sin tienda**, otro emisor, basura y credenciales básicas: todo 401 |
 | `Roles` | El operario recibe 403 al aprobar o rechazar mermas y al revertir cargas, **y el servicio no se toca**; el gerente sí pasa; un token sin roles no entra |
 | `Aislamiento` | Token de una tienda con el cuerpo apuntando a otra se corta **antes de escribir**; un `storeId` colado en la URL se ignora; venta, catálogo, merma y reversión usan la tienda y el correo del token |
-| `Cabeceras` | Que la respuesta lleve la CSP y que **`script-src` no tenga `unsafe-inline`** —un `unsafe-inline` anula la política entera, así que el único bloque en línea del HTML va autorizado por su hash SHA-256—, que `connect-src 'self'` le quite el destino a un script inyectado, y que el preflight CORS **no autorice credenciales** ni conteste a un origen ajeno |
+| `Cabeceras` | Que la respuesta lleve la CSP y que **`script-src` sea exactamente `'self'`** —se comprueba la directiva entera y no un trozo: un `unsafe-inline` ahí anula la política entera, y un dominio de más la abre a lo que ese dominio sirva—, que `connect-src 'self'` le quite el destino a un script inyectado, y que el preflight CORS **no autorice credenciales** ni conteste a un origen ajeno |
 
 Los dobles sin usar son aquí la afirmación más fuerte: comprueban que la petición
 nunca llegó al servicio. Para confirmar que las pruebas muerden se quitó el

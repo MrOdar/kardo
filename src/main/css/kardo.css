@@ -1,0 +1,127 @@
+/**
+ * Fuente del CSS de Kardo. Se compila a src/main/resources/static/kardo.css,
+ * que es el archivo que viaja en el jar y el que sirve Render.
+ *
+ *   npm run css       una vez
+ *   npm run css:watch mientras se diseña
+ *
+ * El resultado se versiona a proposito: Render no tiene Node, asi que el jar
+ * tiene que llevar el CSS ya compilado. El CI reconstruye y falla si lo que
+ * hay en el repositorio no coincide, que es lo que impide que se quede viejo.
+ *
+ * Lo de abajo va fuera de @layer y por tanto despues de las utilidades, que es
+ * exactamente donde estaba cuando vivia en un <style> al final del <head>:
+ * manda sobre las clases de Tailwind igual que antes.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+  :root { color-scheme: light; accent-color: #3F6FD0; }
+  body { background: #F3F6FC; }
+
+  /* Las cifras se comparan en columna: ancho fijo o el ojo no puede hacerlo. */
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+  /* ── Superficies del navegador ──
+     Selección, cursor, foco y barras de desplazamiento vienen sin diseñar por
+     defecto. Tematizarlas es lo que separa una página construida de una
+     ensamblada, y no cuesta nada. */
+  ::selection { background: #DCE7FB; color: #0B1220; }
+  html { caret-color: #3F6FD0; scrollbar-color: #A7B5D2 #F3F6FC; }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: #F3F6FC; }
+  ::-webkit-scrollbar-thumb { background: #CBD6EA; border: 3px solid #F3F6FC; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #A7B5D2; }
+  :focus-visible { outline: 2px solid #3F6FD0; outline-offset: 2px; border-radius: 3px; }
+  a { text-underline-offset: 3px; }
+
+  /* ── Chip de estado ──
+     Sustituye al filete lateral de 4 px: el color viaja con el dato dentro, de
+     modo que nunca comunica solo. */
+  .chip {
+    display: inline-flex; align-items: center; gap: .3rem;
+    border-radius: 99px; padding: .125rem .5rem;
+    font-size: .75rem; font-weight: 600; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .chip-red     { background: #FDECEA; color: #B3261E; }
+  .chip-amber   { background: #FBF0DC; color: #8A5A00; }
+  .chip-green   { background: #E6F4ED; color: #116A45; }
+  .chip-expired { background: #0B1220; color: #FFFFFF; }
+  .chip-neutral { background: #EDF1F9; color: #3D4A63; }
+
+  /* Etiqueta de cabecera de tabla: pequeña, espaciada, sin gritar. */
+  .th { font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #5C6881; }
+
+  tbody tr:hover { background: #FAFBFE; }
+
+  [contenteditable]:focus { outline: 2px solid #3F6FD0; outline-offset: -2px; background: #fff; }
+  .dropzone-active { background: #EEF3FD; border-color: #3F6FD0; }
+
+  /* Sección activa en la barra lateral: fondo y filete, no solo color de texto. */
+  [role="tab"][aria-selected="true"] {
+    background: rgba(255,255,255,.12); color: #FFFFFF; font-weight: 600;
+    box-shadow: inset 2px 0 0 #FFFFFF;
+  }
+
+  /* ── El único momento animado ──
+     La sección entra desde un estado ya visible, con salida exponencial. */
+  [role="tabpanel"]:not(.hidden) { animation: enter .34s cubic-bezier(.16,1,.3,1) both; }
+  @keyframes enter { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, [role="tabpanel"]:not(.hidden) { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+/* ══════════════════════ Barra lateral ══════════════════════
+   Nueve secciones en una lista plana de nueve enlaces iguales obligan a leerlos
+   todos para encontrar uno. Van agrupadas por el momento en que se usan —lo de
+   hoy, el trabajo del dia, lo que se consulta despues— y cada grupo se anuncia
+   con una etiqueta pequeña que no compite con los nombres. */
+
+.nav-group {
+  margin: 1.25rem .75rem .375rem;
+  font-size: .6875rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase;
+  /* .45 daba 3.00:1 sobre el azul de la barra, por debajo del minimo para
+     texto. Medido en ejecucion sobre #2F4F86: .70 da 4.93:1. */
+  color: rgba(255,255,255,.70);
+}
+
+.nav-item {
+  display: flex; flex-shrink: 0; align-items: center; gap: .625rem;
+  white-space: nowrap; border-radius: .375rem;
+  padding: .5rem .75rem; font-size: .875rem;
+  color: rgba(255,255,255,.78);
+  transition: background-color .15s, color .15s;
+}
+.nav-item:hover { background: rgba(255,255,255,.10); color: #FFFFFF; }
+
+/* La seccion activa es una superficie, no un color de texto: con la barra en
+   azul profundo, subir el brillo del texto se pierde a un metro de la pantalla. */
+.nav-item[aria-selected="true"] {
+  background: rgba(255,255,255,.14); color: #FFFFFF; font-weight: 600;
+  box-shadow: inset 2px 0 0 #FFFFFF;
+}
+
+/* ══════════════════════ Superficies ══════════════════════
+   Una sola regla para todo lo que es "una tarjeta", de modo que no haya tres
+   radios y dos sombras distintas segun quien escribiera el bloque. */
+.card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F4;
+  border-radius: .75rem;
+  box-shadow: 0 1px 2px rgba(11,18,32,.04), 0 8px 24px -12px rgba(11,18,32,.14);
+}
+
+/* Titulo de pantalla. Lo repetian ocho secciones con la misma retahila de
+   cuatro clases; aqui vive una sola vez y no puede irse de una en una. */
+.section-title {
+  font-size: 1.75rem; font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
+}
+
+/* Un SKU o un codigo de lote se cotejan caracter a caracter contra la etiqueta
+   del envase. Partido en tres lineas -que es lo que hacia en un telefono- deja
+   de servir para eso, asi que no se parte: la tabla se desplaza. */
+td.font-mono, th.font-mono { white-space: nowrap; }

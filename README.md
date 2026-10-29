@@ -435,8 +435,16 @@ adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
 
 ```bash
 mvn verify    # 251 unitarias + 182 de integración
-npm ci && npm test   # 32 de la SPA, en jsdom (Node solo para probar)
+npm ci && npm test   # 32 de la SPA, en jsdom
 ```
+
+Node hace además una cosa que no es probar: **compilar el CSS**. Tras tocar
+`src/main/css/kardo.css` o `tailwind.config.js` hay que ejecutar `npm run css`
+y commitear `static/kardo.css`, porque Render no tiene Node y el jar debe
+llevar la hoja ya hecha. Se versiona a propósito, y el CI la reconstruye y
+falla si lo versionado no coincide —si no, una clase nueva en `app.js` no
+rompería nada: sólo saldría un elemento sin estilo—. Mientras se diseña,
+`npm run css:watch`.
 
 Las de integración levantan un **PostgreSQL 17 efímero** con Testcontainers y le
 aplican los mismos scripts de `sql/` que se usan en Supabase: no hay un esquema
@@ -457,14 +465,14 @@ de **usarla**: vende, declara una merma y un canje, y recién entonces restaura.
 `ON DELETE RESTRICT`, de modo que el borrado choca con la clave foránea en
 cuanto alguien toca la demo. Ya pasó una vez, y se descubrió a mano.
 
-`SpaContractTest` cubre un caso distinto: la CSP prohíbe `'unsafe-inline'` en
-`script-src` y autoriza el único `<script>` en línea del HTML —la configuración
-de Tailwind— por su **hash SHA-256**, de modo que un script inyectado no se
-ejecuta aunque llegue a la página. Como el hash depende de los bytes exactos de
-ese bloque, la prueba lo recalcula desde `index.html` y falla el build si se ha
-ido, diciendo cuál es el nuevo; sin eso, el cambio se descubriría en producción
-con la interfaz sin estilos. Por lo mismo, `.gitattributes` fija los finales de
-línea en LF: con CRLF el hash sería otro en Windows que en CI.
+`SpaContractTest` cubre un caso distinto: que `script-src` siga siendo
+exactamente `'self'`. Durante un tiempo tuvo que ser más ancho —autorizaba el
+dominio del CDN de Tailwind y, por su hash SHA-256, el bloque en línea que lo
+configuraba—. Compilar el CSS dejó sin trabajo a las dos excepciones, así que
+el jar es ahora el único origen de código de la página. La prueba falla el
+build si vuelve a aparecer un `<script>` en línea, un `<style>` o un `onclick=`:
+nada de eso rompe en una prueba de servidor —el HTML se sirve tal cual—, lo
+bloquea el navegador del operario, en producción y en silencio.
 
 El banco de rendimiento queda fuera del build a propósito —mide la máquina, no
 una regla de negocio— y se pide aparte con `mvn test -Pbench`.

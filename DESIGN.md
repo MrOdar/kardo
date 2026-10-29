@@ -71,8 +71,13 @@ Los tres de riesgo están elegidos para pasar 4.5:1 sobre su propio fondo tintad
 
 **Shell de aplicación**, no una página con pestañas:
 
-- **Barra lateral fija** (`brand.deep`) con las siete secciones, la sesión y el
-  botón de demo. En móvil colapsa a una barra superior desplazable.
+- **Barra lateral fija** (`brand.deep`) con el logotipo, las secciones, la
+  sesión y el botón de demo. En móvil colapsa a una barra superior desplazable.
+  Las nueve secciones no van en una lista plana —nueve nombres iguales obligan
+  a leerlos todos para encontrar uno— sino agrupadas por el momento en que se
+  usan: lo primero de hoy suelto arriba, y debajo **Decidir hoy**, **Operar** y
+  **Revisar**. Los rótulos desaparecen en móvil, donde la navegación es una
+  fila que se desplaza y un rótulo sólo robaría ancho.
 - **La aplicación abre en una decisión, no en una tabla.** La primera sección es
   «Lo primero de hoy»: las prioridades ordenadas por lo que cuesta dejarlas para
   mañana, cada línea con el botón que lleva adonde se resuelve, y debajo el
@@ -91,6 +96,11 @@ entre bloques, más aire encima de un encabezado que debajo.
 
 ## Components
 
+- **Logotipo.** Tres barras redondeadas en cola; la de arriba va desplazada a
+  la derecha y es la única opaca, porque es la que sale primero. Es la regla
+  entera del producto dicha en 28 px, y el mismo dibujo sirve de favicon. Se
+  eligió una marca dibujada y no una inicial en un cuadrado: la inicial no dice
+  nada y se parece a la de cualquier otro producto.
 - **Chip de estado.** Reemplaza el filete lateral de 4 px. Fondo tintado, texto
   del color de riesgo, y el dato dentro: `2 d`, `Vencido`. El color nunca viaja
   solo.
@@ -128,6 +138,19 @@ construida: selección de texto, cursor de inserción, anillo de foco (`brand`,
 Un solo momento autorizado: el cambio de sección entra con un desplazamiento
 corto y una aparición, con salida exponencial desde un estado ya visible. Nada
 más se anima. `prefers-reduced-motion` lo anula.
+
+## Dónde vive
+
+El tema (paleta, tipografías, sombras) está en `tailwind.config.js`; las clases
+propias —`.nav-item`, `.card`, `.chip`, `.th`, `.section-title`— en
+`src/main/css/kardo.css`. De ahí sale `static/kardo.css`, que es lo que viaja
+en el jar y hay que **recompilar y versionar** tras tocar cualquiera de los
+dos: `npm run css`. El CI reconstruye y falla si lo versionado no coincide.
+
+Antes el tema vivía en un `<script>` dentro del HTML y Tailwind se cargaba
+desde su CDN, lo que ataba el aspecto de la aplicación a que un tercero
+contestara: si no lo hacía, la interfaz no se degradaba, salía entera sin
+estilos. Compilar también permitió cerrar `script-src` a `'self'`.
 
 ## Refuse
 

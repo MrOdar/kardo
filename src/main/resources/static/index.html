@@ -4,98 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kardo — Smart Inventory &amp; FEFO Engine</title>
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['"Instrument Sans"', 'system-ui', 'sans-serif'],
-          mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace']
-        },
-        colors: {
-          ink:   { DEFAULT: '#0B1220', soft: '#3D4A63', faint: '#5C6881' },
-          // El azul se mueve a un registro pastel: el mismo papel —estructura y
-          // accion— con menos voltaje, de modo que el rojo de un vencimiento
-          // siga siendo lo mas fuerte de la pantalla.
-          brand: { DEFAULT: '#3F6FD0', deep: '#2F4F86', soft: '#DBE6FA', tint: '#EEF3FD' },
-          canvas: '#F3F6FC',
-          surface: '#FFFFFF',
-          line:  { DEFAULT: '#E2E8F4', strong: '#CBD6EA' },
-          risk:  {
-            red: '#B3261E', amber: '#8A5A00', green: '#116A45',
-            'red-tint': '#FDECEA', 'amber-tint': '#FBF0DC', 'green-tint': '#E6F4ED'
-          }
-        },
-        boxShadow: {
-          card: '0 1px 2px rgba(11,18,32,.04), 0 8px 24px -12px rgba(11,18,32,.14)',
-          lift: '0 2px 4px rgba(11,18,32,.06), 0 16px 32px -16px rgba(11,18,32,.22)'
-        }
-      }
-    }
-  };
-</script>
-<style>
-  :root { color-scheme: light; accent-color: #3F6FD0; }
-  body { background: #F3F6FC; }
-
-  /* Las cifras se comparan en columna: ancho fijo o el ojo no puede hacerlo. */
-  .num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
-
-  /* ── Superficies del navegador ──
-     Selección, cursor, foco y barras de desplazamiento vienen sin diseñar por
-     defecto. Tematizarlas es lo que separa una página construida de una
-     ensamblada, y no cuesta nada. */
-  ::selection { background: #DCE7FB; color: #0B1220; }
-  html { caret-color: #3F6FD0; scrollbar-color: #A7B5D2 #F3F6FC; }
-  ::-webkit-scrollbar { width: 11px; height: 11px; }
-  ::-webkit-scrollbar-track { background: #F3F6FC; }
-  ::-webkit-scrollbar-thumb { background: #CBD6EA; border: 3px solid #F3F6FC; border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: #A7B5D2; }
-  :focus-visible { outline: 2px solid #3F6FD0; outline-offset: 2px; border-radius: 3px; }
-  a { text-underline-offset: 3px; }
-
-  /* ── Chip de estado ──
-     Sustituye al filete lateral de 4 px: el color viaja con el dato dentro, de
-     modo que nunca comunica solo. */
-  .chip {
-    display: inline-flex; align-items: center; gap: .3rem;
-    border-radius: 99px; padding: .125rem .5rem;
-    font-size: .75rem; font-weight: 600; white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  .chip-red     { background: #FDECEA; color: #B3261E; }
-  .chip-amber   { background: #FBF0DC; color: #8A5A00; }
-  .chip-green   { background: #E6F4ED; color: #116A45; }
-  .chip-expired { background: #0B1220; color: #FFFFFF; }
-  .chip-neutral { background: #EDF1F9; color: #3D4A63; }
-
-  /* Etiqueta de cabecera de tabla: pequeña, espaciada, sin gritar. */
-  .th { font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #5C6881; }
-
-  tbody tr:hover { background: #FAFBFE; }
-
-  [contenteditable]:focus { outline: 2px solid #3F6FD0; outline-offset: -2px; background: #fff; }
-  .dropzone-active { background: #EEF3FD; border-color: #3F6FD0; }
-
-  /* Sección activa en la barra lateral: fondo y filete, no solo color de texto. */
-  [role="tab"][aria-selected="true"] {
-    background: rgba(255,255,255,.12); color: #FFFFFF; font-weight: 600;
-    box-shadow: inset 2px 0 0 #FFFFFF;
-  }
-
-  /* ── El único momento animado ──
-     La sección entra desde un estado ya visible, con salida exponencial. */
-  [role="tabpanel"]:not(.hidden) { animation: enter .34s cubic-bezier(.16,1,.3,1) both; }
-  @keyframes enter { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, [role="tabpanel"]:not(.hidden) { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  }
-</style>
+<!-- El CSS se compila una vez (npm run css) y viaja en el jar. Antes se cargaba
+     el compilador de Tailwind desde un CDN, de modo que si ese dominio no
+     contestaba la interfaz salia entera sin estilos: el aspecto de la aplicacion
+     dependia de un tercero. El tema vive ahora en tailwind.config.js. -->
+<link rel="stylesheet" href="kardo.css">
 </head>
 <body class="font-sans text-ink antialiased">
 
@@ -108,9 +25,20 @@
 
   <aside class="bg-brand-deep text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col lg:overflow-y-auto">
     <div class="flex items-center justify-between gap-3 px-4 pt-4 lg:px-5 lg:pt-6">
-      <div>
-        <p class="text-lg font-bold leading-none tracking-tight">Kardo</p>
-        <p class="mt-1 text-xs text-white/80">Control FEFO de inventario</p>
+      <div class="flex items-center gap-2.5">
+        <!-- Tres lotes en cola: el de arriba, desplazado y opaco, es el que sale
+             primero. Es la regla entera del producto dibujada en 28 px, y el
+             mismo trazo que el favicon. -->
+        <svg class="h-7 w-7 shrink-0" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#FFFFFF" opacity=".16"/>
+          <rect x="12" y="7.5"  width="14" height="5" rx="2.5" fill="#FFFFFF"/>
+          <rect x="6"  y="15"   width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".52"/>
+          <rect x="6"  y="22.5" width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".28"/>
+        </svg>
+        <div>
+          <p class="text-lg font-bold leading-none tracking-tight">Kardo</p>
+          <p class="mt-1 text-xs text-white/80">Control FEFO de inventario</p>
+        </div>
       </div>
       <p id="connection" class="flex items-center gap-1.5 text-xs text-white/80 lg:hidden">
         <span id="connection-dot" class="h-1.5 w-1.5 rounded-full bg-white/40"></span>
@@ -123,8 +51,7 @@
       <!-- La aplicacion no abre en una tabla, abre en una decision: el operario
            entra sabiendo que tiene que mirar hoy, no teniendo que buscarlo. -->
       <button role="tab" id="tab-inicio" aria-controls="panel-inicio" aria-selected="true"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 11.5 12 5l8 6.5"/><path d="M6 11v8h12v-8"/><path d="M10 19v-5h4v5"/>
@@ -134,9 +61,9 @@
               class="num ml-auto hidden rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-bold text-white">0</span>
       </button>
 
+      <p class="nav-group hidden lg:block" role="presentation" aria-hidden="true">Decidir hoy</p>
       <button role="tab" id="tab-semaforo" aria-controls="panel-semaforo" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
@@ -147,8 +74,7 @@
       <!-- El contador va en la navegación a proposito: una alerta que solo
            existe dentro de su panel no es proactiva, hay que ir a buscarla. -->
       <button role="tab" id="tab-alertas" aria-controls="panel-alertas" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M7 10h10M7 14h6"/><path d="M4 5h16v14l-3-2H4z"/>
@@ -158,9 +84,9 @@
               class="num ml-auto hidden rounded-full bg-risk-red px-1.5 py-0.5 text-xs font-bold text-white">0</span>
       </button>
 
+      <p class="nav-group hidden lg:block" role="presentation" aria-hidden="true">Operar</p>
       <button role="tab" id="tab-inventario" aria-controls="panel-inventario" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 7.5 12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5 12 11l8-3.5M12 11v9"/>
@@ -169,8 +95,7 @@
       </button>
 
       <button role="tab" id="tab-excel" aria-controls="panel-excel" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M14 3v5h5"/><path d="M14 3H6v18h12V8z"/><path d="m9.5 12.5 5 5m0-5-5 5"/>
@@ -179,8 +104,7 @@
       </button>
 
       <button role="tab" id="tab-recepcion" aria-controls="panel-recepcion" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/>
@@ -191,8 +115,7 @@
       <!-- Las preguntas de alrededor de una rebaja: si va a mejor o a peor, por
            qué se compró de más y de quién viene lo que acaba en riesgo. -->
       <button role="tab" id="tab-ventas" aria-controls="panel-ventas" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
@@ -201,9 +124,9 @@
         Ventas
       </button>
 
+      <p class="nav-group hidden lg:block" role="presentation" aria-hidden="true">Revisar</p>
       <button role="tab" id="tab-analisis" aria-controls="panel-analisis" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-5 3 3 4-6"/>
@@ -212,8 +135,7 @@
       </button>
 
       <button role="tab" id="tab-diagnostico" aria-controls="panel-diagnostico" aria-selected="false"
-              class="flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm
-                     text-white/80 transition-colors hover:bg-white/10 hover:text-white lg:shrink">
+              class="nav-item lg:shrink">
         <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 13h4l2.5 5 4-12 2.5 7h5"/>
@@ -298,7 +220,7 @@
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p id="today-date" class="text-xs font-semibold uppercase tracking-wide text-ink-faint">—</p>
-        <h1 class="mt-1.5 text-[1.75rem] font-bold leading-tight tracking-tight">Lo primero de hoy</h1>
+        <h1 class="mt-1.5 section-title">Lo primero de hoy</h1>
         <p class="mt-1.5 max-w-prose text-sm text-ink-soft">
           Lo que hay que decidir, ordenado por lo que cuesta dejarlo para mañana.
         </p>
@@ -380,7 +302,7 @@
     <div id="today-body" class="hidden">
       <!-- Tira de cifras: una manda y las demás la acompañan. No es una rejilla
            de cuatro tarjetas iguales, porque las cuatro no valen lo mismo. -->
-      <div class="mt-7 overflow-hidden rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-7 overflow-hidden card">
         <!-- Los separadores son el propio hueco de la rejilla teñido de `line`:
              asi caen donde toque con dos columnas o con cuatro, sin bordes que
              sobren en el canto de la tarjeta. -->
@@ -412,7 +334,7 @@
       </div>
 
       <!-- El corazón de la pantalla: cada línea lleva su acción detrás. -->
-      <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-8 card">
         <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-5 py-4">
           <div>
             <h2 class="text-base font-semibold">Prioridades</h2>
@@ -444,7 +366,7 @@
       <!-- Lo que el motor entregará a continuación. La cola completa vive en su
            sección; aquí están las cinco primeras, que es lo que cabe en la
            cabeza de quien está por despachar. -->
-      <div class="mt-6 rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-6 card">
         <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-5 py-4">
           <div>
             <h2 class="text-base font-semibold">Lo próximo en salir</h2>
@@ -463,7 +385,7 @@
 
   <!-- ═════════ Pestaña 1: semáforo y salida rápida ═════════ -->
   <section id="panel-semaforo" role="tabpanel" aria-labelledby="tab-semaforo" class="hidden pt-10">
-    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Lo que vence primero</h2>
+    <h2 class="section-title">Lo que vence primero</h2>
     <p class="mt-1.5 max-w-prose text-sm text-ink-soft">
       Orden exacto en que el motor FEFO entregará la mercadería de la tienda.
     </p>
@@ -505,7 +427,7 @@
       </div>
     </div>
 
-    <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-8 card">
       <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line px-5 py-4">
         <div>
           <h2 class="text-base font-semibold">Cola de salida</h2>
@@ -565,7 +487,7 @@
   <section id="panel-alertas" role="tabpanel" aria-labelledby="tab-alertas" class="hidden pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Qué rebajar hoy</h2>
+        <h2 class="section-title">Qué rebajar hoy</h2>
         <p class="mt-1.5 max-w-prose text-sm text-ink-soft">
           El semáforo dice cuánto falta; esto dice qué hacer. El precio sugerido nunca baja del costo
           del lote: por debajo de ahí, rebajar sale peor que la merma.
@@ -598,7 +520,7 @@
       </div>
     </dl>
 
-    <div class="mt-6 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-6 overflow-x-auto card">
       <table class="w-full border-collapse text-sm">
         <thead class="border-b border-line bg-canvas text-left">
           <tr class="text-ink-soft">
@@ -633,7 +555,7 @@
   <section id="panel-inventario" role="tabpanel" aria-labelledby="tab-inventario" class="hidden pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Inventario físico</h2>
+        <h2 class="section-title">Inventario físico</h2>
         <p class="mt-1 max-w-prose text-sm text-ink-soft">
           Todos los lotes con existencias, en el mismo orden en que FEFO los entregará.
         </p>
@@ -748,7 +670,7 @@
       </div>
       <div>
         <label for="batch-filter" class="block text-sm text-ink-faint">Estado</label>
-        <select id="batch-filter" class="mt-1 rounded-md rounded-lg border border-line bg-surface px-2 py-1.5">
+        <select id="batch-filter" class="mt-1 rounded-md border border-line bg-surface px-2 py-1.5">
           <option value="TODOS">Todos</option>
           <option value="POR_VENCER_48H">Vence en 48 h</option>
           <option value="POR_VENCER_5D">Vence en 5 días</option>
@@ -760,8 +682,8 @@
       <p id="batch-count" class="py-2 text-sm text-ink-faint">—</p>
     </div>
 
-    <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
-      <table class="w-full border-collapse text-sm">
+    <div class="mt-4 overflow-x-auto card">
+      <table class="w-full min-w-[46rem] border-collapse text-sm">
         <thead class="border-b border-line bg-canvas text-left">
           <tr class="text-ink-soft">
             <th class="th px-4 py-2.5">Vence</th>
@@ -796,7 +718,7 @@
         <p id="return-total" class="py-2 text-sm text-ink-faint">—</p>
       </div>
 
-      <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-4 overflow-x-auto card">
         <table class="w-full min-w-[46rem] border-collapse text-sm">
           <thead class="border-b border-line bg-canvas text-left">
             <tr class="text-ink-soft">
@@ -826,7 +748,7 @@
       <form id="waste-form" class="mt-5 flex flex-wrap items-end gap-3">
         <div>
           <label for="waste-batch" class="block text-sm text-ink-faint">Lote</label>
-          <select id="waste-batch" class="mt-1 w-72 rounded-md rounded-lg border border-line bg-surface px-2 py-1.5">
+          <select id="waste-batch" class="mt-1 w-72 rounded-md border border-line bg-surface px-2 py-1.5">
             <option value="">Restaura la demo para ver los lotes</option>
           </select>
         </div>
@@ -837,7 +759,7 @@
         </div>
         <div>
           <label for="waste-reason" class="block text-sm text-ink-faint">Motivo</label>
-          <select id="waste-reason" class="mt-1 rounded-md rounded-lg border border-line bg-surface px-2 py-1.5">
+          <select id="waste-reason" class="mt-1 rounded-md border border-line bg-surface px-2 py-1.5">
             <option value="EXPIRATION">Vencimiento</option>
             <option value="DAMAGE">Daño</option>
             <option value="COLD_CHAIN_FAILURE">Rotura de cadena de frío</option>
@@ -852,7 +774,7 @@
 
       <div id="waste-pending" class="mt-6 hidden">
         <h4 class="font-semibold">En cuarentena, a la espera del gerente</h4>
-        <div class="mt-3 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+        <div class="mt-3 overflow-x-auto card">
           <table class="w-full border-collapse text-sm">
             <thead class="border-b border-line bg-canvas text-left">
               <tr class="text-ink-soft">
@@ -884,7 +806,7 @@
             <div>
               <label for="waste-history-filter" class="block text-sm text-ink-faint">Estado</label>
               <select id="waste-history-filter"
-                      class="mt-1 rounded-md rounded-lg border border-line bg-surface px-2 py-1.5">
+                      class="mt-1 rounded-md border border-line bg-surface px-2 py-1.5">
                 <option value="">Todas</option>
                 <option value="PENDING_APPROVAL">Pendientes</option>
                 <option value="APPROVED">Aprobadas</option>
@@ -895,7 +817,7 @@
           </div>
         </div>
 
-        <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+        <div class="mt-4 overflow-x-auto card">
           <table class="w-full border-collapse text-sm">
             <thead class="border-b border-line bg-canvas text-left">
               <tr class="text-ink-soft">
@@ -919,7 +841,7 @@
 
   <!-- ═════════ Pestaña 4: Excel, cuarentena y versionado ═════════ -->
   <section id="panel-excel" role="tabpanel" aria-labelledby="tab-excel" class="hidden pt-10">
-    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Cargar desde Excel</h2>
+    <h2 class="section-title">Cargar desde Excel</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
       El mismo archivo trae dos hojas: <strong>Inventario</strong>, que crea los lotes, y
       <strong>Ventas</strong>, que los descuenta por FEFO. El archivo se procesa en streaming y las
@@ -1099,7 +1021,7 @@
             Registrar correcciones
           </button>
         </div>
-        <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+        <div class="mt-4 overflow-x-auto card">
           <table class="w-full border-collapse text-sm">
             <thead class="border-b border-line bg-canvas text-left">
               <tr class="text-ink-soft">
@@ -1122,7 +1044,7 @@
         Quién subió cada archivo y qué entró. Un archivo ya procesado se rechaza en lugar de duplicar sus lotes;
         el gerente puede revertir una carga mientras su mercadería siga intacta.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-3 overflow-x-auto card">
         <table class="w-full border-collapse text-sm">
           <thead class="border-b border-line bg-canvas text-left">
             <tr class="text-ink-soft">
@@ -1152,7 +1074,7 @@
           Guardar correcciones
         </button>
       </div>
-      <div class="mt-4 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+      <div class="mt-4 overflow-x-auto card">
         <table class="w-full border-collapse text-sm">
           <thead class="border-b border-line bg-canvas text-left">
             <tr class="text-ink-soft">
@@ -1176,7 +1098,7 @@
 
   <!-- ═════════ Pestaña 5: recepción documental ═════════ -->
   <section id="panel-recepcion" role="tabpanel" aria-labelledby="tab-recepcion" class="hidden pt-10">
-    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Recibir una guía de remisión</h2>
+    <h2 class="section-title">Recibir una guía de remisión</h2>
     <p class="mt-1 max-w-prose text-sm text-ink-soft">
       Toma la foto del documento. La visión multimodal extrae las líneas y las cruza contra el catálogo;
       tú confirmas lo que realmente llegó.
@@ -1222,7 +1144,7 @@
           </dl>
         </div>
 
-        <div id="scan-table" class="mt-4 hidden overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+        <div id="scan-table" class="mt-4 hidden overflow-x-auto card">
           <table class="w-full border-collapse text-sm">
             <thead class="border-b border-line bg-canvas text-left">
               <tr class="text-ink-soft">
@@ -1260,7 +1182,7 @@
   <section id="panel-ventas" role="tabpanel" aria-labelledby="tab-ventas" class="hidden pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Ventas registradas</h2>
+        <h2 class="section-title">Ventas registradas</h2>
         <p id="sales-window" class="mt-1 max-w-prose text-sm text-ink-soft">
           Cada línea con el lote del que salió. Ahí se ve el FEFO: la unidad sale del lote que
           vence antes, y al precio de ese lote.
@@ -1318,7 +1240,7 @@
       </div>
     </dl>
 
-    <div class="mt-6 overflow-x-auto rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-6 overflow-x-auto card">
       <table class="w-full border-collapse text-sm">
         <thead class="border-b border-line bg-canvas text-left">
           <tr class="text-ink-soft">
@@ -1345,7 +1267,7 @@
   </section>
 
   <section id="panel-analisis" role="tabpanel" aria-labelledby="tab-analisis" class="hidden pt-10">
-    <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">Análisis</h2>
+    <h2 class="section-title">Análisis</h2>
     <p class="mt-1.5 max-w-prose text-sm text-ink-soft">
       Una cifra de hoy no se puede juzgar sola. Aquí está la serie detrás, el ritmo al que sale cada
       producto y de quién viene la mercadería que acaba en riesgo.
@@ -1365,7 +1287,7 @@
     <!-- El semaforo mira 5 dias. Esto mira el cruce entre lo que le queda al
          lote y lo que tarda en venderse, que atrapa lo que vence en 9 dias y
          tarda 12 en salir: invisible para el semaforo y perdido igual. -->
-    <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-8 card">
       <div class="border-b border-line px-5 py-4">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1384,7 +1306,7 @@
       <div id="category-chart" class="px-5 py-5"></div>
     </div>
 
-    <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-8 card">
       <div class="border-b border-line px-5 py-4">
         <h3 class="text-base font-semibold">Días de cobertura</h3>
         <p class="mt-0.5 max-w-prose text-sm text-ink-soft">
@@ -1411,7 +1333,7 @@
       </div>
     </div>
 
-    <div class="mt-8 rounded-lg border border-line bg-surface shadow-card">
+    <div class="mt-8 card">
       <div class="border-b border-line px-5 py-4">
         <h3 class="text-base font-semibold">De quién viene lo que está en riesgo</h3>
         <p class="mt-0.5 max-w-prose text-sm text-ink-soft">
@@ -1441,7 +1363,7 @@
   <section id="panel-diagnostico" role="tabpanel" aria-labelledby="tab-diagnostico" class="hidden pt-10">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h2 class="text-[1.75rem] font-bold leading-tight tracking-tight">¿Quién va lento?</h2>
+        <h2 class="section-title">¿Quién va lento?</h2>
         <p class="mt-1 max-w-prose text-sm text-ink-soft">
           Cuando algo tarda, el sospechoso es Gemini, Supabase o el pool de conexiones. Esto los mide
           por separado y dice a cuál mirar. Cada respuesta del backend trae además un

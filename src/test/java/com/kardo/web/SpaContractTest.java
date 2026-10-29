@@ -2,15 +2,12 @@ package com.kardo.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.kardo.config.SecurityConfig;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -126,57 +124,66 @@ class SpaContractTest {
     }
 
     /**
-     * El hash de la CSP y el bloque que autoriza, sincronizados.
+     * Nada en linea en el HTML, que es lo que sostiene {@code script-src 'self'}.
      *
-     * <p>Es la contrapartida de haber quitado {@code 'unsafe-inline'} de
-     * {@code script-src}. Si alguien toca el {@code tailwind.config} -cambiar un
-     * color de la paleta basta-, el hash deja de cuadrar, el navegador se niega a
-     * ejecutar el bloque y la interfaz sale sin estilos. Eso no se descubre en
-     * una prueba de servidor ni en una revision: se descubre en produccion.
-     * Aqui se recalcula desde el mismo archivo que se sirve, de modo que el
-     * build cae antes.
+     * <p>Durante un tiempo la politica tuvo que autorizar por su hash el bloque
+     * que configuraba Tailwind. Compilar el CSS lo dejo sin trabajo y permitio
+     * cerrar {@code script-src} a {@code 'self'} a secas. Esta prueba es lo que
+     * impide que vuelva a abrirse por la puerta de atras: un {@code <script>}
+     * en linea o un {@code onclick=} no los bloquea ninguna prueba de servidor
+     * -el HTML se sirve tal cual-, los bloquea el navegador del operario, en
+     * produccion y en silencio. Y si la respuesta a eso fuera devolver
+     * {@code 'unsafe-inline'}, se habria desandado el arreglo entero.
      */
     @Test
-    @DisplayName("El hash de la CSP corresponde al script en linea del HTML")
-    void elHashDeLaCspCuadra() throws Exception {
-        String esperado = "sha256-" + Base64.getEncoder().encodeToString(
-                MessageDigest.getInstance("SHA-256")
-                        .digest(inlineScript().getBytes(StandardCharsets.UTF_8)));
-
-        assertThat(SecurityConfig.TAILWIND_CONFIG_HASH)
-                .describedAs("""
-                        El <script> en linea de index.html cambio y el hash de la CSP no.
-                        Con el hash viejo el navegador bloquea ese bloque y la interfaz
-                        sale sin estilos. Pon este valor en SecurityConfig.TAILWIND_CONFIG_HASH:
-                        %s""".formatted(esperado))
-                .isEqualTo(esperado);
-    }
-
-    /**
-     * Un hash autoriza un bloque, no la practica de escribir codigo en el HTML.
-     *
-     * <p>Un segundo {@code <script>} en linea, o un {@code onclick=}, quedaria
-     * bloqueado por la CSP y romperia esa parte de la interfaz en silencio. Y si
-     * la respuesta fuera devolver {@code 'unsafe-inline'}, se habria desandado
-     * el arreglo entero. Mejor que falle aqui.
-     */
-    @Test
-    @DisplayName("Sigue habiendo un solo script en linea y ningun manejador onclick=")
-    void nadaMasEnLinea() {
+    @DisplayName("No queda nada en linea en index.html")
+    void nadaEnLinea() {
         assertThat(allMatches(html, "(?s)<script>(.*?)</script>"))
-                .describedAs("bloques <script> sin src en index.html")
-                .hasSize(1);
+                .describedAs("bloques <script> sin src en index.html; la CSP solo admite 'self'")
+                .isEmpty();
 
         assertThat(matches(html, "\\s(on[a-z]+)=\""))
                 .describedAs("manejadores en linea; usa addEventListener en app.js")
                 .isEmpty();
+
+        assertThat(allMatches(html, "(?s)<style>(.*?)</style>"))
+                .describedAs("bloques <style> en index.html; el CSS vive en src/main/css/kardo.css")
+                .isEmpty();
     }
 
-    /** El contenido exacto del bloque, que es sobre lo que el navegador calcula el hash. */
-    private static String inlineScript() {
-        Matcher bloque = Pattern.compile("(?s)<script>(.*?)</script>").matcher(html);
-        assertThat(bloque.find()).describedAs("el <script> en linea de index.html").isTrue();
-        return bloque.group(1);
+    /**
+     * El CSS compilado esta y es el que la pagina pide.
+     *
+     * <p>El aspecto de la aplicacion dependia de que {@code cdn.tailwindcss.com}
+     * contestara: si no lo hacia, no se degradaba, salia entera sin estilos. Ya
+     * no se pide a nadie, pero eso traslada el riesgo a otro sitio -que el
+     * archivo compilado falte del jar- con el mismo resultado en pantalla, asi
+     * que se comprueba que exista, que lleve la paleta dentro y que ningun
+     * resto del CDN haya sobrevivido en el HTML.
+     */
+    @Test
+    @DisplayName("La hoja de estilos compilada viaja en el jar")
+    void elCssCompiladoEstaEnSuSitio() throws Exception {
+        assertThat(html)
+                .describedAs("index.html tiene que pedir la hoja compilada")
+                .contains("href=\"kardo.css\"");
+
+        assertThat(html)
+                .describedAs("resto del CDN de Tailwind en index.html")
+                .doesNotContain("cdn.tailwindcss.com");
+
+        String css = new String(new ClassPathResource("static/kardo.css")
+                .getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+        // Sin distinguir mayusculas: el minificador baja los hexadecimales a
+        // minusculas, de modo que comparar con el literal de la paleta tal como
+        // se escribe en tailwind.config.js falla por el envoltorio, no por el
+        // contenido.
+        assertThat(css)
+                .describedAs("""
+                        static/kardo.css no lleva la paleta dentro. Compila el CSS:
+                          npm run css""")
+                .containsIgnoringCase("#3F6FD0");
     }
 
     @Test

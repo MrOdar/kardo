@@ -37,22 +37,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    /**
-     * SHA-256 del unico {@code <script>} en linea de {@code index.html}: el
-     * bloque que configura Tailwind.
-     *
-     * <p>Es lo que permite prohibir {@code 'unsafe-inline'} en {@code script-src}
-     * sin montar un paso de compilacion. El navegador calcula el hash del
-     * contenido del bloque y solo lo ejecuta si coincide con este.
-     *
-     * <p><b>Cuidado al tocar ese bloque.</b> Cambiar un color de la paleta
-     * cambia el hash, y con el hash viejo el navegador bloquea el script y la
-     * interfaz sale sin estilos. Para que eso no se descubra en produccion,
-     * {@code SpaContractTest} lo recalcula desde el HTML y falla el build si se
-     * ha ido; ese test dice ademas como obtener el nuevo.
-     */
-    public static final String TAILWIND_CONFIG_HASH = "sha256-ZNdZBTDiZkureDfGJHpfF5WHQ+JJ4VjNhMhwjhp0j28=";
-
     private final SecurityProperties securityProperties;
 
     public SecurityConfig(SecurityProperties securityProperties) {
@@ -108,26 +92,24 @@ public class SecurityConfig {
                         // token. `frame-ancestors 'none'` impide el
                         // clickjacking sobre los botones que aprueban mermas.
                         //
-                        // Los dos 'unsafe-inline' no son el mismo problema, asi
-                        // que no reciben la misma respuesta.
+                        // script-src es ahora exactamente 'self', que es lo mas
+                        // estrecho que admite esta politica. Durante un tiempo
+                        // tuvo que autorizar ademas el dominio del CDN de
+                        // Tailwind y, por su hash, el bloque en linea que lo
+                        // configuraba. Compilar el CSS quito las dos cosas: no
+                        // queda ningun <script> en linea que autorizar, y el
+                        // unico origen de codigo es este jar. SpaContractTest
+                        // lo sostiene fallando el build si vuelve a aparecer uno.
                         //
-                        // En script-src, 'unsafe-inline' anula la CSP entera:
-                        // deja que se ejecute cualquier <script> inyectado, que
-                        // es precisamente lo que la politica venia a impedir.
-                        // El SPA tiene un solo script en linea -la configuracion
-                        // de Tailwind, en index.html- y ningun manejador
-                        // onclick=, de modo que basta autorizar ese bloque por
-                        // su hash. Un script que no sea exactamente ese no corre.
-                        // No hace falta compilar nada.
-                        //
-                        // En style-src se queda, y esta vez como decision. La
-                        // version CDN de Tailwind inyecta <style> en tiempo de
-                        // ejecucion, asi que quitarlo exige compilar el CSS -el
-                        // paso de build que este proyecto evita a proposito- y
-                        // lo que compra es poco: inyectar CSS no ejecuta codigo.
+                        // En style-src se queda 'unsafe-inline', y por un motivo
+                        // distinto del de antes: el reparto de vencimientos pinta
+                        // los anchos de sus tramos con atributos style=, que la
+                        // politica cuenta como estilo en linea. Quitarlo exige
+                        // pasar esos anchos por CSSOM, y lo que compra es poco:
+                        // inyectar CSS no ejecuta codigo.
                         .contentSecurityPolicy(csp -> csp.policyDirectives(String.join("; ",
                                 "default-src 'self'",
-                                "script-src 'self' '" + TAILWIND_CONFIG_HASH + "' https://cdn.tailwindcss.com",
+                                "script-src 'self'",
                                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                                 "font-src 'self' https://fonts.gstatic.com",
                                 "img-src 'self' data:",
@@ -182,7 +164,8 @@ public class SecurityConfig {
                                 "/swagger-ui.html", "/swagger-ui/**").permitAll()
                         // La SPA se sirve desde el mismo contenedor y debe cargar
                         // antes de que exista ningun token.
-                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/favicon.ico",
+                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/kardo.css",
+                                "/favicon.svg", "/favicon.ico",
                                 "/assets/**", "/css/**", "/js/**").permitAll()
                         // Puerta de entrada del evaluador: no tiene credenciales
                         // todavia, y esta llamada es justamente la que se las da.

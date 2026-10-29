@@ -1092,16 +1092,14 @@ class EndpointSecurityTest {
                     .andExpect(status().isOk())
                     .andExpect(header().string("Content-Security-Policy",
                             org.hamcrest.Matchers.containsString("connect-src 'self'")))
-                    // Un 'unsafe-inline' en script-src anula la politica entera:
-                    // deja correr cualquier script inyectado. El bloque legitimo
-                    // del HTML va autorizado por su hash, no por una barra libre.
+                    // script-src es exactamente 'self', sin hash ni dominio de
+                    // CDN: desde que el CSS se compila, el jar es el unico
+                    // origen de codigo. Se comprueba la directiva entera y no
+                    // un trozo, porque lo que hay que impedir es que vuelva a
+                    // crecer -un 'unsafe-inline' ahi anula la politica entera,
+                    // y un dominio de mas la abre a lo que ese dominio sirva.
                     .andExpect(header().string("Content-Security-Policy",
-                            org.hamcrest.Matchers.containsString(
-                                    "script-src 'self' '" + com.kardo.config.SecurityConfig
-                                            .TAILWIND_CONFIG_HASH + "'")))
-                    .andExpect(header().string("Content-Security-Policy",
-                            org.hamcrest.Matchers.not(
-                                    org.hamcrest.Matchers.containsString("script-src 'self' 'unsafe-inline'"))))
+                            org.hamcrest.Matchers.containsString("script-src 'self';")))
                     .andExpect(header().string("Content-Security-Policy",
                             org.hamcrest.Matchers.containsString("frame-ancestors 'none'")))
                     .andExpect(header().string("Content-Security-Policy",
