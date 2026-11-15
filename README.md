@@ -402,22 +402,60 @@ registradas, análisis y diagnóstico de rendimiento. `Ctrl+K` abre el buscador 
 
 ---
 
-## Puesta en marcha
+## Cómo está repartido
 
-Requisitos: **JDK 21** y **Maven 3.9+**.
+Dos cosas que se despliegan por separado y hablan por CORS:
 
-```bash
-cp config/application-local.properties.example config/application-local.properties
-# rellena la cadena de Supabase, el JWT_SECRET y la API key de Gemini
-mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+backend/     la API. Spring Boot, el esquema en sql/, el Dockerfile.
+frontend/    la landing y la aplicación. Estáticos puros, sin empaquetador.
+docs/  tools/  DESIGN.md  PRODUCT.md     comunes a las dos.
 ```
 
-Arranca en `http://localhost:8080`. Las credenciales viven en `config/`, que
-Spring Boot lee en ejecución y **nunca entra en el jar**.
+Van en el mismo repositorio a propósito. `SpaContractTest` comprueba que cada
+ruta que la interfaz llama exista en algún controlador, y eso exige leer los dos
+árboles a la vez: separarlos en dos repositorios perdería esa red.
+
+El front no se construye —se publica tal cual— así que puede ir en un host
+estático, que no hiberna. Eso arregla la primera impresión: la página aparece al
+instante aunque la API de la capa gratuita tarde en despertar.
+
+## Puesta en marcha
+
+Requisitos: **JDK 21** y **Maven 3.9+** para la API; **Node 22+** sólo para las
+pruebas de la interfaz y para compilar el CSS.
+
+```bash
+cd backend
+cp config/application-local.properties.example config/application-local.properties
+# rellena la cadena de Supabase, el JWT_SECRET y la API key de Gemini
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+La API arranca en `http://localhost:8080`. Las credenciales viven en
+`backend/config/`, que Spring Boot lee en ejecución y **nunca entra en el jar**.
+
+En otra terminal, la interfaz:
+
+```bash
+cd frontend
+npm run dev     # http://localhost:5173
+```
+
+El puerto 5173 no es casual: es el que `kardo.security.cors.allowed-origins`
+autoriza por defecto. Servido desde cualquier otro, el navegador corta las
+llamadas a la API.
+
+A qué backend llama la página se declara en un `<meta name="kardo-api">` de su
+HTML. **Abierta desde `localhost` se ignora y siempre va a `localhost:8080`**:
+sin esa regla, probar en el portátil escribiría en la base de producción
+—sembrar la demo, dar de baja mercadería— sin que nada en pantalla lo delatara.
 
 En producción se configuran por variables de entorno: `DATABASE_URL`,
 `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `JWT_SECRET`, `GEMINI_API_KEY` y
-`CORS_ALLOWED_ORIGINS`.
+`CORS_ALLOWED_ORIGINS`, que tiene que incluir el origen donde esté publicado el
+front. En Render, el servicio de la API usa `backend/` como *Root Directory*: el
+`Dockerfile` espera ese contexto.
 
 ### Base de datos
 
@@ -425,23 +463,24 @@ El esquema se aplica a mano (la aplicación no ejecuta migraciones). En orden:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- luego sql/01 … sql/18, en orden numérico
+-- luego backend/sql/01 … backend/sql/18, en orden numérico
 ```
 
-`sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del `03` en
-adelante son aditivos e idempotentes, así que se pueden reaplicar sin miedo.
+`backend/sql/01` empieza con `DROP TABLE … CASCADE`: **es destructivo**. Del
+`03` en adelante son aditivos e idempotentes, así que se pueden reaplicar sin
+miedo.
 
 ### Pruebas
 
 ```bash
-mvn verify    # 251 unitarias + 182 de integración
-npm ci && npm test   # 32 de la SPA, en jsdom
+cd backend  && ./mvnw verify      # 252 unitarias + 182 de integración
+cd frontend && npm ci && npm test # 35 de la interfaz, en jsdom
 ```
 
 Node hace además una cosa que no es probar: **compilar el CSS**. Tras tocar
-`src/main/css/kardo.css` o `tailwind.config.js` hay que ejecutar `npm run css`
-y commitear `static/kardo.css`, porque Render no tiene Node y el jar debe
-llevar la hoja ya hecha. Se versiona a propósito, y el CI la reconstruye y
+`frontend/src/css/kardo.css` o `tailwind.config.js` hay que ejecutar
+`npm run css` y commitear `frontend/app/kardo.css`, porque el host estático
+publica los archivos tal cual y no construye nada. Se versiona a propósito, y el CI la reconstruye y
 falla si lo versionado no coincide —si no, una clase nueva en `app.js` no
 rompería nada: sólo saldría un elemento sin estilo—. Mientras se diseña,
 `npm run css:watch`.

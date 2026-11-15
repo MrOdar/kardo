@@ -30,7 +30,7 @@ import org.dhatim.fastexcel.Worksheet;
  * nunca de argumentos, para que no queden en el historial del shell.
  *
  * <pre>
- *   java -cp "&lt;jars&gt;" tools/KardoDevCli.java sql sql/01_schema_ddl_3nf.sql
+ *   java -cp "&lt;jars&gt;" tools/KardoDevCli.java sql backend/sql/01_schema_ddl_3nf.sql
  *   java -cp "&lt;jars&gt;" tools/KardoDevCli.java query "SELECT count(*) FROM products"
  *   java -cp "&lt;jars&gt;" tools/KardoDevCli.java excel target/inventario-demo.xlsx
  *   java -cp "&lt;jars&gt;" tools/KardoDevCli.java token 1
@@ -53,7 +53,7 @@ public class KardoDevCli {
             case "excel-dirty" -> writeDirtyWorkbook(args[1], Integer.parseInt(args[2]));
             case "read-excel" -> dumpWorkbook(args[1]);
             case "token" -> System.out.println(issueToken(Long.parseLong(args[1])));
-            // Genera el hash BCrypt que se siembra en sql/03_users_and_auth.sql.
+            // Genera el hash BCrypt que se siembra en backend/sql/03_users_and_auth.sql.
             case "bcrypt" -> System.out.println(
                     new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(args[1]));
             default -> {

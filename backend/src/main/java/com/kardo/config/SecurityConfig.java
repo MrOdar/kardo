@@ -83,30 +83,24 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .headers(headers -> headers
-                        // Segunda linea de defensa del XSS. La primera sigue
-                        // siendo que el SPA pinta con textContent y no con
-                        // innerHTML; esto es lo que queda si alguna vez se
-                        // cuela una. `connect-src 'self'` es la parte que de
-                        // verdad muerde: un script inyectado podria ejecutarse,
-                        // pero no tiene a donde mandar el inventario ni el
-                        // token. `frame-ancestors 'none'` impide el
-                        // clickjacking sobre los botones que aprueban mermas.
+                        // Desde que la interfaz se despliega aparte, esta
+                        // politica ya NO gobierna la pagina del operario: una
+                        // CSP protege al documento que la trae, y el documento
+                        // lo sirve ahora el host estatico. La de la pagina vive
+                        // en un <meta> de frontend/app/index.html, con la
+                        // perdida que eso implica -`frame-ancestors` no
+                        // funciona en <meta>- apuntada alli.
                         //
-                        // script-src es ahora exactamente 'self', que es lo mas
-                        // estrecho que admite esta politica. Durante un tiempo
-                        // tuvo que autorizar ademas el dominio del CDN de
-                        // Tailwind y, por su hash, el bloque en linea que lo
-                        // configuraba. Compilar el CSS quito las dos cosas: no
-                        // queda ningun <script> en linea que autorizar, y el
-                        // unico origen de codigo es este jar. SpaContractTest
-                        // lo sostiene fallando el build si vuelve a aparecer uno.
+                        // Se queda igualmente, y no por inercia: cubre lo que
+                        // este servicio si devuelve como documento -las paginas
+                        // de error de Tomcat, el visor de Swagger- y mantiene
+                        // `frame-ancestors 'none'` sobre la propia API, que es
+                        // lo que impide meterla en un iframe ajeno.
                         //
-                        // En style-src se queda 'unsafe-inline', y por un motivo
-                        // distinto del de antes: el reparto de vencimientos pinta
-                        // los anchos de sus tramos con atributos style=, que la
-                        // politica cuenta como estilo en linea. Quitarlo exige
-                        // pasar esos anchos por CSSOM, y lo que compra es poco:
-                        // inyectar CSS no ejecuta codigo.
+                        // `connect-src 'self'` aqui ya no dice gran cosa: en una
+                        // respuesta JSON no hay nada que haga peticiones. Lo que
+                        // de verdad acota a donde puede hablar la interfaz es
+                        // ahora la lista de CORS de abajo.
                         .contentSecurityPolicy(csp -> csp.policyDirectives(String.join("; ",
                                 "default-src 'self'",
                                 "script-src 'self'",
@@ -166,11 +160,9 @@ public class SecurityConfig {
                         // con springdoc.api-docs.enabled=false.
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**",
                                 "/swagger-ui.html", "/swagger-ui/**").permitAll()
-                        // La SPA se sirve desde el mismo contenedor y debe cargar
-                        // antes de que exista ningun token.
-                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/app.js", "/kardo.css",
-                                "/favicon.svg", "/favicon.ico",
-                                "/fonts/**", "/assets/**", "/css/**", "/js/**").permitAll()
+                        // Ya no hay estaticos que autorizar: la interfaz se
+                        // despliega aparte y este servicio es solo la API. Lo
+                        // que la deja entrar es CORS, no una lista de rutas.
                         // Puerta de entrada del evaluador: no tiene credenciales
                         // todavia, y esta llamada es justamente la que se las da.
                         // Solo puede tocar la tienda demo (999), nunca datos reales.

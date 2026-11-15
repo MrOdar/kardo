@@ -164,13 +164,23 @@ más se anima. `prefers-reduced-motion` lo anula.
 
 ## Dónde vive
 
+Todo bajo `frontend/`, que se despliega aparte de la API:
+
+```
+frontend/
+  index.html          la landing
+  app/                la aplicación: index.html, app.js, kardo.css, fonts/
+  src/css/kardo.css   el CSS fuente
+  tailwind.config.js  el tema
+```
+
 El tema (paleta, tipografías, sombras) está en `tailwind.config.js`; las clases
 propias —`.nav-item`, `.card`, `.chip`, `.th`, `.section-title`— en
-`src/main/css/kardo.css`. De ahí sale `static/kardo.css`, que es lo que viaja
-en el jar y hay que **recompilar y versionar** tras tocar cualquiera de los
-dos: `npm run css`. El CI reconstruye y falla si lo versionado no coincide.
+`src/css/kardo.css`. De ahí sale `app/kardo.css`, que hay que **recompilar y
+versionar** tras tocar cualquiera de los dos: `npm run css`. El CI reconstruye
+y falla si lo versionado no coincide.
 
-Las tipografías están en `static/fonts` y se declaran con `@font-face` en ese
+Las tipografías están en `app/fonts` y se declaran con `@font-face` en ese
 mismo CSS fuente; `fonts/OFL.txt` dice de dónde salen y bajo qué licencia.
 
 Antes el tema vivía en un `<script>` dentro del HTML y Tailwind se cargaba
@@ -178,8 +188,16 @@ desde su CDN, lo que ataba el aspecto de la aplicación a que un tercero
 contestara: si no lo hacía, la interfaz no se degradaba, salía entera sin
 estilos. Compilar también permitió cerrar `script-src` a `'self'`. Las fuentes
 seguían colgando de Google por el mismo sitio y se trajeron después, de modo
-que **la página ya no hace ni una petición fuera de su origen** y `font-src` y
+que **la página no pide ni un recurso fuera de su origen** y `font-src` y
 `style-src` cerraron también.
+
+Desde que la interfaz se despliega aparte, esa política ya no viene en una
+cabecera del jar: va en un `<meta>` del propio HTML, porque quien sirve el
+documento es el host estático. Dos consecuencias que conviene no olvidar:
+`connect-src` deja de ser `'self'` —tiene que autorizar el origen de la API— y
+**`frame-ancestors` no funciona en un `<meta>`**, de modo que la defensa contra
+el clickjacking sobre los botones que aprueban mermas hay que reponerla en las
+cabeceras del host (Render Static las admite; GitHub Pages no).
 
 ## Refuse
 

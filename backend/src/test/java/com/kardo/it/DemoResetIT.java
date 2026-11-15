@@ -209,8 +209,11 @@ class DemoResetIT extends PostgresIntegrationTest {
                 "SELECT file_hash FROM inventory_uploads WHERE store_id = ?",
                 String.class, DemoRepository.DEMO_STORE_ID);
 
-        byte[] ejemplo = getClass().getResourceAsStream(
-                "/static/assets/inventario_ejemplo_kardo.xlsx").readAllBytes();
+        // El Excel de ejemplo es un archivo de la interfaz -se descarga desde la
+        // pagina- y vive en su arbol desde que se despliega aparte. Se lee por
+        // ruta y no por classpath: ya no viaja dentro del jar.
+        byte[] ejemplo = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(
+                "..", "frontend", "app", "assets", "inventario_ejemplo_kardo.xlsx"));
         String huellaDelEjemplo = com.kardo.support.Sha256.of(
                 new java.io.ByteArrayInputStream(ejemplo));
 

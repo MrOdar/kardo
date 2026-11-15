@@ -14,7 +14,7 @@
 export default {
   // app.js escribe clases en plantillas de texto; ninguna se construye por
   // concatenacion, asi que el escaner las encuentra todas leyendo el archivo.
-  content: ['./src/main/resources/static/index.html', './src/main/resources/static/app.js'],
+  content: ['./index.html', './app/index.html', './app/app.js'],
   theme: {
     extend: {
       fontFamily: {
