@@ -171,6 +171,70 @@ public class InventoryInsightsService {
              ORDER BY sin_salida DESC, en_riesgo DESC, valor DESC
             """;
 
+    /**
+     * Una fila por producto con las dos mitades del negocio juntas: lo que sale
+     * y lo que esta parado.
+     *
+     * <p><b>Por que una sola consulta y no un grafico por pregunta.</b> La
+     * pregunta del dueño no es fija. Hoy quiere ver que se vende mas frente a
+     * lo que tiene guardado; mañana, que familia le deja mas margen por sol
+     * inmovilizado. Son el mismo dato cruzado de otra manera, asi que se manda
+     * entero una vez y la interfaz lo pivota sin volver a preguntar.
+     *
+     * <p><b>Que entra.</b> Todo producto con existencias <em>o</em> con ventas
+     * en la ventana. Los dos extremos son los que informan: lo que se vendio
+     * hasta agotarse -que habia que pedir- y lo que lleva treinta dias sin
+     * moverse, que es plata dormida. Quedarse solo con lo que tiene stock
+     * esconderia la mitad util.
+     *
+     * <p><b>Alcance.</b> No lleva filtro por empresa y no le hace falta: las
+     * dos subconsultas estan atadas a {@code store_id} y una fila solo
+     * sobrevive si aparece en alguna de las dos, de modo que un producto de
+     * otra tienda no tiene por donde entrar.
+     *
+     * <p>{@code dias_cobertura} queda nulo sin ventas o sin stock: dividir por
+     * cero o suponer un ritmo daria una cifra que alguien usaria para comprar.
+     */
+    private static final String ROTATION = """
+            WITH ventas AS (
+                SELECT product_id,
+                       sum(quantity)::numeric AS vendidas,
+                       sum(quantity * unit_retail_price) AS ingreso,
+                       sum(quantity * (unit_retail_price - lot_unit_cogs)) AS margen
+                  FROM daily_sales
+                 WHERE store_id = ?
+                   AND sale_timestamp >= CURRENT_TIMESTAMP - make_interval(days => ?)
+                 GROUP BY product_id
+            ), stock AS (
+                SELECT product_id,
+                       sum(current_qty) AS unidades,
+                       sum(current_qty * unit_cost) AS valor,
+                       min(expiration_date) AS primer_vencimiento
+                  FROM inventory_batches
+                 WHERE store_id = ?
+                   AND current_qty > 0
+                 GROUP BY product_id
+            )
+            SELECT p.sku,
+                   p.name AS nombre,
+                   p.category AS categoria,
+                   COALESCE(v.vendidas, 0) AS vendidas,
+                   COALESCE(v.ingreso, 0) AS ingreso,
+                   COALESCE(v.margen, 0) AS margen,
+                   COALESCE(s.unidades, 0) AS stock_unidades,
+                   COALESCE(s.valor, 0) AS stock_valor,
+                   (s.primer_vencimiento - CURRENT_DATE) AS dias_hasta_vencer,
+                   CASE WHEN COALESCE(v.vendidas, 0) > 0 AND COALESCE(s.unidades, 0) > 0
+                        THEN round(s.unidades / (v.vendidas / ?::numeric), 1)
+                   END AS dias_cobertura
+              FROM products p
+              LEFT JOIN ventas v USING (product_id)
+              LEFT JOIN stock s USING (product_id)
+             WHERE v.vendidas IS NOT NULL OR s.unidades IS NOT NULL
+             ORDER BY COALESCE(v.ingreso, 0) DESC, COALESCE(s.valor, 0) DESC
+             LIMIT 400
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     public InventoryInsightsService(JdbcTemplate jdbcTemplate) {
@@ -200,6 +264,19 @@ public class InventoryInsightsService {
     public List<Map<String, Object>> byCategory(long storeId) {
         return jdbcTemplate.queryForList(
                 BY_CATEGORY, storeId, SALES_WINDOW_DAYS, storeId, RISK_DAYS, SALES_WINDOW_DAYS);
+    }
+
+    /**
+     * Ventas y existencias del mismo producto, lado a lado.
+     *
+     * <p>Devuelve el dato crudo y no un veredicto: la comparacion la elige
+     * quien mira. Lo unico que la consulta se niega a hacer es rellenar lo que
+     * no sabe.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> rotation(long storeId) {
+        return jdbcTemplate.queryForList(
+                ROTATION, storeId, SALES_WINDOW_DAYS, storeId, SALES_WINDOW_DAYS);
     }
 
     /** Ventana usada, para que la interfaz no tenga que repetir la constante. */

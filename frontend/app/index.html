@@ -11,7 +11,7 @@
      de despliegue sea tocar una línea de HTML. Abierta desde localhost se
      ignora: ver la explicación en app.js. El backend tiene que autorizar este
      origen en CORS_ALLOWED_ORIGINS, o el navegador corta las llamadas. -->
-<meta name="kardo-api" content="https://kardo-api.onrender.com">
+<meta name="kardo-api" content="https://kardo.onrender.com">
 
 <!-- La página ya no la sirve el jar, así que la CSP no puede venir en una
      cabecera: va aquí. OJO con lo que se pierde por el camino —
@@ -26,7 +26,7 @@
                style-src 'self' 'unsafe-inline';
                font-src 'self';
                img-src 'self' data:;
-               connect-src 'self' http://localhost:8080 https://kardo-api.onrender.com;
+               connect-src 'self' http://localhost:8080 https://kardo.onrender.com;
                form-action 'self';
                base-uri 'self';
                object-src 'none'">
@@ -1421,6 +1421,93 @@
         <p id="trend-delta" class="num text-right text-sm font-semibold"></p>
       </div>
       <div id="trend-chart" class="mt-5"></div>
+    </div>
+
+    <!-- ═════ Lo que mas sale, frente a lo que hay guardado ═════
+         La pregunta que un dueño hace primero, y la unica de esta pestaña que
+         no necesita que nadie le explique como leerla: dos barras por
+         producto, una de lo que salio y otra de lo que queda. -->
+    <div class="mt-8 card">
+      <div class="border-b border-line px-5 py-4">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 class="text-base font-semibold">Lo que más sale, frente a su stock</h3>
+            <p class="mt-0.5 max-w-prose text-sm text-ink-soft">
+              Los diez de más salida en los últimos
+              <span id="rotation-window" class="num font-semibold">30</span> días.
+              La barra azul es lo que se vendió; la gris, lo que sigue en el anaquel.
+              Cuando la gris es mucho más larga, compraste para más tiempo del que te queda.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div id="rotation-bars" class="px-5 py-5"></div>
+    </div>
+
+    <!-- ═════ El cruce lo elige quien mira ═════
+         Los demas graficos responden la pregunta que elegimos nosotros. Este
+         no: los dos ejes son suyos. El mismo dato -ventas y existencias por
+         producto- cruzado como quiera cruzarlo, sin pedir nada al servidor:
+         viene entero en /inventory/insights. -->
+    <div class="mt-8 card">
+      <div class="border-b border-line px-5 py-4">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 class="text-base font-semibold">Compara lo que quieras</h3>
+            <p class="mt-0.5 max-w-prose text-sm text-ink-soft">
+              Cada punto es un producto. Elige qué va en cada eje: arriba a la derecha
+              cae lo que tienes de sobra y sale despacio, que es la plata dormida.
+              El color dice cuántos días le quedan al lote más próximo.
+            </p>
+          </div>
+          <p id="cross-count" class="num text-right text-sm font-semibold text-ink-soft"></p>
+        </div>
+
+        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label class="block text-sm">
+            <span class="th block">Eje horizontal</span>
+            <select id="cross-x"
+                    class="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm"></select>
+          </label>
+          <label class="block text-sm">
+            <span class="th block">Eje vertical</span>
+            <select id="cross-y"
+                    class="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm"></select>
+          </label>
+          <label class="block text-sm">
+            <span class="th block">Cada punto es</span>
+            <select id="cross-group"
+                    class="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm">
+              <option value="producto">Un producto</option>
+              <option value="familia">Una familia</option>
+            </select>
+          </label>
+          <label class="block text-sm">
+            <span class="th block">Familia</span>
+            <select id="cross-family"
+                    class="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm"></select>
+          </label>
+        </div>
+      </div>
+
+      <div id="cross-chart" class="px-5 py-5"></div>
+
+      <!-- El mismo contenido del grafico en texto. No es un apaño de
+           accesibilidad: trescientos puntos no se pueden recorrer con el
+           teclado uno a uno, y los extremos son lo unico que se mira. -->
+      <div class="overflow-x-auto border-t border-line">
+        <table class="w-full min-w-[34rem] border-collapse text-sm">
+          <thead class="border-b border-line bg-canvas text-left">
+            <tr class="text-ink-soft">
+              <th class="th px-4 py-2.5">Los diez extremos</th>
+              <th id="cross-th-x" class="th px-4 py-2.5 text-right">—</th>
+              <th id="cross-th-y" class="th px-4 py-2.5 text-right">—</th>
+              <th class="th px-4 py-2.5 text-right">Vence en</th>
+            </tr>
+          </thead>
+          <tbody id="cross-rows" class="divide-y divide-line"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- El semaforo mira 5 dias. Esto mira el cruce entre lo que le queda al

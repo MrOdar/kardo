@@ -291,6 +291,107 @@ class InventoryInsightsIT extends PostgresIntegrationTest {
                 .containsExactly("PANADERIA");
     }
 
+    // ------------------------------------------------------------------
+    // Ventas contra existencias
+    // ------------------------------------------------------------------
+
+    /**
+     * Lo que se vendio hasta agotarse tiene que seguir en la lista.
+     *
+     * <p>Es la mitad del valor de la consulta: un producto con cero
+     * existencias y ventas altas es lo que hubo que pedir y no se pidio.
+     * Partiendo de las existencias -como hace el resto de la pestaña- esa fila
+     * no existe, y el grafico de "que se vende mas" se queda sin su primera
+     * respuesta.
+     */
+    @Test
+    @DisplayName("Lo agotado sigue en la lista, sin inventarle stock ni vencimiento")
+    void loAgotadoNoDesaparece() {
+        long batchId = fixtures.batch(storeId, productId, "LOT-ROT-A", LocalDate.now().plusDays(10), 50, "2.00");
+        vender(batchId, 50);
+        jdbcTemplate.update("UPDATE inventory_batches SET current_qty = 0, batch_status = 'DEPLETED' "
+                + "WHERE batch_id = ?", batchId);
+
+        Map<String, Object> fila = unaFila(insights.rotation(storeId));
+
+        assertThat(((Number) fila.get("vendidas")).intValue()).isEqualTo(50);
+        assertThat(((Number) fila.get("stock_unidades")).intValue()).isZero();
+        // Sin existencias no hay lote que venza ni dias de anaquel que contar.
+        assertThat(fila.get("dias_hasta_vencer")).isNull();
+        assertThat(fila.get("dias_cobertura")).isNull();
+    }
+
+    @Test
+    @DisplayName("Con stock y sin ventas, la cobertura es desconocida y no cero")
+    void loParadoNoSeLeInventaUnRitmo() {
+        fixtures.batch(storeId, productId, "LOT-ROT-B", LocalDate.now().plusDays(12), 30, "2.00");
+
+        Map<String, Object> fila = unaFila(insights.rotation(storeId));
+
+        assertThat(((Number) fila.get("stock_unidades")).intValue()).isEqualTo(30);
+        assertThat(((Number) fila.get("vendidas")).intValue()).isZero();
+        assertThat(fila.get("dias_cobertura")).isNull();
+        assertThat(((Number) fila.get("dias_hasta_vencer")).intValue()).isEqualTo(12);
+    }
+
+    /**
+     * El margen sale del costo del lote que salio, no del costo de catalogo.
+     *
+     * <p>{@code daily_sales} guarda {@code lot_unit_cogs} por fila justamente
+     * para esto: el mismo producto comprado dos veces a distinto precio deja
+     * dos margenes distintos, y el del catalogo no es ninguno de los dos.
+     */
+    @Test
+    @DisplayName("Ingreso y margen salen del precio y del costo de cada venta")
+    void elMargenEsElDelLoteQueSalio() {
+        long batchId = fixtures.batch(storeId, productId, "LOT-ROT-C", LocalDate.now().plusDays(20), 200, "2.00");
+        vender(batchId, 120);   // 120 a 5.00 con costo de lote 2.00
+
+        Map<String, Object> fila = unaFila(insights.rotation(storeId));
+
+        assertThat(new BigDecimal(fila.get("ingreso").toString())).isEqualByComparingTo("600.00");
+        assertThat(new BigDecimal(fila.get("margen").toString())).isEqualByComparingTo("360.00");
+        // Registrar la venta no descuenta el lote en esta prueba, de modo que
+        // quedan las 200 unidades sobre un ritmo de 4 al dia: cincuenta dias.
+        assertThat(new BigDecimal(fila.get("dias_cobertura").toString()))
+                .isEqualByComparingTo("50.0");
+    }
+
+    @Test
+    @DisplayName("Una venta fuera de la ventana no cuenta como ingreso de hoy")
+    void laVentanaTambienRecortaElIngreso() {
+        long batchId = fixtures.batch(storeId, productId, "LOT-ROT-D", LocalDate.now().plusDays(40), 20, "2.00");
+        venderHaceDias(batchId, 90, 60);
+
+        Map<String, Object> fila = unaFila(insights.rotation(storeId));
+
+        assertThat(((Number) fila.get("vendidas")).intValue()).isZero();
+        assertThat(new BigDecimal(fila.get("ingreso").toString())).isEqualByComparingTo("0");
+    }
+
+    /**
+     * El alcance de la consulta.
+     *
+     * <p>No lleva filtro por empresa: se apoya en que las dos subconsultas
+     * estan atadas a {@code store_id}. Esto fija que ese apoyo basta, porque
+     * si alguien le añade un camino desde {@code products} sin pasar por
+     * ninguna de las dos, la mercaderia de otra tienda aparece en este panel.
+     */
+    @Test
+    @DisplayName("No se cuela la mercaderia de otra tienda")
+    void cadaTiendaVeLaSuya() {
+        fixtures.batch(storeId, productId, "LOT-ROT-E", LocalDate.now().plusDays(10), 10, "2.00");
+
+        Fixtures otra = new Fixtures(jdbcTemplate);
+        long otroStore = otra.company("Minimarket Vecino", "21600000031").store("TIENDA-VEC");
+        long otroProducto = otra.product(otroStore, "SKU-VEC-1", "Leche del vecino", "3.00", "6.00");
+        otra.batch(otroStore, otroProducto, "LOT-VEC", LocalDate.now().plusDays(10), 99, "3.00");
+
+        assertThat(insights.rotation(storeId))
+                .extracting(fila -> fila.get("sku"))
+                .containsExactly("SKU-INS-1");
+    }
+
     private Map<String, Object> familia(List<Map<String, Object>> filas, String categoria) {
         return filas.stream()
                 .filter(fila -> categoria.equals(fila.get("categoria")))

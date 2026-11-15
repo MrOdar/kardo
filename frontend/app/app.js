@@ -56,6 +56,11 @@ const state = {
   // lo incluido: asi una categoria nueva aparece sola la proxima vez, en vez
   // de quedarse invisible porque no estaba en la lista cuando se filtro.
   categoriesOff: new Set(),
+  // Ventas y existencias del mismo producto, una fila por producto. Es el dato
+  // crudo del que salen los dos graficos de cruce: se pivota aqui y no en el
+  // servidor, de modo que cambiar de eje no cuesta un viaje.
+  rotation: [],
+  salesWindow: 30,
   memberships: [],
   returns: [],
   returnDraft: null
@@ -3337,10 +3342,15 @@ async function loadInsights() {
     const insights = await request('/inventory/insights');
     $('coverage-window').textContent = insights.salesWindowDays;
     $('category-window').textContent = insights.salesWindowDays;
+    $('rotation-window').textContent = insights.salesWindowDays;
+    state.salesWindow = Number(insights.salesWindowDays) || 30;
     state.categories = insights.categories;
+    state.rotation = insights.rotation ?? [];
     // Al llegar se muestran todas; quitar es del usuario, no del estado inicial.
     state.categoriesOff = new Set();
     renderCategories();
+    renderRotationBars();
+    prepararCruce();
     renderCoverage(insights.coverage, insights.salesWindowDays);
     renderSuppliers(insights.suppliers);
   } catch (error) {
@@ -3462,6 +3472,507 @@ function barraDeCategoria(fila, techo) {
         cobertura === null ? '—' : `${cobertura} d`}</span>
     </div>`;
   return fragmento;
+}
+
+/* ═══════════════════ ventas contra existencias ═══════════════════
+ *
+ * Dos vistas del mismo dato, y ninguna de las dos elige la conclusion.
+ *
+ * La primera son barras: lo que salio y lo que queda, producto por producto.
+ * Se lee sin instrucciones y responde la pregunta que un dueño hace primero.
+ *
+ * La segunda es un cruce con los dos ejes a eleccion. Existe porque la
+ * pregunta no es siempre la misma: "que se vende mas frente a lo que tengo
+ * guardado" y "que familia me deja mas margen por sol inmovilizado" son el
+ * mismo dato cruzado de otra manera. Pivota en el navegador: el servidor lo
+ * manda entero una vez, y cambiar de eje no cuesta un viaje.
+ *
+ * Lo que no hacen: rellenar. Un producto sin ventas en la ventana no tiene
+ * cobertura, y uno sin existencias no tiene vencimiento. Esos puntos se
+ * quedan fuera del grafico y se dicen aparte, en vez de dibujarse en el cero
+ * como si el dato existiera y valiera nada.
+ */
+
+/** null y undefined se conservan; el resto pasa por Number. */
+function nuloONumero(valor) {
+  return valor === null || valor === undefined ? null : Number(valor);
+}
+
+/** 12 se escribe "12" y 12.37 se escribe "12.4": un decimal o ninguno. */
+function redondo(numero) {
+  return Number.isInteger(numero) ? String(numero) : numero.toFixed(1);
+}
+
+/**
+ * Las magnitudes que pueden ir en un eje.
+ *
+ * <p>`suma` marca las que se pueden sumar al agrupar por familia. Las otras
+ * dos -cobertura y dias para vencer- no se suman nunca: la cobertura se
+ * recalcula con los totales de la familia y el vencimiento es el del lote mas
+ * proximo, que es el que marca el plazo.
+ */
+const METRICAS = {
+  vendidas: {
+    etiqueta: 'Unidades vendidas',
+    lee: (fila) => Number(fila.vendidas),
+    pinta: (numero) => `${redondo(numero)} u`,
+    suma: true
+  },
+  ingreso: {
+    etiqueta: 'Ingreso',
+    lee: (fila) => Number(fila.ingreso),
+    pinta: money,
+    suma: true
+  },
+  margen: {
+    etiqueta: 'Margen',
+    lee: (fila) => Number(fila.margen),
+    pinta: money,
+    suma: true
+  },
+  stock_u: {
+    etiqueta: 'Stock en unidades',
+    lee: (fila) => Number(fila.stock_unidades),
+    pinta: (numero) => `${redondo(numero)} u`,
+    suma: true
+  },
+  stock_valor: {
+    etiqueta: 'Valor en stock',
+    lee: (fila) => Number(fila.stock_valor),
+    pinta: money,
+    suma: true
+  },
+  cobertura: {
+    etiqueta: 'Días de cobertura',
+    lee: (fila) => nuloONumero(fila.dias_cobertura),
+    pinta: (numero) => `${redondo(numero)} d`
+  },
+  vencer: {
+    etiqueta: 'Días para vencer',
+    lee: (fila) => nuloONumero(fila.dias_hasta_vencer),
+    pinta: (numero) => `${redondo(numero)} d`
+  }
+};
+
+/** Los ejes con los que se abre: el cruce que mas veces lleva a una decision. */
+const CRUCE_INICIAL = { x: 'cobertura', y: 'stock_valor' };
+
+/**
+ * Rellena los selectores y los deja escuchando.
+ *
+ * <p>Las opciones se generan aqui y no en el HTML para que `METRICAS` sea la
+ * unica lista: una magnitud nueva aparece en los dos ejes sin tocar la pagina.
+ *
+ * <p>Se asigna `onchange` en lugar de `addEventListener`: esto se vuelve a
+ * llamar cada vez que llega la respuesta del servidor, y con `addEventListener`
+ * el segundo cargado dejaria dos oyentes y el tercero, tres.
+ */
+function prepararCruce() {
+  const ejes = [$('cross-x'), $('cross-y')];
+  const familias = [...new Set((state.rotation ?? []).map((fila) => String(fila.categoria)))].sort();
+
+  ejes.forEach((selector, i) => {
+    const elegido = selector.value || (i === 0 ? CRUCE_INICIAL.x : CRUCE_INICIAL.y);
+    selector.replaceChildren(...Object.entries(METRICAS).map(([clave, metrica]) => {
+      const opcion = document.createElement('option');
+      opcion.value = clave;
+      opcion.textContent = metrica.etiqueta;
+      return opcion;
+    }));
+    selector.value = elegido;
+  });
+
+  const selectorFamilia = $('cross-family');
+  // La eleccion anterior se conserva si esa familia sigue existiendo: recargar
+  // no tiene por que deshacer el filtro que alguien acababa de poner.
+  const familiaElegida = selectorFamilia.value;
+  selectorFamilia.replaceChildren(...['todas', ...familias].map((clave) => {
+    const opcion = document.createElement('option');
+    opcion.value = clave;
+    opcion.textContent = clave === 'todas' ? 'Todas' : enFrase(clave);
+    return opcion;
+  }));
+  selectorFamilia.value = familias.includes(familiaElegida) ? familiaElegida : 'todas';
+
+  [...ejes, $('cross-group'), selectorFamilia].forEach((selector) => {
+    selector.onchange = renderCross;
+  });
+
+  renderCross();
+}
+
+/**
+ * Suma una familia a partir de sus productos.
+ *
+ * <p>La cobertura se recalcula con los totales y no se promedia. El promedio
+ * de coberturas pesa igual un producto del que quedan dos unidades que uno del
+ * que quedan cuatrocientas, y da una cifra que no es la de ninguno.
+ */
+function agruparPorFamilia(filas, ventana) {
+  const familias = new Map();
+
+  for (const fila of filas) {
+    const clave = String(fila.categoria);
+    const acumulado = familias.get(clave) ?? {
+      sku: clave,
+      nombre: enFrase(clave),
+      categoria: clave,
+      vendidas: 0,
+      ingreso: 0,
+      margen: 0,
+      stock_unidades: 0,
+      stock_valor: 0,
+      dias_hasta_vencer: null,
+      dias_cobertura: null
+    };
+
+    acumulado.vendidas += Number(fila.vendidas);
+    acumulado.ingreso += Number(fila.ingreso);
+    acumulado.margen += Number(fila.margen);
+    acumulado.stock_unidades += Number(fila.stock_unidades);
+    acumulado.stock_valor += Number(fila.stock_valor);
+
+    const vence = nuloONumero(fila.dias_hasta_vencer);
+    if (vence !== null) {
+      acumulado.dias_hasta_vencer = acumulado.dias_hasta_vencer === null
+        ? vence
+        : Math.min(acumulado.dias_hasta_vencer, vence);
+    }
+
+    familias.set(clave, acumulado);
+  }
+
+  for (const acumulado of familias.values()) {
+    acumulado.dias_cobertura = acumulado.vendidas > 0 && acumulado.stock_unidades > 0
+      ? acumulado.stock_unidades / (acumulado.vendidas / ventana)
+      : null;
+  }
+
+  return [...familias.values()];
+}
+
+/**
+ * El tramo de valores que ocupa un eje.
+ *
+ * <p>Arranca en cero salvo que haya negativos -el margen puede serlo-, para
+ * que la distancia al origen signifique algo.
+ *
+ * <p><b>Por que se corta arriba.</b> Estas magnitudes tienen cola larga por
+ * naturaleza: un producto que vendio una unidad en treinta dias y tiene
+ * trescientas en el anaquel son nueve mil dias de cobertura, y con esa escala
+ * los otros sesenta productos se apilan en una columna contra el eje y el
+ * grafico deja de decir nada. El techo se pone en el percentil 95 y lo que
+ * pasa de ahi se dibuja en el borde, hueco y contado aparte: la nube se lee y
+ * el que esta fuera se ve que esta fuera. Su cifra exacta sigue entera en el
+ * globo del punto y en la tabla.
+ *
+ * <p>Con menos de doce puntos no se corta nada. Un percentil sobre cuatro
+ * valores no separa una cola de nada: deja fuera uno de cada cuatro, que es
+ * recortar el dato y no la escala.
+ */
+const MINIMO_PARA_RECORTAR = 12;
+
+function dominioDelEje(valores) {
+  const ordenados = [...valores].sort((a, b) => a - b);
+  const minimo = Math.min(ordenados[0], 0);
+  const maximo = ordenados[ordenados.length - 1];
+  const p95 = ordenados[Math.floor((ordenados.length - 1) * 0.95)];
+  const techo = ordenados.length >= MINIMO_PARA_RECORTAR && p95 > minimo && p95 < maximo
+    ? p95
+    : maximo;
+  return { minimo, maximo, techo, rango: techo - minimo || 1, cortado: techo < maximo };
+}
+
+/**
+ * El plazo del lote, dicho como se dice.
+ *
+ * <p>Los dias restantes son negativos cuando la fecha ya paso, y escribir
+ * "vence en −2" no es una manera rara de decirlo: es decir lo contrario. Un
+ * lote vencido hace dos dias esta vencido, y hay que darlo de baja, no
+ * esperarlo.
+ */
+function plazoDeVencimiento(dias) {
+  if (dias === null) return '—';
+  if (dias < 0) return 'Vencido';
+  if (dias === 0) return 'Vence hoy';
+  return `${redondo(dias)} d`;
+}
+
+/** El color de un punto segun lo que le queda al lote mas proximo. */
+function colorDeVencimiento(dias) {
+  if (dias === null) return '#5C6881';   // sin existencias: no hay nada que venza
+  if (dias <= 5) return '#B3261E';
+  if (dias <= 14) return '#8A5A00';
+  return '#3F6FD0';
+}
+
+/**
+ * El cruce de los dos ejes elegidos.
+ *
+ * <p>El grafico es un `role="img"` con una etiqueta que lo resume, y debajo va
+ * la tabla con los diez puntos de la esquina. No es un apaño: trescientos
+ * circulos enfocables serian trescientas paradas de tabulador antes de llegar
+ * al resto de la pagina, y lo que se mira de una nube son los extremos.
+ */
+function renderCross() {
+  const chart = $('cross-chart');
+  const cuerpo = $('cross-rows');
+  const conteo = $('cross-count');
+  const ventana = state.salesWindow;
+
+  const ejeX = METRICAS[$('cross-x').value] ?? METRICAS[CRUCE_INICIAL.x];
+  const ejeY = METRICAS[$('cross-y').value] ?? METRICAS[CRUCE_INICIAL.y];
+  const porFamilia = $('cross-group').value === 'familia';
+  const familia = $('cross-family').value;
+
+  $('cross-th-x').textContent = ejeX.etiqueta;
+  $('cross-th-y').textContent = ejeY.etiqueta;
+  // Agrupando por familia, filtrar por familia dejaria un punto solo.
+  $('cross-family').disabled = porFamilia;
+
+  let filas = state.rotation ?? [];
+  if (!porFamilia && familia !== 'todas') {
+    filas = filas.filter((fila) => String(fila.categoria) === familia);
+  }
+  if (porFamilia) filas = agruparPorFamilia(filas, ventana);
+
+  const puntos = filas
+    .map((fila) => ({ fila, x: ejeX.lee(fila), y: ejeY.lee(fila) }))
+    .filter((punto) => Number.isFinite(punto.x) && Number.isFinite(punto.y));
+  const fuera = filas.length - puntos.length;
+
+  if (!puntos.length) {
+    conteo.textContent = '';
+    cuerpo.replaceChildren();
+    chart.innerHTML = `<p class="py-10 text-center text-sm text-ink-faint">${
+      filas.length
+        ? `Ninguno de los ${filas.length} productos tiene las dos cifras a la vez.`
+        : 'No hay existencias ni ventas que cruzar todavía.'
+    }</p>`;
+    return;
+  }
+
+  conteo.textContent = fuera > 0
+    ? `${plural(puntos.length, 'punto', 'puntos')}, ${fuera} sin una de las dos cifras`
+    : plural(puntos.length, 'punto', 'puntos');
+
+  chart.innerHTML = nubeDePuntos(puntos, ejeX, ejeY, porFamilia);
+  cuerpo.replaceChildren(...filasDelCruce(puntos, ejeX, ejeY));
+}
+
+/**
+ * La nube, dibujada a mano en SVG.
+ *
+ * <p>Sin libreria: la CSP de la pagina es `script-src 'self'` y un grafico de
+ * dispersion son dos escalas lineales y un circulo por fila. El `viewBox` es
+ * fijo y el SVG escala con el ancho, de modo que el texto de los ejes no se
+ * deforma: con `preserveAspectRatio="none"` las etiquetas se estiran.
+ */
+function nubeDePuntos(puntos, ejeX, ejeY, porFamilia) {
+  const ANCHO = 640;
+  const ALTO = 360;
+  const MARGEN = { izq: 86, der: 20, arr: 18, aba: 52 };
+  const util = { x: ANCHO - MARGEN.izq - MARGEN.der, y: ALTO - MARGEN.arr - MARGEN.aba };
+
+  const dx = dominioDelEje(puntos.map((punto) => punto.x));
+  const dy = dominioDelEje(puntos.map((punto) => punto.y));
+
+  // Lo que pasa del techo se dibuja EN el techo. La posicion miente a
+  // proposito y el circulo lo dice: va hueco, y debajo se cuenta cuantos son.
+  const px = (valor) => (
+    MARGEN.izq + ((Math.min(valor, dx.techo) - dx.minimo) / dx.rango) * util.x
+  );
+  const py = (valor) => (
+    MARGEN.arr + util.y - ((Math.min(valor, dy.techo) - dy.minimo) / dy.rango) * util.y
+  );
+
+  const marcas = (eje) => Array.from({ length: 5 }, (_, i) => eje.minimo + (eje.rango / 4) * i);
+  const rotula = (eje, metrica, valor, ultima) => (
+    `${metrica.pinta(valor)}${ultima && eje.cortado ? '+' : ''}`
+  );
+
+  const rejilla = marcas(dy).map((valor, i, todas) => `
+    <line x1="${MARGEN.izq}" y1="${py(valor).toFixed(1)}" x2="${ANCHO - MARGEN.der}"
+          y2="${py(valor).toFixed(1)}" stroke="#E2E8F4" stroke-width="1"></line>
+    <text x="${MARGEN.izq - 10}" y="${(py(valor) + 4).toFixed(1)}" text-anchor="end"
+          font-size="11" fill="#5C6881">${
+    escapeHtml(rotula(dy, ejeY, valor, i === todas.length - 1))}</text>`).join('');
+
+  const abscisas = marcas(dx).map((valor, i, todas) => `
+    <text x="${px(valor).toFixed(1)}" y="${ALTO - MARGEN.aba + 20}" text-anchor="middle"
+          font-size="11" fill="#5C6881">${
+    escapeHtml(rotula(dx, ejeX, valor, i === todas.length - 1))}</text>`).join('');
+
+  const fueraDeEscala = puntos.filter((punto) => punto.x > dx.techo || punto.y > dy.techo).length;
+
+  const circulos = puntos.map((punto) => {
+    const vence = nuloONumero(punto.fila.dias_hasta_vencer);
+    const color = colorDeVencimiento(vence);
+    const pinchado = punto.x > dx.techo || punto.y > dy.techo;
+    return `<circle cx="${px(punto.x).toFixed(1)}" cy="${py(punto.y).toFixed(1)}" r="5"
+                    fill="${color}" fill-opacity="${pinchado ? '0' : '.62'}"
+                    stroke="${color}" stroke-width="${pinchado ? '1.8' : '1'}"
+            ><title>${escapeHtml(punto.fila.nombre)} — ${
+      escapeHtml(ejeX.etiqueta)}: ${escapeHtml(ejeX.pinta(punto.x))} · ${
+      escapeHtml(ejeY.etiqueta)}: ${escapeHtml(ejeY.pinta(punto.y))}${
+      vence === null ? '' : ` · ${escapeHtml(
+        vence < 0 ? 'vencido' : vence === 0 ? 'vence hoy' : `vence en ${redondo(vence)} d`)}`}${
+      pinchado ? ' · fuera de escala' : ''}</title></circle>`;
+  }).join('');
+
+  const resumen = `${plural(puntos.length, porFamilia ? 'familia' : 'producto',
+    porFamilia ? 'familias' : 'productos')} cruzando ${ejeX.etiqueta.toLowerCase()} (horizontal, de ${
+    ejeX.pinta(dx.minimo)} a ${rotula(dx, ejeX, dx.techo, true)}) con ${
+    ejeY.etiqueta.toLowerCase()} (vertical, de ${ejeY.pinta(dy.minimo)} a ${
+    rotula(dy, ejeY, dy.techo, true)}). La tabla de abajo lista los diez de la esquina superior derecha.`;
+
+  // El SVG no baja de 40rem y la caja se desplaza. Dejandolo encoger con el
+  // ancho de la pantalla, en un telefono el grafico sale a la mitad de escala
+  // y las cifras de los ejes quedan a cinco pixeles y medio: ilegibles. Es la
+  // misma solucion que ya usan las tablas de esta pestaña.
+  return `
+    <div class="overflow-x-auto">
+    <svg viewBox="0 0 ${ANCHO} ${ALTO}" class="h-auto w-full min-w-[40rem]" role="img"
+         aria-label="${escapeHtml(resumen)}">
+      ${rejilla}
+      <line x1="${MARGEN.izq}" y1="${MARGEN.arr}" x2="${MARGEN.izq}" y2="${ALTO - MARGEN.aba}"
+            stroke="#CBD6EA" stroke-width="1"></line>
+      <line x1="${MARGEN.izq}" y1="${ALTO - MARGEN.aba}" x2="${ANCHO - MARGEN.der}"
+            y2="${ALTO - MARGEN.aba}" stroke="#CBD6EA" stroke-width="1"></line>
+      ${abscisas}
+      ${circulos}
+      <text x="${ANCHO - MARGEN.der}" y="${ALTO - 6}" text-anchor="end" font-size="11"
+            fill="#5C6881">${escapeHtml(ejeX.etiqueta)}</text>
+    </svg>
+    </div>
+    <ul class="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-ink-faint">
+      <li class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full"
+          style="background:#B3261E"></span>Vence en 5 días o menos</li>
+      <li class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full"
+          style="background:#8A5A00"></span>Entre 6 y 14 días</li>
+      <li class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full"
+          style="background:#3F6FD0"></span>Más de 14 días</li>
+      <li class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full"
+          style="background:#5C6881"></span>Sin existencias</li>
+    </ul>${
+    fueraDeEscala === 0 ? '' : `
+    <p class="mt-2 text-xs text-ink-faint">${
+      plural(fueraDeEscala, 'punto se sale', 'puntos se salen')} de la escala y
+      ${fueraDeEscala === 1 ? 'está dibujado' : 'están dibujados'} en el borde, sin relleno.
+      Su cifra exacta está en el globo del punto y en la tabla.</p>`}`;
+}
+
+/**
+ * Los diez puntos de la esquina superior derecha.
+ *
+ * <p>Se ordenan por las dos coordenadas normalizadas multiplicadas, que es la
+ * manera corta de preguntar "cual destaca en ambos ejes a la vez". Ordenar por
+ * uno solo repetiria la columna que ya esta ordenada en otra tabla.
+ */
+function filasDelCruce(puntos, ejeX, ejeY) {
+  const extremo = (lector) => {
+    const valores = puntos.map(lector);
+    const minimo = Math.min(...valores, 0);
+    return { minimo, rango: Math.max(...valores) - minimo || 1 };
+  };
+  const ex = extremo((punto) => punto.x);
+  const ey = extremo((punto) => punto.y);
+  const esquina = (punto) => (
+    ((punto.x - ex.minimo) / ex.rango) * ((punto.y - ey.minimo) / ey.rango)
+  );
+
+  return [...puntos]
+    .sort((a, b) => esquina(b) - esquina(a))
+    .slice(0, 10)
+    .map((punto) => {
+      const vence = nuloONumero(punto.fila.dias_hasta_vencer);
+      const fila = document.createElement('tr');
+      fila.innerHTML = `
+        <td class="px-4 py-2.5">
+          <span class="font-medium">${escapeHtml(punto.fila.nombre)}</span>
+          <span class="ml-2 text-xs text-ink-faint">${escapeHtml(enFrase(punto.fila.categoria))}</span>
+        </td>
+        <td class="num px-4 py-2.5 text-right">${escapeHtml(ejeX.pinta(punto.x))}</td>
+        <td class="num px-4 py-2.5 text-right font-semibold">${escapeHtml(ejeY.pinta(punto.y))}</td>
+        <td class="num px-4 py-2.5 text-right ${
+          vence !== null && vence <= 5 ? 'font-semibold text-risk-red' : 'text-ink-faint'}">${
+        escapeHtml(plazoDeVencimiento(vence))}</td>`;
+      return fila;
+    });
+}
+
+/**
+ * Lo que mas sale, con su stock al lado.
+ *
+ * <p>Diez filas y dos barras por fila. La comparacion que importa es entre las
+ * dos barras de la misma fila, no entre filas: si la gris es mucho mas larga
+ * que la azul, se compro para mas tiempo del que le queda al lote.
+ */
+function renderRotationBars() {
+  const caja = $('rotation-bars');
+  const ventana = state.salesWindow;
+
+  const filas = (state.rotation ?? [])
+    .filter((fila) => Number(fila.vendidas) > 0)
+    .sort((a, b) => Number(b.vendidas) - Number(a.vendidas))
+    .slice(0, 10);
+
+  if (!filas.length) {
+    caja.innerHTML = `<p class="py-6 text-center text-sm text-ink-faint">
+      No hay ventas registradas en los últimos ${ventana} días.</p>`;
+    return;
+  }
+
+  // Las dos barras comparten una sola escala, y la escala sale del maximo de
+  // las dos magnitudes. Con una escala por columna, "vendi 5 y me quedan 500"
+  // y "vendi 500 y me quedan 5" se dibujarian exactamente igual.
+  const techo = Math.max(
+    ...filas.flatMap((fila) => [Number(fila.vendidas), Number(fila.stock_unidades)]), 1);
+
+  caja.replaceChildren(...filas.map((fila) => barraDeRotacion(fila, techo)));
+}
+
+/** Una fila: lo vendido en azul, lo que queda en gris, y el veredicto. */
+function barraDeRotacion(fila, techo) {
+  const vendidas = Number(fila.vendidas);
+  const stock = Number(fila.stock_unidades);
+  const cobertura = nuloONumero(fila.dias_cobertura);
+  const vence = nuloONumero(fila.dias_hasta_vencer);
+  // El mismo veredicto que la tabla de cobertura: comparar los dias de venta
+  // que hay en el anaquel con los que le quedan al lote mas proximo.
+  const noDaTiempo = cobertura !== null && vence !== null && cobertura > vence;
+
+  const nodo = document.createElement('div');
+  nodo.className = 'mb-4 last:mb-0';
+  nodo.innerHTML = `
+    <div class="flex items-baseline justify-between gap-3 text-sm">
+      <span class="min-w-0 truncate font-medium">${escapeHtml(fila.nombre)}</span>
+      <span class="num shrink-0 text-xs ${
+        noDaTiempo ? 'font-semibold text-risk-red' : 'text-ink-faint'}">${
+    noDaTiempo
+      ? `${redondo(cobertura)} d de venta y el lote ${
+        vence < 0 ? 'ya está vencido' : vence === 0 ? 'vence hoy' : `vence en ${redondo(vence)}`}`
+      : `${redondo(vendidas)} vendidas · quedan ${redondo(stock)}`}</span>
+    </div>
+    <div class="mt-1.5 space-y-1">
+      <div class="flex items-center gap-2.5">
+        <div class="h-2.5 flex-1 overflow-hidden rounded-r bg-canvas">
+          <div class="h-full rounded-r bg-brand"
+               style="width:${Math.max((vendidas / techo) * 100, 0.8).toFixed(2)}%"></div>
+        </div>
+        <span class="num w-24 shrink-0 text-right text-xs text-ink-faint">${
+    redondo(vendidas)} vendidas</span>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <div class="h-2.5 flex-1 overflow-hidden rounded-r bg-canvas">
+          <div class="h-full rounded-r ${noDaTiempo ? 'bg-risk-red' : 'bg-line-strong'}"
+               style="width:${Math.max((stock / techo) * 100, stock > 0 ? 0.8 : 0).toFixed(2)}%"></div>
+        </div>
+        <span class="num w-24 shrink-0 text-right text-xs text-ink-faint">${
+    redondo(stock)} en stock</span>
+      </div>
+    </div>`;
+  return nodo;
 }
 
 /** MAYUSCULAS DE BASE DE DATOS a texto que se pueda leer en una pantalla. */

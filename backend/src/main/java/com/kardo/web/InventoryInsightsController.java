@@ -44,7 +44,12 @@ public class InventoryInsightsController {
                 "salesWindowDays", insightsService.salesWindowDays(),
                 "coverage", insightsService.coverage(storeId),
                 "categories", insightsService.byCategory(storeId),
-                "suppliers", insightsService.bySupplier(storeId)));
+                "suppliers", insightsService.bySupplier(storeId),
+                // El dato crudo de ventas contra existencias. Va en la misma
+                // respuesta y no en un endpoint aparte porque la interfaz lo
+                // cruza de varias maneras sin cambiar de pregunta: un viaje
+                // por comparacion seria un viaje por cada clic.
+                "rotation", insightsService.rotation(storeId)));
     }
 
     /**
