@@ -6,8 +6,8 @@
   "description": "Landing y SPA de Kardo. Estaticos puros: hablan con el backend por CORS. Aqui se compila el CSS de Tailwind y corren las pruebas de la interfaz.",
   "scripts": {
     "dev": "node dev-server.mjs",
-    "css": "tailwindcss -i src/css/kardo.css -o app/kardo.css --minify",
-    "css:watch": "tailwindcss -i src/css/kardo.css -o app/kardo.css --watch",
+    "css": "tailwindcss -i src/css/kardo.css -o kardo.css --minify",
+    "css:watch": "tailwindcss -i src/css/kardo.css -o kardo.css --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },

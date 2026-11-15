@@ -4,7 +4,13 @@
 
 ## Mode
 
-**Operate.** El visitante completa una tarea: cargar, recibir, vender, rebajar,
+Dos superficies, dos modos. No es una excepción: son dos trabajos distintos.
+
+**La landing (`frontend/index.html`) es Persuade.** El visitante decide y
+actúa; el diseño es el producto. Ahí el movimiento sí tiene papel, y vive bajo
+sus propias reglas (ver Motion).
+
+**La aplicación (`frontend/app/`) es Operate.** El visitante completa una tarea: cargar, recibir, vender, rebajar,
 resolver. La escanabilidad y la consistencia mandan sobre la expresión; la marca
 vive en la precisión de los detalles, no en adornos.
 
@@ -41,6 +47,7 @@ Dos reglas que gobiernan el conjunto:
 | `brand.deep` | `#2F4F86` | Barra lateral, superficies de marca |
 | `brand.soft` | `#DBE6FA` | Rellenos pastel: numerales, viñetas |
 | `brand.tint` | `#EEF3FD` | Fondo de selección y de estado activo |
+| `sand` | `#FCD34D` | Acento, **sólo en la landing sobre `brand.deep`** |
 | `canvas` | `#F3F6FC` | Fondo de la aplicación |
 | `surface` | `#FFFFFF` | Tarjetas, tablas, paneles |
 | `line` | `#E2E8F4` | Bordes y separadores |
@@ -55,6 +62,15 @@ la barra lateral 8:1; medido en ejecución, no estimado.
 
 Los tres de riesgo están elegidos para pasar 4.5:1 sobre su propio fondo tintado
 (`*-tint`), que es como aparecen: chips, no franjas.
+
+`sand` no es un color de riesgo y no aparece en la aplicación. Existe porque la
+landing abre con un campo de `brand.deep` —la misma superficie de marca de la
+barra lateral— y ahí el ámbar de riesgo da **1.37:1**: está calibrado para
+leerse sobre su propio tinte claro, no sobre azul. `sand` da 5.64:1, medido.
+
+La regla «el color es información, no decoración» es de modo Operate. En la
+landing no manda: aplicada allí deja una página gris que no se distingue de
+cualquier otro SaaS.
 
 ## Type
 
@@ -111,7 +127,15 @@ entre bloques, más aire encima de un encabezado que debajo.
   entera del producto dicha en 28 px, y el mismo dibujo sirve de favicon. Se
   eligió una marca dibujada y no una inicial en un cuadrado: la inicial no dice
   nada y se parece a la de cualquier otro producto.
-- **Lote de ejemplo** (solo en la pantalla sin sesión). Una línea congelada
+- **Escena del estante** (sólo en la landing). El producto dibujado y en
+  bucle: llega un lote y se anota con su vencimiento, el estante corre un
+  hueco, y el que caduca antes sale primero con su etiqueta rebajada. Nueve
+  segundos, los tres actos que hace el motor FEFO. Es SVG a mano y no un
+  componente del banco —los catálogos traen fondos y partículas, no el
+  mecanismo de este producto— con los tokens del sistema, de modo que la
+  escena y la aplicación son la misma cosa. Con movimiento reducido queda en
+  su estado final, que es un dibujo completo y no un fotograma a medias.
+- **Lote de ejemplo** (en la landing, junto a la escalera, y en la pantalla sin sesión). Una línea congelada
   —chip de días, nombre, SKU y lote en monoespaciada, y las tres cifras: costo,
   precio de lista tachado, sugerido— con los mismos componentes que pinta el
   semáforo de verdad. Existe porque el argumento del producto es que la
@@ -158,7 +182,24 @@ construida: selección de texto, cursor de inserción, anillo de foco (`brand`,
 
 ## Motion
 
-Un solo momento autorizado: el cambio de sección entra con un desplazamiento
+**En la landing**, el movimiento es parte del argumento, con dos límites: nada
+se mueve solo —cada animación la dispara el scroll o el puntero, porque una
+pantalla que parpadea sola cansa en el segundo minuto— y
+`prefers-reduced-motion` las anula todas, dejando la página completa y quieta.
+
+Los dispositivos están portados a CSS plano desde `docs/banco-animaciones.md`;
+los catálogos de origen son React y asumen framer-motion, y nada de eso entra
+aquí. Tampoco ninguno de los que piden fondo oscuro: sobre el crema de Kardo se
+ven sucios o no se ven. El reveal al entrar en pantalla es
+`animation-timeline: view()`, con `IntersectionObserver` sólo donde el
+navegador aún no lo trae. El carrusel infinito queda fuera a propósito: es el
+tic más reconocible de landing generada.
+
+El único dispositivo propio es **la escalera de rebaja**: el precio baja de
+peldaño en peldaño conforme bajas y se para en el costo del lote. Esa parada es
+la tesis del producto dicha en movimiento.
+
+**En la aplicación**, un solo momento autorizado: el cambio de sección entra con un desplazamiento
 corto y una aparición, con salida exponencial desde un estado ya visible. Nada
 más se anima. `prefers-reduced-motion` lo anula.
 
@@ -169,18 +210,24 @@ Todo bajo `frontend/`, que se despliega aparte de la API:
 ```
 frontend/
   index.html          la landing
-  app/                la aplicación: index.html, app.js, kardo.css, fonts/
+  landing.js          lo poco que necesita de JavaScript
+  app/                la aplicación: index.html, app.js, favicon
+  kardo.css           la hoja compilada, compartida por las dos
+  fonts/              las tipografías, compartidas
   src/css/kardo.css   el CSS fuente
   tailwind.config.js  el tema
 ```
 
+Una sola hoja para las dos páginas: comparten sistema, y partirla en dos
+llevaría a dos sistemas que se separan sin que nadie lo note.
+
 El tema (paleta, tipografías, sombras) está en `tailwind.config.js`; las clases
-propias —`.nav-item`, `.card`, `.chip`, `.th`, `.section-title`— en
-`src/css/kardo.css`. De ahí sale `app/kardo.css`, que hay que **recompilar y
-versionar** tras tocar cualquiera de los dos: `npm run css`. El CI reconstruye
+propias —`.nav-item`, `.card`, `.chip`, `.th`, `.section-title`, y las de la
+landing— en `src/css/kardo.css`. De ahí sale `kardo.css`, que hay que
+**recompilar y versionar** tras tocar cualquiera de los dos: `npm run css`. El CI reconstruye
 y falla si lo versionado no coincide.
 
-Las tipografías están en `app/fonts` y se declaran con `@font-face` en ese
+Las tipografías están en `fonts/` y se declaran con `@font-face` en ese
 mismo CSS fuente; `fonts/OFL.txt` dice de dónde salen y bajo qué licencia.
 
 Antes el tema vivía en un `<script>` dentro del HTML y Tailwind se cargaba

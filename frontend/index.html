@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kardo — Control FEFO de inventario para minimarkets</title>
+<meta name="description"
+      content="Kardo lleva el inventario de un minimarket por lote, vende siempre lo que vence antes y dice a qué precio rebajar mientras todavía se puede recuperar el dinero.">
+
+<!-- Esta página no habla con la API: es texto, dibujo y un botón que lleva a la
+     aplicación. De ahí que connect-src pueda quedarse en 'self'.
+     Lo mismo que en la aplicación: `frame-ancestors` no funciona en un <meta>,
+     así que esa defensa hay que ponerla en las cabeceras del host. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               font-src 'self';
+               img-src 'self' data:;
+               connect-src 'self';
+               form-action 'none';
+               base-uri 'self';
+               object-src 'none'">
+
+<link rel="icon" href="app/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="kardo.css">
+</head>
+<body class="bg-canvas font-sans text-ink antialiased">
+
+<div class="progreso" aria-hidden="true"></div>
+
+<!-- ═══════════════════════════ Encabezado ═══════════════════════════ -->
+<!-- El primer pantallazo es campo de marca, no lienzo claro. La regla de la
+     consola —el color sólo donde hay riesgo— es de modo Operate y aquí no
+     manda: aplicada a una landing deja una página gris que no se distingue de
+     cualquier otro SaaS. El azul profundo ya es la superficie de marca de
+     Kardo, la misma de la barra lateral, así que la página abre con ella. -->
+<!-- ═══════════════════════════ Encabezado ═══════════════════════════
+     Centrado y sobre lienzo claro, con la consola de verdad debajo. Estuvo un
+     rato como campo de marca azul con un dibujo al lado; el dibujo explicaba
+     el mecanismo pero escondía el producto, que es lo que de verdad convence.
+     La maqueta son los mismos componentes de la aplicación —no una captura—
+     así que no se desenfoca, se tematiza sola y no se queda vieja. -->
+<header class="relative overflow-hidden border-b border-line">
+  <div class="puntos pointer-events-none absolute inset-0" aria-hidden="true"></div>
+
+  <div class="relative">
+  <nav class="mx-auto flex max-w-[1180px] items-center justify-between gap-4 px-6 py-5">
+    <p class="flex items-center gap-2.5">
+      <svg class="h-7 w-7 shrink-0" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#2F4F86"/>
+        <rect x="12" y="7.5"  width="14" height="5" rx="2.5" fill="#FFFFFF"/>
+        <rect x="6"  y="15"   width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".52"/>
+        <rect x="6"  y="22.5" width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".28"/>
+      </svg>
+      <span class="text-lg font-semibold tracking-tight">Kardo</span>
+    </p>
+    <span class="flex items-center gap-2">
+      <a href="#mecanismo"
+         class="hidden rounded-md px-3 py-2 text-sm font-medium text-ink-soft transition-colors hover:text-ink sm:inline-block">
+        Cómo funciona
+      </a>
+      <a href="https://github.com/MrOdar/kardo" target="_blank" rel="noopener noreferrer"
+         class="hidden rounded-md px-3 py-2 text-sm font-medium text-ink-soft transition-colors hover:text-ink sm:inline-block">
+        Código
+      </a>
+      <a href="app/"
+         class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-deep">
+        Abrir la demo
+      </a>
+    </span>
+  </nav>
+
+  <div class="reveal reveal-stagger mx-auto max-w-3xl px-6 pb-12 pt-14 text-center lg:pb-16 lg:pt-20">
+    <p class="th" style="--paso:0">Control FEFO de inventario · Minimarkets</p>
+    <h1 class="section-title mt-5 !text-[2.5rem] leading-[1.08] lg:!text-[3.5rem]" style="--paso:1">
+      La mercadería no se vence sola.<br class="hidden sm:inline">
+      Se vence mientras nadie mira.
+    </h1>
+    <p class="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-soft" style="--paso:2">
+      Kardo lleva el inventario por lote, vende siempre lo que caduca antes, y
+      dice a qué precio rebajar mientras todavía se puede recuperar el dinero.
+    </p>
+    <div class="mt-9 flex flex-wrap items-center justify-center gap-3" style="--paso:3">
+      <a href="app/"
+         class="beam rounded-md bg-brand px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-deep">
+        Abrir la demo sembrada
+      </a>
+      <a href="#mecanismo"
+         class="rounded-md border border-line bg-surface px-5 py-3 text-sm font-semibold text-ink shadow-sm transition-colors hover:border-brand hover:text-brand">
+        Ver cómo funciona
+      </a>
+    </div>
+    <p class="mt-5 text-[13px] text-ink-faint" style="--paso:4">
+      Sin registro. 88 lotes con vencimientos reales y dos usuarios.
+    </p>
+  </div>
+
+  <!-- ──────────────── La consola, jugable ────────────────
+       Entera y no recortada: cortarla dejaba el panel a medias y lo que se
+       veía era un trozo, no un producto.
+
+       Las secciones de la barra cambian el panel de verdad. Es una simulación
+       y no un vídeo: el visitante elige qué mirar, que es exactamente lo que
+       hará dentro. Va sola de una sección a otra cada cinco segundos hasta que
+       alguien toca una; a partir de ahí manda él y no se le mueve nada bajo el
+       dedo.
+
+       Los datos son los de la tienda demo, así que lo que se ve aquí es lo que
+       aparece al pulsar el botón. Es contenido real y navegable, de modo que
+       lleva roles de pestaña de verdad y no `aria-hidden`. -->
+  <div class="reveal mx-auto max-w-[1180px] px-6 pb-16 lg:pb-20">
+    <div class="mx-auto max-w-[1000px] overflow-hidden rounded-xl border border-line shadow-lift">
+      <div class="flex flex-col text-left sm:flex-row">
+
+        <div class="w-full shrink-0 bg-brand-deep p-3 sm:w-48">
+          <p class="flex items-center gap-2 px-2 py-1.5">
+            <svg class="h-5 w-5" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#FFFFFF" opacity=".16"/><rect x="12" y="7.5" width="14" height="5" rx="2.5" fill="#FFFFFF"/><rect x="6" y="15" width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".52"/><rect x="6" y="22.5" width="14" height="5" rx="2.5" fill="#FFFFFF" opacity=".28"/></svg>
+            <span class="text-sm font-semibold text-white">Kardo</span>
+          </p>
+
+          <div role="tablist" aria-label="Secciones de la demostración"
+               class="nav-corte flex gap-1 overflow-x-auto sm:block sm:overflow-visible"
+               data-simulacion>
+            <p class="nav-group hidden sm:block">Decidir hoy</p>
+            <button role="tab" id="sim-tab-inicio" aria-controls="sim-panel-inicio" aria-selected="true"
+                    class="nav-item shrink-0 text-left sm:w-full">Lo primero de hoy</button>
+            <button role="tab" id="sim-tab-semaforo" aria-controls="sim-panel-semaforo" aria-selected="false"
+                    class="nav-item shrink-0 text-left sm:w-full">Semáforo FEFO</button>
+            <button role="tab" id="sim-tab-rebajar" aria-controls="sim-panel-rebajar" aria-selected="false"
+                    class="nav-item shrink-0 text-left sm:w-full">Qué rebajar hoy</button>
+            <p class="nav-group hidden sm:block">Operar</p>
+            <button role="tab" id="sim-tab-inventario" aria-controls="sim-panel-inventario" aria-selected="false"
+                    class="nav-item shrink-0 text-left sm:w-full">Inventario y lotes</button>
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-1 bg-canvas p-5">
+
+          <!-- ── Lo primero de hoy ── -->
+          <section role="tabpanel" id="sim-panel-inicio" aria-labelledby="sim-tab-inicio">
+            <p class="th">Sábado, 15 de noviembre</p>
+            <p class="section-title mt-1 !text-2xl">Lo primero de hoy</p>
+
+            <div class="card mt-4 grid grid-cols-2 divide-line p-4 lg:grid-cols-4 lg:divide-x">
+              <div class="pr-4">
+                <p class="th">Valor en riesgo</p>
+                <p class="num mt-1.5 text-2xl font-bold leading-none text-risk-red">S/ 1,966.50</p>
+                <p class="mt-1.5 text-xs text-ink-faint">4 lotes en 48 h</p>
+              </div>
+              <div class="lg:px-4">
+                <p class="th">Decisiones</p>
+                <p class="num mt-1.5 text-2xl font-bold leading-none">18</p>
+                <p class="mt-1.5 text-xs text-ink-faint">rebajas por resolver</p>
+              </div>
+              <div class="hidden lg:block lg:px-4">
+                <p class="th">Inventario</p>
+                <p class="num mt-1.5 text-2xl font-bold leading-none">S/ 16,672.90</p>
+                <p class="mt-1.5 text-xs text-ink-faint">88 lotes activos</p>
+              </div>
+              <div class="hidden lg:block lg:pl-4">
+                <p class="th">Pérdida</p>
+                <p class="num mt-1.5 text-2xl font-bold leading-none">S/ 0.00</p>
+                <p class="mt-1.5 text-xs text-ink-faint">mermas aprobadas</p>
+              </div>
+            </div>
+
+            <div class="card mt-4 divide-y divide-line">
+              <p class="px-4 py-3 text-sm font-semibold">Prioridades</p>
+              <p class="flex items-center gap-3 px-4 py-3">
+                <span class="chip chip-expired shrink-0">10 lotes</span>
+                <span class="min-w-0 flex-1 truncate text-sm font-medium">Mercadería vencida que sigue en el anaquel</span>
+                <span class="hidden shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-semibold sm:inline">Dar de baja</span>
+              </p>
+              <p class="flex items-center gap-3 px-4 py-3">
+                <span class="chip chip-red shrink-0">4 lotes</span>
+                <span class="min-w-0 flex-1 truncate text-sm font-medium">Vencen en menos de 48 horas</span>
+                <span class="hidden shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-semibold sm:inline">Ver la cola</span>
+              </p>
+              <p class="flex items-center gap-3 px-4 py-3">
+                <span class="chip chip-amber shrink-0">18 decisiones</span>
+                <span class="min-w-0 flex-1 truncate text-sm font-medium">Rebajas sugeridas sin resolver</span>
+                <span class="hidden shrink-0 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white sm:inline">Rebajar a S/ 4.20</span>
+              </p>
+            </div>
+          </section>
+
+          <!-- ── Semáforo FEFO ── -->
+          <section role="tabpanel" id="sim-panel-semaforo" aria-labelledby="sim-tab-semaforo" hidden>
+            <p class="th">Cola de salida</p>
+            <p class="section-title mt-1 !text-2xl">Lo que vence primero</p>
+            <p class="mt-2 text-sm text-ink-soft">El orden en que el motor FEFO los entregará.</p>
+
+            <div class="card mt-4 overflow-hidden">
+              <table class="w-full border-collapse text-sm">
+                <thead class="border-b border-line bg-canvas text-left">
+                  <tr>
+                    <th class="th px-4 py-2.5">Vence</th>
+                    <th class="th px-4 py-2.5">Producto</th>
+                    <th class="th hidden px-4 py-2.5 lg:table-cell">Lote</th>
+                    <th class="th px-4 py-2.5 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-line">
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-expired">Hoy</span></td>
+                    <td class="px-4 py-2.5 font-medium">Bizcocho Chancay Tradicional 4 unid</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">L-BIZ-CHA-2610</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold">S/ 60.00</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">1 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Pan de Molde Blanco Bimbo Grande 750g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">L-PAN-BLA-2610</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold">S/ 162.50</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">2 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Leche Gloria Entera 400 g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">L-LEC-2611</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold">S/ 110.40</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-amber">5 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Yogurt Gloria Batido Fresa Botella 1kg</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">L-YOG-2610F</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold">S/ 104.40</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-green">9 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Jamonada Especial San Fernando 250g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">L-JAM-SFE-26</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold">S/ 120.00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── Qué rebajar hoy ── -->
+          <section role="tabpanel" id="sim-panel-rebajar" aria-labelledby="sim-tab-rebajar" hidden>
+            <p class="th">Escalera de descuentos</p>
+            <p class="section-title mt-1 !text-2xl">Qué rebajar hoy</p>
+            <p class="mt-2 text-sm text-ink-soft">Cada precio tiene el piso en el costo de su lote.</p>
+
+            <div class="card mt-4 overflow-hidden">
+              <table class="w-full border-collapse text-sm">
+                <thead class="border-b border-line bg-canvas text-left">
+                  <tr>
+                    <th class="th px-4 py-2.5">Vence</th>
+                    <th class="th px-4 py-2.5">Producto</th>
+                    <th class="th px-4 py-2.5 text-right">Lista</th>
+                    <th class="th px-4 py-2.5 text-right">Sugerido</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-line">
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">2 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Leche Gloria Entera 400 g</td>
+                    <td class="num px-4 py-2.5 text-right text-ink-faint line-through decoration-line">S/ 5.90</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold text-risk-red">S/ 4.20</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">1 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Pan de Molde Blanco Bimbo Grande 750g</td>
+                    <td class="num px-4 py-2.5 text-right text-ink-faint line-through decoration-line">S/ 8.90</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold text-risk-red">S/ 6.50</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-amber">5 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Yogurt Gloria Batido Fresa Botella 1kg</td>
+                    <td class="num px-4 py-2.5 text-right text-ink-faint line-through decoration-line">S/ 7.20</td>
+                    <td class="num px-4 py-2.5 text-right font-semibold text-risk-amber">S/ 6.10</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="mt-3 text-[13px] text-ink-faint">
+              La rebaja se firma: queda quién la aprobó, cuándo y sobre qué lote.
+            </p>
+          </section>
+
+          <!-- ── Inventario y lotes ── -->
+          <section role="tabpanel" id="sim-panel-inventario" aria-labelledby="sim-tab-inventario" hidden>
+            <p class="th">88 lotes activos</p>
+            <p class="section-title mt-1 !text-2xl">Inventario físico</p>
+            <p class="mt-2 text-sm text-ink-soft">Todos los lotes con existencias, en el orden en que FEFO los entregará.</p>
+
+            <div class="card mt-4 overflow-hidden">
+              <table class="w-full border-collapse text-sm">
+                <thead class="border-b border-line bg-canvas text-left">
+                  <tr>
+                    <th class="th px-4 py-2.5">Vence</th>
+                    <th class="th px-4 py-2.5">Producto</th>
+                    <th class="th hidden px-4 py-2.5 lg:table-cell">SKU</th>
+                    <th class="th px-4 py-2.5 text-right">Cantidad</th>
+                    <th class="th px-4 py-2.5">Estado</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-line">
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-expired">Hoy</span></td>
+                    <td class="px-4 py-2.5 font-medium">Bizcocho Chancay Tradicional 4 unid</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">PAN-CHA-008</td>
+                    <td class="num px-4 py-2.5 text-right">20</td>
+                    <td class="px-4 py-2.5 text-xs text-ink-soft">Activo</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">1 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Pan de Molde Blanco Bimbo Grande 750g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">PAN-BIM-001</td>
+                    <td class="num px-4 py-2.5 text-right">25</td>
+                    <td class="px-4 py-2.5 text-xs text-ink-soft">Activo</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-red">2 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Queso Fresco Pasteurizado Laive 400g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">LAC-LAI-011</td>
+                    <td class="num px-4 py-2.5 text-right">12</td>
+                    <td class="px-4 py-2.5 text-xs text-ink-soft">Activo</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-amber">4 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Pan Hamburguesa con Ajonjolí Bimbo 4 unid</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">PAN-BIM-004</td>
+                    <td class="num px-4 py-2.5 text-right">24</td>
+                    <td class="px-4 py-2.5 text-xs text-ink-soft">Activo</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5"><span class="chip chip-green">9 d</span></td>
+                    <td class="px-4 py-2.5 font-medium">Jamonada Especial San Fernando 250g</td>
+                    <td class="hidden px-4 py-2.5 font-mono text-xs text-ink-faint lg:table-cell">EMB-SFE-002</td>
+                    <td class="num px-4 py-2.5 text-right">25</td>
+                    <td class="px-4 py-2.5 text-xs text-ink-soft">Activo</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+
+    <p class="mx-auto mt-4 max-w-[1000px] text-center text-[13px] text-ink-faint sm:text-left">
+      Toca una sección de la barra para cambiar de pantalla. Son los datos de la
+      tienda demo: es lo mismo que verás al entrar.
+    </p>
+  </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ═══════════════════════ Lo que cuesta no mirar ═══════════════════════ -->
+<section class="border-y border-line bg-surface">
+  <div class="reveal reveal-stagger mx-auto grid max-w-[1180px] divide-y divide-line px-6 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+    <!-- Las tres son reglas de Kardo, comprobables abriendo la demo. Aquí hubo
+         un rato un «4 % de las ventas se pierde en vencidos», que es una cifra
+         de industria sin fuente: en una página que vende rigor, un dato que no
+         se puede sostener cuesta más de lo que suma. -->
+    <div class="ficha py-10 sm:pr-8" style="--paso:0">
+      <p class="th">Cuándo se decide</p>
+      <p class="num mt-2 text-[2.125rem] font-bold leading-none text-risk-red">
+        <span class="ticker" data-hasta="48">0</span> h
+      </p>
+      <p class="mt-2 text-sm text-ink-soft">
+        La última ventana para rebajar y seguir ganando algo. Después sólo queda
+        darlo de baja.
+      </p>
+    </div>
+    <div class="ficha py-10 sm:px-8" style="--paso:1">
+      <p class="th">De dónde sale la venta</p>
+      <p class="num mt-2 text-[2.125rem] font-bold leading-none">
+        <span class="ticker" data-hasta="1">0</span> lote
+      </p>
+      <p class="mt-2 text-sm text-ink-soft">
+        El que vence primero, no el que está más a mano en el anaquel. Lo
+        decide la base, no quien atiende.
+      </p>
+    </div>
+    <div class="ficha py-10 sm:pl-8" style="--paso:2">
+      <p class="th">Dónde se para la rebaja</p>
+      <p class="num mt-2 text-[2.125rem] font-bold leading-none text-risk-green">
+        <span class="ticker" data-hasta="0">0</span>
+      </p>
+      <p class="mt-2 text-sm text-ink-soft">
+        veces por debajo del costo del lote. El piso es el precio al que entró
+        esa mercadería.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ El mecanismo ═══════════════════════ -->
+<section id="mecanismo" class="mx-auto max-w-[1180px] scroll-mt-8 px-6 py-20 lg:py-28">
+  <div class="reveal max-w-2xl">
+    <h2 class="section-title">Otros pintan un semáforo. Kardo llega hasta el precio.</h2>
+    <p class="mt-4 text-lg leading-relaxed text-ink-soft">
+      Saber que algo vence en tres días no sirve de nada si nadie decide qué
+      hacer con ello. La escalera de rebaja traduce los días restantes en un
+      precio concreto, y <strong class="font-semibold text-ink">pone el piso en
+      lo que costó ese lote</strong>: por debajo, rebajar sería regalar.
+    </p>
+  </div>
+
+  <div class="mt-12 grid items-start gap-8 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+    <figure class="reveal viva card overflow-hidden">
+      <figcaption class="th border-b border-line bg-canvas px-5 py-3">
+        Un lote por vencer, como lo ve el operario
+      </figcaption>
+      <div class="p-5">
+        <p class="flex items-center gap-2.5">
+          <span class="chip chip-red">2 d</span>
+          <span class="min-w-0 flex-1 truncate font-medium">Leche Gloria Entera 400 g</span>
+        </p>
+        <p class="mt-2 font-mono text-xs text-ink-faint">LAC-GLO-004 · L-LEC-2611</p>
+
+        <dl class="mt-5 space-y-2 text-sm">
+          <div class="flex items-baseline justify-between gap-3">
+            <dt class="text-ink-faint">Costo del lote</dt>
+            <dd class="num text-ink-soft">S/ 3.10</dd>
+          </div>
+          <div class="flex items-baseline justify-between gap-3">
+            <dt class="text-ink-faint">Precio de lista</dt>
+            <dd class="num text-ink-faint line-through decoration-line">S/ 5.90</dd>
+          </div>
+          <div class="flex items-baseline justify-between gap-3 border-t border-line pt-2">
+            <dt class="font-semibold">Kardo sugiere</dt>
+            <dd class="num text-xl font-bold text-risk-red">S/ 4.20</dd>
+          </div>
+        </dl>
+
+        <p class="mt-4 text-[13px] leading-snug text-ink-soft">
+          No baja de S/ 3.10 porque es lo que costó <em>este</em> lote. La caja
+          cobra los S/ 4.20 y la rebaja queda firmada.
+        </p>
+      </div>
+      </figure>
+
+  <ol class="reveal reveal-stagger grid gap-4 sm:grid-cols-2" data-escalera>
+    <li class="peldano viva card p-5" style="--paso:0" data-dias="7">
+      <span class="chip chip-green">7 d</span>
+      <p class="num mt-4 text-2xl font-bold">S/ 5.90</p>
+      <p class="mt-1 text-sm text-ink-soft">Precio de lista. Todavía se vende solo.</p>
+    </li>
+    <li class="peldano viva card p-5" style="--paso:1" data-dias="5">
+      <span class="chip chip-amber">5 d</span>
+      <p class="num mt-4 text-2xl font-bold">S/ 5.00</p>
+      <p class="mt-1 text-sm text-ink-soft">Primer peldaño: &minus;15 %. Se imprime la etiqueta.</p>
+    </li>
+    <li class="peldano viva card p-5" style="--paso:2" data-dias="2">
+      <span class="chip chip-red">2 d</span>
+      <p class="num mt-4 text-2xl font-bold">S/ 4.20</p>
+      <p class="mt-1 text-sm text-ink-soft">&minus;29 %. La caja ya cobra este precio.</p>
+    </li>
+    <li class="peldano viva card p-5" style="--paso:3" data-dias="0" data-piso="si">
+      <span class="chip chip-expired">Piso</span>
+      <p class="num mt-4 text-2xl font-bold text-risk-red">S/ 3.10</p>
+      <p class="mt-1 text-sm text-ink-soft">El costo del lote. Aquí se para: más abajo se pierde dinero.</p>
+    </li>
+  </ol>
+  </div>
+
+  <p class="reveal mt-8 max-w-prose text-sm text-ink-faint">
+    Cada rebaja queda firmada: quién la aprobó, cuándo, y sobre qué lote. Es lo
+    que separa una sugerencia de una decisión que se puede auditar después.
+  </p>
+</section>
+
+<!-- ═══════════════════════ El circuito ═══════════════════════ -->
+<section class="border-y border-line bg-surface">
+  <div class="mx-auto max-w-[1180px] px-6 py-20 lg:py-28">
+    <div class="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
+      <div class="reveal">
+        <h2 class="section-title max-w-2xl">De la caja del proveedor al precio de la caja</h2>
+        <p class="mt-4 max-w-prose text-lg leading-relaxed text-ink-soft">
+          Un lote entra con su fecha y su costo, envejece en el estante, y sale
+          cuando le toca —el que caduca antes, al precio que le corresponde ese
+          día—. El dibujo de al lado es ese recorrido, en bucle.
+        </p>
+      </div>
+
+      <figure class="reveal escena mx-auto w-full max-w-[320px]" aria-labelledby="escena-pie">
+      <svg viewBox="0 0 440 330" class="w-full" role="img" aria-labelledby="escena-titulo">
+        <title id="escena-titulo">Un lote entra al estante, se anota su vencimiento, y el que caduca antes sale rebajado</title>
+
+        <!-- Estante -->
+        <rect x="20" y="236" width="400" height="7" rx="3.5" fill="#CBD6EA"/>
+        <rect x="42" y="243" width="9" height="34" rx="4.5" fill="#E2E8F4"/>
+        <rect x="389" y="243" width="9" height="34" rx="4.5" fill="#E2E8F4"/>
+
+        <!-- Los tres que ya estaban: corren un hueco a la izquierda. -->
+        <g class="escena-corre">
+          <!-- El más próximo a vencer: se marca y sale. -->
+          <g class="escena-sale">
+            <rect x="140" y="160" width="88" height="76" rx="9" fill="#FFFFFF" stroke="#E2E8F4"/>
+            <rect x="140" y="160" width="88" height="22" rx="9" fill="#EEF3FD"/>
+            <rect x="152" y="196" width="48" height="6" rx="3" fill="#CBD6EA"/>
+            <rect x="152" y="210" width="30" height="6" rx="3" fill="#E2E8F4"/>
+            <rect class="escena-alerta" x="152" y="166" width="34" height="11" rx="5.5" fill="#E2E8F4"/>
+            <text x="169" y="175" text-anchor="middle" font-size="9" font-weight="700" fill="#B3261E"
+                  font-family="Instrument Sans, sans-serif">2 d</text>
+
+            <!-- La etiqueta de rebaja: aparece cuando le toca salir. -->
+            <g class="escena-etiqueta">
+              <rect x="146" y="112" width="76" height="38" rx="8" fill="#B3261E"/>
+              <text x="184" y="127" text-anchor="middle" font-size="10" fill="#FFFFFF" opacity=".75"
+                    font-family="Instrument Sans, sans-serif" text-decoration="line-through">S/ 5.90</text>
+              <text x="184" y="142" text-anchor="middle" font-size="14" font-weight="700" fill="#FFFFFF"
+                    font-family="Instrument Sans, sans-serif">S/ 4.20</text>
+            </g>
+          </g>
+
+          <g>
+            <rect x="244" y="160" width="88" height="76" rx="9" fill="#FFFFFF" stroke="#E2E8F4"/>
+            <rect x="244" y="160" width="88" height="22" rx="9" fill="#EEF3FD"/>
+            <rect x="256" y="196" width="52" height="6" rx="3" fill="#CBD6EA"/>
+            <rect x="256" y="210" width="34" height="6" rx="3" fill="#E2E8F4"/>
+            <rect x="256" y="166" width="34" height="11" rx="5.5" fill="#FBF0DC"/>
+            <text x="273" y="175" text-anchor="middle" font-size="9" font-weight="700" fill="#8A5A00"
+                  font-family="Instrument Sans, sans-serif">5 d</text>
+          </g>
+
+          <g>
+            <rect x="348" y="160" width="88" height="76" rx="9" fill="#FFFFFF" stroke="#E2E8F4"/>
+            <rect x="348" y="160" width="88" height="22" rx="9" fill="#EEF3FD"/>
+            <rect x="360" y="196" width="44" height="6" rx="3" fill="#CBD6EA"/>
+            <rect x="360" y="210" width="38" height="6" rx="3" fill="#E2E8F4"/>
+            <rect x="360" y="166" width="34" height="11" rx="5.5" fill="#E6F4ED"/>
+            <text x="377" y="175" text-anchor="middle" font-size="9" font-weight="700" fill="#116A45"
+                  font-family="Instrument Sans, sans-serif">9 d</text>
+          </g>
+        </g>
+
+        <!-- El que llega: baja, se posa, y se le anota el vencimiento. -->
+        <g class="escena-entra">
+          <rect x="348" y="160" width="88" height="76" rx="9" fill="#FFFFFF" stroke="#E2E8F4"/>
+          <rect x="348" y="160" width="88" height="22" rx="9" fill="#DBE6FA"/>
+          <rect x="360" y="196" width="50" height="6" rx="3" fill="#CBD6EA"/>
+          <rect x="360" y="210" width="28" height="6" rx="3" fill="#E2E8F4"/>
+          <rect x="360" y="166" width="34" height="11" rx="5.5" fill="#E6F4ED"/>
+          <path class="escena-anota" d="M362 171.5h30" stroke="#116A45" stroke-width="3.5"
+                stroke-linecap="round" fill="none"/>
+        </g>
+      </svg>
+
+        <figcaption id="escena-pie" class="mt-3 text-center text-[13px] text-ink-faint">
+        Entra, se anota con su vencimiento, y sale primero el que caduca antes.
+      </figcaption>
+      </figure>
+    </div>
+
+    <div class="reveal reveal-stagger mt-12 grid gap-8 lg:grid-cols-3">
+      <div style="--paso:0">
+        <p class="num flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-deep">1</p>
+        <h3 class="mt-4 text-base font-semibold">Entra</h3>
+        <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+          Un Excel del proveedor, o una foto de la guía de remisión que lee un
+          modelo de visión. Las filas que no cuadran quedan en cuarentena,
+          editables, en vez de tumbar la carga entera.
+        </p>
+      </div>
+      <div style="--paso:1">
+        <p class="num flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-deep">2</p>
+        <h3 class="mt-4 text-base font-semibold">Envejece</h3>
+        <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+          Cada lote con su fecha y su costo. El semáforo los ordena por lo que
+          cuesta dejarlos para mañana, y la escalera les pone precio.
+        </p>
+      </div>
+      <div style="--paso:2">
+        <p class="num flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-deep">3</p>
+        <h3 class="mt-4 text-base font-semibold">Sale</h3>
+        <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+          La venta descuenta del lote que caduca primero y cobra su precio
+          rebajado. Lo que no se vendió se da de baja, o se canjea al proveedor
+          antes de vencer y se recupera el costo.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ Para quien juzga el código ═══════════════════════ -->
+<section class="mx-auto max-w-[1180px] px-6 py-20 lg:py-28">
+  <div class="reveal max-w-2xl">
+    <h2 class="section-title">Qué hay debajo</h2>
+    <p class="mt-4 text-lg leading-relaxed text-ink-soft">
+      No es una maqueta con datos de mentira. Es un motor transaccional sobre
+      PostgreSQL con las reglas en la base, donde tienen que estar.
+    </p>
+  </div>
+
+  <div class="reveal reveal-stagger mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="viva card p-5" style="--paso:0">
+      <h3 class="text-base font-semibold">FEFO en PL/pgSQL</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        El descuento de stock es un procedimiento con bloqueo pesimista sobre
+        los lotes: dos cajas vendiendo a la vez no pueden descontar el mismo.
+      </p>
+    </div>
+    <div class="viva card p-5" style="--paso:1">
+      <h3 class="text-base font-semibold">Ingesta en streaming</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        El Excel se lee fila a fila, sin cargarlo en memoria, con idempotencia
+        por huella del contenido: subir dos veces el mismo archivo no duplica
+        nada.
+      </p>
+    </div>
+    <div class="viva card p-5" style="--paso:2">
+      <h3 class="text-base font-semibold">Segregación de funciones</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        Quien declara una merma no puede aprobarla. La pérdida sólo se
+        consolida cuando la firma alguien distinto.
+      </p>
+    </div>
+    <div class="viva card p-5" style="--paso:3">
+      <h3 class="text-base font-semibold">Aislamiento por tienda</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        La tienda sale del token firmado, nunca de un parámetro: la interfaz no
+        puede elegir sobre qué tienda escribe.
+      </p>
+    </div>
+    <div class="viva card p-5" style="--paso:4">
+      <h3 class="text-base font-semibold">
+        <span class="num ticker" data-hasta="470">0</span> pruebas
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        252 unitarias, 182 de integración contra un PostgreSQL real levantado
+        con Testcontainers, y 36 de la interfaz en jsdom.
+      </p>
+    </div>
+    <div class="viva card p-5" style="--paso:5">
+      <h3 class="text-base font-semibold">Sin terceros</h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-soft">
+        Ni una petición fuera del origen: el CSS compilado y las tipografías
+        viajan con la página. <code class="font-mono text-xs">script-src 'self'</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ Cierre ═══════════════════════ -->
+<section class="border-t border-line bg-brand-deep text-white">
+  <div class="reveal mx-auto max-w-[1180px] px-6 py-20 text-center lg:py-24">
+    <h2 class="section-title text-white">Pruébalo con una tienda sembrada</h2>
+    <p class="mx-auto mt-4 max-w-prose text-lg leading-relaxed text-white/80">
+      88 lotes con vencimientos reales, dos usuarios para recorrer el circuito
+      completo, y un botón para volver a empezar cuando quieras.
+    </p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a href="app/"
+         class="rounded-md bg-white px-5 py-3 text-sm font-semibold text-brand-deep transition-colors hover:bg-brand-tint">
+        Abrir la demo
+      </a>
+      <a href="https://github.com/MrOdar/kardo" target="_blank" rel="noopener noreferrer"
+         class="rounded-md border border-white/25 px-5 py-3 text-sm font-semibold text-white transition-colors hover:border-white/50">
+        Ver el código
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="mx-auto max-w-[1180px] px-6 py-10 text-[13px] text-ink-faint">
+  Java 21 · Spring Boot 4.1.2 · PostgreSQL 17 sobre Supabase · interfaz sin
+  framework. La arquitectura está explicada en
+  <span class="font-mono">docs/ARCHITECTURE_SPEC.md</span>.
+</footer>
+
+<script src="landing.js"></script>
+</body>
+</html>

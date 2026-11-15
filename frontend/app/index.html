@@ -36,12 +36,12 @@
      Se pedían a fonts.googleapis.com, que era el último tercero del que
      dependía el aspecto de la página. Se precarga sólo el subconjunto latin de
      la cara de interfaz: es la que pinta la primera línea de texto. -->
-<link rel="preload" href="fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- El CSS se compila una vez (npm run css) y viaja en el jar. Antes se cargaba
      el compilador de Tailwind desde un CDN, de modo que si ese dominio no
      contestaba la interfaz salia entera sin estilos: el aspecto de la aplicacion
      dependia de un tercero. El tema vive ahora en tailwind.config.js. -->
-<link rel="stylesheet" href="kardo.css">
+<link rel="stylesheet" href="../kardo.css">
 </head>
 <body class="font-sans text-ink antialiased">
 

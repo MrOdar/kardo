@@ -27,6 +27,11 @@ export default {
         // accion— con menos voltaje, de modo que el rojo de un vencimiento
         // siga siendo lo mas fuerte de la pantalla.
         brand: { DEFAULT: '#3F6FD0', deep: '#2F4F86', soft: '#DBE6FA', tint: '#EEF3FD' },
+        // Acento de la landing, y solo de ahi. No es un color de riesgo: el
+        // ambar de riesgo esta calibrado para leerse sobre su propio tinte
+        // claro y sobre el azul de marca da 1.37:1, que es invisible. Este da
+        // 5.64:1 sobre brand.deep, medido en ejecucion.
+        sand: '#FCD34D',
         canvas: '#F3F6FC',
         surface: '#FFFFFF',
         line:  { DEFAULT: '#E2E8F4', strong: '#CBD6EA' },
