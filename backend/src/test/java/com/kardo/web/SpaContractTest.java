@@ -18,7 +18,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,8 +47,15 @@ import org.springframework.web.bind.annotation.RestController;
  */
 class SpaContractTest {
 
-    private static final Path HTML = Path.of("src/main/resources/static/index.html");
-    private static final Path JS = Path.of("src/main/resources/static/app.js");
+    // La interfaz vive fuera de este modulo desde que se despliega aparte. El
+    // contrato sigue siendo cosa del backend: lo que fija es que cada ruta que
+    // el guion llama exista en algun controlador de AQUI, y eso solo se puede
+    // comprobar leyendo los dos lados a la vez. Por eso los dos arboles siguen
+    // en el mismo repositorio aunque se desplieguen por separado.
+    private static final Path FRONT = Path.of("..", "frontend", "app");
+    private static final Path HTML = FRONT.resolve("index.html");
+    private static final Path JS = FRONT.resolve("app.js");
+    private static final Path CSS = FRONT.resolve("kardo.css");
 
     /** Prefijo que el guion antepone a toda llamada (la constante {@code api}). */
     private static final String API_PREFIX = "/api/v1";
@@ -147,7 +153,7 @@ class SpaContractTest {
                 .isEmpty();
 
         assertThat(allMatches(html, "(?s)<style>(.*?)</style>"))
-                .describedAs("bloques <style> en index.html; el CSS vive en src/main/css/kardo.css")
+                .describedAs("bloques <style> en index.html; el CSS vive en frontend/src/css/kardo.css")
                 .isEmpty();
     }
 
@@ -166,8 +172,7 @@ class SpaContractTest {
     @Test
     @DisplayName("Ni el HTML ni el CSS piden recursos a un tercero")
     void nadaDeFuera() throws Exception {
-        String css = new String(new ClassPathResource("static/kardo.css")
-                .getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String css = Files.readString(CSS, StandardCharsets.UTF_8);
 
         // Lo que se persigue es lo que el navegador DESCARGA solo: src= de un
         // script o una imagen, href= de un <link>, y url() de una hoja. Un
@@ -185,7 +190,7 @@ class SpaContractTest {
                         .describedAs("""
                                 %s descarga un recurso de otro origen. La CSP lo bloquea y,
                                 si no lo hiciera, el aspecto de la pagina dependeria de que
-                                ese dominio conteste. Trae el archivo a static/ como se hizo
+                                ese dominio conteste. Trae el archivo a frontend/ como se hizo
                                 con Tailwind y con las tipografias.""".formatted(donde))
                         .isEmpty();
             }
@@ -203,7 +208,7 @@ class SpaContractTest {
      * resto del CDN haya sobrevivido en el HTML.
      */
     @Test
-    @DisplayName("La hoja de estilos compilada viaja en el jar")
+    @DisplayName("La hoja de estilos compilada esta junto a la pagina")
     void elCssCompiladoEstaEnSuSitio() throws Exception {
         assertThat(html)
                 .describedAs("index.html tiene que pedir la hoja compilada")
@@ -213,8 +218,7 @@ class SpaContractTest {
                 .describedAs("resto del CDN de Tailwind en index.html")
                 .doesNotContain("cdn.tailwindcss.com");
 
-        String css = new String(new ClassPathResource("static/kardo.css")
-                .getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String css = Files.readString(CSS, StandardCharsets.UTF_8);
 
         // Sin distinguir mayusculas: el minificador baja los hexadecimales a
         // minusculas, de modo que comparar con el literal de la paleta tal como
@@ -222,8 +226,8 @@ class SpaContractTest {
         // contenido.
         assertThat(css)
                 .describedAs("""
-                        static/kardo.css no lleva la paleta dentro. Compila el CSS:
-                          npm run css""")
+                        frontend/app/kardo.css no lleva la paleta dentro. Compilalo:
+                          cd frontend && npm run css""")
                 .containsIgnoringCase("#3F6FD0");
     }
 

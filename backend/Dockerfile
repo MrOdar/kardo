@@ -1,3 +1,10 @@
+# Imagen de la API. Solo de la API: desde que la interfaz se despliega aparte,
+# este contenedor no sirve ni una página.
+#
+# El contexto de construcción es ESTA carpeta, no la raíz del repositorio. En
+# Render hay que poner backend/ como "Root Directory"; con la raíz, el COPY de
+# abajo no encuentra el pom y la construcción se cae en el primer paso.
+#
 # ============ Stage 1: build ============
 FROM maven:3.9-eclipse-temurin-21 AS build
 

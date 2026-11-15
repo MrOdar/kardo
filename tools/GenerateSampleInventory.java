@@ -139,7 +139,7 @@ public class GenerateSampleInventory {
         items.add(new Item("LIM-AYU-012", "7750108008127", "Lavavajillas Liquido Ayudin Limon Botella 500ml", "LIMPIEZA", "BOTELLA", "5.10", "7.20", "L-AYU-LIQ-500", 30, 540, 30));
 
         // Generar archivo limpio de 88 filas
-        String cleanPathAsset = "src/main/resources/static/assets/inventario_ejemplo_kardo.xlsx";
+        String cleanPathAsset = "frontend/app/assets/inventario_ejemplo_kardo.xlsx";
         writeWorkbook(cleanPathAsset, items, today);
 
         System.out.println("EXITO: Generados " + items.size() + " productos en " + cleanPathAsset);
@@ -151,7 +151,7 @@ public class GenerateSampleInventory {
         // ventas sin la cual el analisis por familias sale vacio- y regenerarlo
         // borra esas 137 lineas sin decir nada. Se perdieron una vez por
         // ejecutar esto para rehacer solo el Excel.
-        String sqlMigrationPath = "sql/16_demo_expanded_catalog.sql";
+        String sqlMigrationPath = "backend/sql/16_demo_expanded_catalog.sql";
         boolean regenerarSql = List.of(args).contains("--sql");
         if (regenerarSql) {
             generateMigrationSql(items, sqlMigrationPath);

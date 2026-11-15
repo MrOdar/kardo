@@ -5,7 +5,29 @@
  * guarda nada entre la carga de un archivo y el envio de las filas corregidas.
  * De ahi que estas estructuras sean la unica fuente de verdad de la pantalla.
  */
-const api = '/api/v1';
+/**
+ * Donde vive la API.
+ *
+ * <p>Era `/api/v1` a secas, que solo funciona si el mismo servidor devuelve la
+ * pagina y los datos. Ahora el front es estatico y se despliega aparte, de modo
+ * que tiene que saber a que origen llamar; el backend lo autoriza por CORS.
+ *
+ * <p>El origen de produccion se declara en un `<meta>` del HTML y no aqui, para
+ * que cambiar de despliegue no obligue a tocar el guion. Si falta, se asume el
+ * mismo origen: asi la pagina sigue funcionando servida desde el propio jar.
+ *
+ * <p><b>Local manda siempre.</b> Abierto desde localhost se llama a localhost
+ * pase lo que pase en el `<meta>`. Sin esa regla, probar la pagina en el
+ * portatil escribiria en la base de produccion -sembrar la demo, dar de baja
+ * mercaderia- sin que nada en pantalla lo delatara.
+ */
+const api = (() => {
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+    return 'http://localhost:8080/api/v1';
+  }
+  const declarado = document.querySelector('meta[name="kardo-api"]')?.content?.trim();
+  return declarado ? `${declarado.replace(/\/+$/, '')}/api/v1` : '/api/v1';
+})();
 
 const state = {
   token: null,

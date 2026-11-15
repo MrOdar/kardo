@@ -59,10 +59,14 @@ firmada y comprobable en los libros.
 
 - Contenedor de **512 MB** en capa gratuita: todo el diseño de datos evita cargar
   colecciones completas en memoria.
-- La interfaz se sirve desde el mismo jar: HTML y JavaScript sin framework, sin
-  empaquetador ni framework de front. Lo único que se compila es el CSS de
-  Tailwind (`npm run css`), y el resultado se versiona porque Render no tiene
-  Node. Cualquier rediseño vive dentro de eso.
+- **La interfaz y la API se despliegan por separado** y hablan por CORS. La
+  interfaz es HTML y JavaScript sin framework ni empaquetador: se publica tal
+  cual en un host estático, que no hiberna. Lo único que se compila es el CSS
+  de Tailwind (`npm run css`), y el resultado se versiona porque ahí no se
+  construye nada. Cualquier rediseño vive dentro de eso.
+- Los dos árboles van en el mismo repositorio: el contrato entre ellos —que
+  cada ruta que la interfaz llama exista en algún controlador— se comprueba
+  leyéndolos a la vez.
 - La tienda sale del token; la interfaz nunca elige sobre qué tienda escribe.
 - Una sola tienda demo compartida, restaurable con un botón, que convive con las
   empresas reales dadas de alta desde fuera.

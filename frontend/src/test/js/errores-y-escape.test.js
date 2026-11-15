@@ -121,6 +121,32 @@ describe('escapeHtml()', () => {
   });
 });
 
+describe('a donde llama la pagina', () => {
+
+  /**
+   * Abierta en local, la pagina llama a la API local. Siempre.
+   *
+   * <p>Desde que el front se despliega aparte tiene que saber a que origen
+   * hablar, y lo declara un `<meta>` del HTML que apunta a produccion. Sin esta
+   * regla, abrir la pagina en el portatil escribiria en la base de verdad:
+   * sembrar la demo, dar de baja mercaderia, corregir precios. Y no habria nada
+   * en pantalla que lo delatara, porque la interfaz se ve igual.
+   *
+   * <p>La prueba vale porque el `<meta>` del HTML apunta a otro dominio: si el
+   * orden de precedencia se invirtiera, esto lo cantaria.
+   */
+  it('desde localhost se llama a localhost, diga lo que diga el meta', () => {
+    pagina = abrirPagina();
+
+    const declarado = pagina.document
+      .querySelector('meta[name="kardo-api"]')?.content ?? '';
+
+    expect(declarado, 'el meta tiene que apuntar fuera para que esto pruebe algo')
+      .toMatch(/^https:\/\//);
+    expect(pagina.evaluar('api')).toBe('http://localhost:8080/api/v1');
+  });
+});
+
 describe('sembrar la demo', () => {
 
   /**

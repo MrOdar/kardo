@@ -26,6 +26,8 @@ jobs:
           java-version: '21'
           distribution: temurin
           cache: maven
+          # El pom vive en backend/ desde que la interfaz se despliega aparte.
+          cache-dependency-path: backend/pom.xml
 
       - name: Verificar que Docker esta disponible
         # Si faltara, las pruebas de integracion se saltarian en silencio y el
@@ -33,6 +35,7 @@ jobs:
         run: docker info > /dev/null
 
       - name: mvn verify
+        working-directory: backend
         run: mvn -B --no-transfer-progress verify
 
       - name: Publicar resultados de las pruebas
@@ -41,22 +44,24 @@ jobs:
         with:
           name: reportes-de-pruebas
           path: |
-            target/surefire-reports/
-            target/failsafe-reports/
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
           if-no-files-found: ignore
           retention-days: 7
 
   # ---------------------------------------------------------------------------
   # La SPA
   # ---------------------------------------------------------------------------
-  # Job aparte, y no un paso del build de Maven, a proposito: Render construye
-  # el jar con `mvn package` y no instala Node. Si el build de Maven dependiera
-  # de npm, el despliegue se caeria. La SPA se sirve tal cual desde el jar -sin
-  # empaquetador, sin paso de construccion- y eso se queda asi: Node existe aqui
-  # solo para las pruebas.
-  spa:
-    name: Pruebas de la SPA
+  # Job aparte del de Maven a proposito: son dos despliegues distintos. El jar
+  # se construye sin Node -Render no lo instala- y la interfaz se publica tal
+  # cual, sin empaquetador. Node existe aqui para las pruebas y para compilar
+  # el CSS, no para construir la pagina.
+  front:
+    name: Pruebas de la interfaz
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +71,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
 
@@ -74,17 +80,17 @@ jobs:
       # base, y que un error del servidor llegue al operario con su mensaje.
       - run: npm test
 
-      # El CSS compilado se versiona porque Render no tiene Node: el jar tiene
-      # que llevarlo ya hecho. Eso abre la puerta a que se quede viejo -alguien
+      # El CSS compilado se versiona porque el host estatico no construye nada:
+      # publica los archivos tal cual, de modo que la hoja tiene que ir hecha. Eso abre la puerta a que se quede viejo -alguien
       # añade una clase de Tailwind en app.js, no recompila, y esa clase no
       # existe en la hoja: no falla nada, solo sale un elemento sin estilo-.
       # Aqui se reconstruye y se compara con lo que hay en el repositorio.
       - name: El CSS compilado esta al dia
         run: |
           npm run css
-          if ! git diff --quiet -- src/main/resources/static/kardo.css; then
-            echo "::error file=src/main/resources/static/kardo.css::La hoja compilada no corresponde al fuente. Ejecuta 'npm run css' y commitea el resultado."
-            git diff --stat -- src/main/resources/static/kardo.css
+          if ! git diff --quiet -- app/kardo.css; then
+            echo "::error file=frontend/app/kardo.css::La hoja compilada no corresponde al fuente. Ejecuta 'npm run css' en frontend/ y commitea el resultado."
+            git diff --stat -- app/kardo.css
             exit 1
           fi
 
@@ -100,6 +106,9 @@ jobs:
   dependencias:
     name: Revision de dependencias
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +119,7 @@ jobs:
           java-version: '21'
           distribution: temurin
           cache: maven
+          cache-dependency-path: backend/pom.xml
 
       # Corta el PR que introduce una dependencia con un CVE conocido, antes de
       # que entre a main. Usa la base de avisos de GitHub, asi que no hace falta

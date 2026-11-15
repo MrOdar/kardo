@@ -7,6 +7,30 @@
      marcador y de lo que se ve al compartir el enlace: era el único sitio
      donde Kardo hablaba en otro idioma. -->
 <title>Kardo — Control FEFO de inventario para minimarkets</title>
+<!-- A que backend llama la SPA. Se declara aquí y no en app.js para que cambiar
+     de despliegue sea tocar una línea de HTML. Abierta desde localhost se
+     ignora: ver la explicación en app.js. El backend tiene que autorizar este
+     origen en CORS_ALLOWED_ORIGINS, o el navegador corta las llamadas. -->
+<meta name="kardo-api" content="https://kardo-api.onrender.com">
+
+<!-- La página ya no la sirve el jar, así que la CSP no puede venir en una
+     cabecera: va aquí. OJO con lo que se pierde por el camino —
+     `frame-ancestors` y `X-Frame-Options` NO funcionan en un <meta>, y con
+     ellos la defensa contra el clickjacking sobre los botones que aprueban
+     mermas. Hay que reponerla en las cabeceras del host estático (Render
+     Static las admite; GitHub Pages no).
+     `connect-src` deja de ser 'self': es el precio de separar los orígenes. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               font-src 'self';
+               img-src 'self' data:;
+               connect-src 'self' http://localhost:8080 https://kardo-api.onrender.com;
+               form-action 'self';
+               base-uri 'self';
+               object-src 'none'">
+
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <!-- Las tipografías viajan en el jar (static/fonts) y se declaran en kardo.css.
      Se pedían a fonts.googleapis.com, que era el último tercero del que

@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
-const RAIZ = new URL('../../main/resources/static/', import.meta.url);
+const RAIZ = new URL('../../../app/', import.meta.url);
 
 const html = readFileSync(new URL('index.html', RAIZ), 'utf8');
 const guion = readFileSync(new URL('app.js', RAIZ), 'utf8');
@@ -49,7 +49,11 @@ export function abrirPagina(respuestas = () => undefined) {
   const { window } = dom;
 
   window.fetch = async (url, options = {}) => {
-    const path = String(url).replace(/^\/api\/v1/, '');
+    // La base de la API es absoluta desde que el front se despliega aparte:
+    // en jsdom la pagina se sirve desde localhost, y ahi app.js apunta a
+    // http://localhost:8080 a proposito. Se recorta el origen ademas del
+    // prefijo para que las pruebas sigan hablando en rutas.
+    const path = String(url).replace(/^https?:\/\/[^/]+/, '').replace(/^\/api\/v1/, '');
     llamadas.push({ path, options });
 
     const respuesta = respuestas(path, options) ?? { status: 200, body: '' };
