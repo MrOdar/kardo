@@ -55,18 +55,24 @@ class SpaContractTest {
     private static final Path FRONT = Path.of("..", "frontend", "app");
     private static final Path HTML = FRONT.resolve("index.html");
     private static final Path JS = FRONT.resolve("app.js");
-    private static final Path CSS = FRONT.resolve("kardo.css");
+    // La hoja y las tipografias las comparten la landing y la aplicacion, de
+    // modo que viven un nivel por encima de app/.
+    private static final Path CSS = FRONT.resolve("..").resolve("kardo.css");
+    /** La landing: no llama a la API, pero es la primera pagina que se ve. */
+    private static final Path LANDING = FRONT.resolve("..").resolve("index.html");
 
     /** Prefijo que el guion antepone a toda llamada (la constante {@code api}). */
     private static final String API_PREFIX = "/api/v1";
 
     private static String html;
     private static String js;
+    private static String landing;
 
     @BeforeAll
     static void readSources() throws IOException {
         html = Files.readString(HTML, StandardCharsets.UTF_8);
         js = Files.readString(JS, StandardCharsets.UTF_8);
+        landing = Files.readString(LANDING, StandardCharsets.UTF_8);
     }
 
     @Test
@@ -183,8 +189,14 @@ class SpaContractTest {
                 "(?i)<link\\b[^>]*\\shref\\s*=\\s*[\"'](https?://[^\"']+)",
                 "(?i)url\\(\\s*[\"']?(https?://[^\"')]+)");
 
-        for (String donde : List.of("index.html", "kardo.css")) {
-            String texto = donde.equals("index.html") ? html : css;
+        var fuentes = new java.util.LinkedHashMap<String, String>();
+        fuentes.put("app/index.html", html);
+        fuentes.put("index.html", landing);
+        fuentes.put("kardo.css", css);
+
+        for (var fuente : fuentes.entrySet()) {
+            String donde = fuente.getKey();
+            String texto = fuente.getValue();
             for (String patron : patrones) {
                 assertThat(allMatches(texto, patron))
                         .describedAs("""
@@ -195,6 +207,64 @@ class SpaContractTest {
                         .isEmpty();
             }
         }
+    }
+
+    /**
+     * Los {@code <div>} de las dos paginas cierran.
+     *
+     * <p>Un {@code </div>} de mas o de menos no rompe nada visible de golpe:
+     * el navegador recoloca lo que puede y el resultado es una rejilla con una
+     * columna vacia, o un bloque que se sale de su seccion. Se ve raro y no se
+     * sabe por que. Ya ha pasado dos veces moviendo bloques de sitio.
+     *
+     * <p>{@code <div>} no tiene forma vacia, de modo que contar aperturas y
+     * cierres es exacto. No valida el anidamiento, solo el balance: es la
+     * mitad del problema, y es la mitad que se cuela.
+     */
+    @Test
+    @DisplayName("Los div abren y cierran en las dos paginas")
+    void losDivCuadran() {
+        for (var pagina : java.util.Map.of("app/index.html", html, "index.html", landing).entrySet()) {
+            long abren = Pattern.compile("<div\\b").matcher(pagina.getValue()).results().count();
+            long cierran = Pattern.compile("</div>").matcher(pagina.getValue()).results().count();
+
+            assertThat(cierran)
+                    .describedAs("%s: %d <div> abiertos y %d cerrados",
+                            pagina.getKey(), abren, cierran)
+                    .isEqualTo(abren);
+        }
+    }
+
+    /**
+     * La capa de la reticula va vacia.
+     *
+     * <p>Lleva una {@code mask-image} que se desvanece hacia abajo. Puesta
+     * sobre el contenedor del contenido -que es donde estuvo- la mascara no
+     * recorta solo los puntos: se come la mitad inferior del titular y los
+     * botones. Y no sale en ninguna medicion, porque una mascara no cambia la
+     * opacidad ni el tamano computados; solo se ve mirando la pagina.
+     *
+     * <p>De ahi que esto sea una prueba y no un comentario: el fallo se
+     * reintroduce solo con anidar algo dentro de ese div.
+     */
+    @Test
+    @DisplayName("La capa enmascarada de la landing no envuelve contenido")
+    void laMascaraNoTapaElTexto() {
+        var capa = Pattern
+                .compile("<div[^>]*class=\"[^\"]*puntos[^\"]*\"[^>]*>(.*?)</div>",
+                        Pattern.DOTALL)
+                .matcher(landing);
+
+        assertThat(capa.find())
+                .describedAs("no encuentro la capa .puntos en la landing")
+                .isTrue();
+
+        assertThat(capa.group(1).trim())
+                .describedAs("""
+                        .puntos lleva una mascara que se desvanece hacia abajo.
+                        Con contenido dentro, se lleva por delante la mitad inferior del
+                        titular. Tiene que ir vacia, absoluta y detras.""")
+                .isEmpty();
     }
 
     /**
@@ -212,7 +282,7 @@ class SpaContractTest {
     void elCssCompiladoEstaEnSuSitio() throws Exception {
         assertThat(html)
                 .describedAs("index.html tiene que pedir la hoja compilada")
-                .contains("href=\"kardo.css\"");
+                .contains("href=\"../kardo.css\"");
 
         assertThat(html)
                 .describedAs("resto del CDN de Tailwind en index.html")

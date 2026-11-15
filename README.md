@@ -408,7 +408,8 @@ Dos cosas que se despliegan por separado y hablan por CORS:
 
 ```
 backend/     la API. Spring Boot, el esquema en sql/, el Dockerfile.
-frontend/    la landing y la aplicación. Estáticos puros, sin empaquetador.
+frontend/    index.html es la landing; app/ es la aplicación. Estáticos puros,
+             sin empaquetador: lo único que se compila es el CSS.
 docs/  tools/  DESIGN.md  PRODUCT.md     comunes a las dos.
 ```
 

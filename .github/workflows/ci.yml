@@ -88,9 +88,9 @@ jobs:
       - name: El CSS compilado esta al dia
         run: |
           npm run css
-          if ! git diff --quiet -- app/kardo.css; then
-            echo "::error file=frontend/app/kardo.css::La hoja compilada no corresponde al fuente. Ejecuta 'npm run css' en frontend/ y commitea el resultado."
-            git diff --stat -- app/kardo.css
+          if ! git diff --quiet -- kardo.css; then
+            echo "::error file=frontend/kardo.css::La hoja compilada no corresponde al fuente. Ejecuta 'npm run css' en frontend/ y commitea el resultado."
+            git diff --stat -- kardo.css
             exit 1
           fi
 

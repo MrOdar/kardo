@@ -197,3 +197,230 @@ td.font-mono, th.font-mono { white-space: nowrap; }
             mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
   }
 }
+
+/* ══════════════════════════ LANDING ══════════════════════════
+   Solo la usa index.html. La aplicación es modo Operate y su regla de
+   movimiento sigue siendo un único momento autorizado; esta página es
+   Persuade y juega con otras reglas, pero con el mismo sistema: los mismos
+   tokens, la misma tipografía, los mismos chips.
+
+   Todo lo de aquí está portado a CSS plano desde docs/banco-animaciones.md.
+   Los catálogos de origen son React y asumen framer-motion; nada de eso entra
+   en este proyecto. Y ningún efecto de los que piden fondo oscuro: el mundo de
+   Kardo es claro y sobre crema se ven sucios o no se ven.
+
+   Regla que gobierna el resto: NADA se mueve solo. Cada animación la dispara
+   el scroll o el puntero, y `prefers-reduced-motion` las anula todas. Una
+   pantalla de inventario que parpadea sola cansa en el segundo minuto. */
+
+/* ── Reveal al entrar en pantalla ──
+   Lo dispara landing.js con IntersectionObserver, y no `animation-timeline`.
+   Se probaron las dos: atado al scroll, el rango se completa en cuanto el
+   bloque entra holgado en pantalla, de modo que cuando el ojo llega ya terminó
+   y no se ve nada moverse. El observador lo dispara una vez, entero, cuando
+   el bloque asoma.
+
+   NADA de `filter` aquí. La primera versión desvanecía desde `blur(6px)`, y al
+   acabar el elemento se quedaba en `blur(0px)`: un filtro, aunque sea de cero,
+   fuerza composición en GPU y le quita al texto el antialiasing subpíxel. El
+   resultado es una página que se ve sucia sin que nada parezca estar mal.
+   Por lo mismo, landing.js retira la clase al terminar: un `transform`
+   residual hace exactamente lo mismo. */
+.reveal { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  html.js-reveal .reveal:not(.hecho) { opacity: 0; }
+
+  html.js-reveal .reveal.visible {
+    animation: revelar .7s cubic-bezier(.16, 1, .3, 1) both;
+  }
+
+  /* Escalonado: las piezas entran una tras otra, no todas de golpe. */
+  html.js-reveal .reveal-stagger:not(.hecho) > * { opacity: 0; }
+  html.js-reveal .reveal-stagger.visible > * {
+    animation: revelar .7s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--paso, 0) * 110ms);
+  }
+  html.js-reveal .reveal-stagger.visible { animation: none; opacity: 1; }
+}
+
+/* Terminada la entrada, el elemento vuelve a ser estático: sin animación, sin
+   transform y sin capa de composición propia. */
+.reveal.hecho, .reveal.hecho > * { animation: none !important; opacity: 1; transform: none; }
+
+@keyframes revelar {
+  from { opacity: 0; transform: translate3d(0, 28px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* ── Barra de progreso del scroll ──
+   Del banco (Scroll Progress). Dice cuánto queda, que en una página larga es
+   información, no adorno. */
+.progreso {
+  position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 50;
+  transform-origin: 0 50%; background: #3F6FD0;
+}
+@supports (animation-timeline: scroll()) {
+  .progreso { animation: avanzar linear; animation-timeline: scroll(root block); }
+}
+@keyframes avanzar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ── Retícula de puntos del encabezado ──
+   "Dot Pattern" del banco, uno de los pocos que funcionan sobre fondo claro.
+   Se desvanece hacia abajo para no competir con el texto. */
+.puntos {
+  background-image: radial-gradient(#CBD6EA 1px, transparent 1px);
+  background-size: 24px 24px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 75% at 50% 0%, #000 30%, transparent 100%);
+          mask-image: radial-gradient(ellipse 85% 75% at 50% 0%, #000 30%, transparent 100%);
+}
+
+/* ── Haz recorriendo el borde del botón principal ──
+   Mismo dispositivo que ya usa SmartChef, con el azul de Kardo. El recorte con
+   mask-composite deja solo el borde: sin él, el resplandor tapa el texto. */
+.beam { position: relative; overflow: hidden; }
+.beam::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  padding: 1.5px; pointer-events: none;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude; -webkit-mask-composite: xor;
+  background: conic-gradient(from var(--giro, 0deg),
+              transparent 0 78%, rgba(255,255,255,.95) 88%, transparent 96%);
+}
+@property --giro { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@media (prefers-reduced-motion: no-preference) {
+  .beam::after { animation: girar 4.5s linear infinite; }
+}
+@keyframes girar { to { --giro: 360deg; } }
+
+/* ── Cifra que cuenta ──
+   La pinta landing.js. Aquí solo se fija el ancho tabular: sin él la caja
+   cambia de tamaño en cada tic y arrastra lo que tiene al lado. */
+.ticker { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+/* ── La escalera de rebaja ──
+   El dispositivo propio de esta página y el único que no sale del banco: es la
+   tesis del producto dicha en movimiento. El precio cae peldaño a peldaño
+   conforme bajas, y se para en el costo del lote. Esa parada es el argumento:
+   la rebaja nunca vende por debajo de lo que costó. */
+.peldano { transition: background-color .3s, border-color .3s; }
+.peldano[data-activo="si"] { background: #EEF3FD; border-color: #3F6FD0; }
+.peldano[data-piso="si"] { background: #FDECEA; border-color: #B3261E; }
+
+@media (prefers-reduced-motion: reduce) {
+  .progreso { animation: none; transform: scaleX(1); }
+}
+
+/* ── Las tarjetas de la landing reaccionan ──
+   La consola no hace esto: allí una tarjeta es una superficie de lectura y
+   moverse bajo el cursor estorba. Aquí el visitante está recorriendo, y que la
+   tarjeta acuse el paso es parte de que la página se sienta viva.
+
+   El gesto es el del sistema, no uno nuevo: el borde pasa a `brand` —lo mismo
+   que hacen los botones secundarios— y la sombra sube de `card` a `lift`, que
+   ya existen las dos. Dos píxeles de elevación; más sería un juguete. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .viva {
+    transition: transform .25s cubic-bezier(.16,1,.3,1),
+                box-shadow .25s cubic-bezier(.16,1,.3,1),
+                border-color .25s;
+  }
+  .viva:hover {
+    transform: translateY(-2px);
+    border-color: #3F6FD0;
+    box-shadow: 0 2px 4px rgba(11,18,32,.06), 0 16px 32px -16px rgba(11,18,32,.22);
+  }
+}
+
+/* La cifra de cada ficha acusa el paso por su bloque, sin mover nada: en una
+   tira de tres, elevarlas haría saltar la fila entera. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .ficha .num { transition: color .25s; }
+  .ficha:hover .num { color: #3F6FD0; }
+  .ficha:hover .num.text-risk-red,
+  .ficha:hover .num.text-risk-green { color: inherit; }
+}
+
+/* ══════════════════ La escena del estante ══════════════════
+   El producto, dibujado y en bucle: llega un lote, se anota con su
+   vencimiento, y el que caduca antes sale primero con su precio rebajado.
+   Nueve segundos, los mismos tres actos que hace el motor FEFO.
+
+   Es SVG dibujado a mano, no una librería: los catálogos del banco traen
+   fondos y partículas, no el mecanismo de este producto. Y los tokens son los
+   del sistema, de modo que la escena y la aplicación son la misma cosa.
+
+   Con movimiento reducido no corre nada y la escena queda en su estado final
+   -tres lotes en el estante y el rebajado con su etiqueta-, que es un dibujo
+   completo y legible, no un fotograma a medias. */
+
+.escena { --ciclo: 9s; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Acto 1: el lote nuevo baja y se posa. */
+  .escena-entra { animation: lote-entra var(--ciclo) ease-in-out infinite; }
+
+  /* El trazo que lo anota: se dibuja sobre la caja al posarse. */
+  .escena-anota {
+    stroke-dasharray: 60;
+    stroke-dashoffset: 60;
+    animation: anotar var(--ciclo) ease-in-out infinite;
+  }
+
+  /* Acto 2: los tres lotes corren un hueco a la izquierda. */
+  .escena-corre { animation: correr var(--ciclo) cubic-bezier(.16,1,.3,1) infinite; }
+
+  /* Acto 3: el que vence antes se marca y sale. */
+  .escena-sale { animation: salir var(--ciclo) cubic-bezier(.16,1,.3,1) infinite; }
+  .escena-etiqueta { animation: etiqueta var(--ciclo) ease-out infinite; }
+  .escena-alerta { animation: alerta var(--ciclo) ease-in-out infinite; }
+}
+
+/* Baja desde arriba, se posa con un rebote corto y espera el resto del ciclo. */
+@keyframes lote-entra {
+  0%, 4%   { transform: translate(0, -120px); opacity: 0; }
+  14%      { transform: translate(0, 4px);    opacity: 1; }
+  18%, 94% { transform: translate(0, 0);      opacity: 1; }
+  100%     { transform: translate(0, -120px); opacity: 0; }
+}
+
+@keyframes anotar {
+  0%, 16%   { stroke-dashoffset: 60; }
+  26%, 96%  { stroke-dashoffset: 0; }
+  100%      { stroke-dashoffset: 60; }
+}
+
+@keyframes correr {
+  0%, 30%   { transform: translateX(0); }
+  40%, 100% { transform: translateX(-104px); }
+}
+
+@keyframes salir {
+  0%, 52%  { transform: translateX(0);     opacity: 1; }
+  70%      { transform: translateX(-96px); opacity: 1; }
+  82%, 100%{ transform: translateX(-150px); opacity: 0; }
+}
+
+@keyframes etiqueta {
+  0%, 40%  { opacity: 0; transform: translateY(6px) scale(.9); }
+  48%, 78% { opacity: 1; transform: translateY(0) scale(1); }
+  86%,100% { opacity: 0; transform: translateY(0) scale(1); }
+}
+
+@keyframes alerta {
+  0%, 38%   { fill: #E2E8F4; }
+  46%, 78%  { fill: #FDECEA; }
+  88%, 100% { fill: #E2E8F4; }
+}
+
+/* La pestaña activa de la maqueta de la landing. En la aplicación el estado
+   lo lleva `aria-selected`, que es el atributo que de verdad lo comunica; la
+   maqueta no es una pestaña ni se puede pulsar, así que lleva una clase y no
+   un atributo que mentiría al lector de pantalla. */
+.nav-item-activo {
+  background: rgba(255,255,255,.14);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 #FFFFFF;
+}
