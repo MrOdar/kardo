@@ -1,0 +1,27 @@
+Tipografías de Kardo
+====================
+
+Las dos están bajo la SIL Open Font License 1.1, que permite redistribuirlas
+dentro de este jar siempre que se conserve el aviso de licencia. Esto es ese
+aviso; el texto completo de la licencia viaja con cada proyecto original, en
+los enlaces de abajo.
+
+Instrument Sans
+  Copyright The Instrument Sans Project Authors
+  https://github.com/Instrument/instrument-sans
+  SIL Open Font License 1.1
+  Archivos: instrument-sans-latin.woff2, instrument-sans-latin-ext.woff2
+  Un solo archivo variable por subconjunto, de 400 a 600.
+
+IBM Plex Mono
+  Copyright IBM Corp.
+  https://github.com/IBM/plex
+  SIL Open Font License 1.1
+  Archivos: ibm-plex-mono-500-latin.woff2, ibm-plex-mono-500-latin-ext.woff2
+  Sólo el peso 500, que es el único en que se usa.
+
+Los cuatro archivos son los subconjuntos latin y latin-ext que sirve Google
+Fonts, descargados una vez y versionados. Antes se pedían a
+fonts.googleapis.com en cada carga, lo que ataba el aspecto de la aplicación a
+que contestara un tercero; servirlos desde aquí permitió además cerrar
+`font-src` y `style-src` a `'self'` en la CSP.
