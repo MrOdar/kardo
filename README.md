@@ -5,6 +5,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1.2-6DB33F?style=flat&logo=springboot)](https://spring.io/projects/spring-boot)
 [![PostgreSQL 17](https://img.shields.io/badge/Database-PostgreSQL_17_(3NF)-336791?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![Gemini Flash](https://img.shields.io/badge/AI-Gemini_Flash_Vision-4285F4?style=flat&logo=google)](https://ai.google.dev/)
+[![Tests](https://img.shields.io/badge/Tests-308%20passed%20(100%25)-success?style=flat&logo=junit5)](https://github.com/MrOdar/kardo)
 
 **Kardo evita que la mercadería se venza en el anaquel.**
 
@@ -12,12 +13,14 @@ Un minimarket pierde dinero por una razón aburrida: nadie sabe qué lote vence
 primero. Kardo lleva ese control, vende siempre lo más próximo a caducar y
 avisa —con un precio concreto— cuando todavía se puede recuperar la plata.
 
-🔗 **Demo:** [kardo.onrender.com](https://kardo.onrender.com) · pulsa
-**Restaurar tienda demo** y entras sin credenciales. La tienda se siembra con
+🔗 **Landing comercial:** [kardo-1.onrender.com](https://kardo-1.onrender.com) ·
+Presentación de producto con animaciones interactivas en CSS y acceso directo.
+📱 **Aplicación web (SPA):** [kardo-1.onrender.com/app/](https://kardo-1.onrender.com/app/) ·
+pulsa **Restaurar tienda demo** y entras sin credenciales. La tienda se siembra con
 **88 productos** de un minimarket peruano de verdad —lácteos, embutidos,
 panadería, licores— con fechas relativas al día de hoy, así que el semáforo
 abre con lotes venciendo en 48 horas y rebajas por decidir, no en verde.
-🔌 **API:** [`/swagger-ui.html`](https://kardo.onrender.com/swagger-ui.html) ·
+🔌 **API & Swagger UI:** [`https://kardo.onrender.com/swagger-ui.html`](https://kardo.onrender.com/swagger-ui.html) ·
 inicia sesión con `demo@kardo.pe` / `kardo-demo-2026`, pega el token en
 **Authorize** y pruébala desde ahí.
 
@@ -103,6 +106,37 @@ misma razón que la CSP no admite `'unsafe-inline'` en `script-src`.
 Un producto **sin ventas** no cuenta como perdido aunque venza mañana. No se
 sabe a qué ritmo sale, y suponerle el peor caso inflaría la cifra justo en lo
 que acaba de llegar. Esa regla está fijada en `InventoryInsightsIT`.
+
+### Lo que más sale, frente a su stock
+
+La pregunta que un dueño hace primero y que no necesita manual: dos barras por
+producto —los diez de mayor salida en los últimos 30 días—. La barra azul es lo
+que se vendió; la gris, lo que sigue en el anaquel. Cuando la barra gris es mucho
+más larga que la azul, se compró mercadería para más tiempo del que le queda de
+vida útil.
+
+### Compara lo que quieras: cruce interactivo de rotación
+
+Los demás gráficos responden preguntas fijas elegidas por nosotros. Este no:
+los dos ejes los elige quien mira, cruzando el dato crudo de `ROTATION` sin
+volver a consultar al servidor.
+
+* **Ejes configurables:** Ingreso, Unidades Vendidas, Margen Bruto, Unidades en
+  Stock, Valor Inmovilizado o Días de Cobertura.
+* **Agrupación dinámica:** Cada punto puede representar un producto individual
+  o consolidar una familia entera.
+* **Filtro por categoría:** Para aislar perecibles sin la distorsión de secos.
+* **Techo dinámico en el percentil 95:** Con productos de rotación atípica
+  (coberturas de miles de días), una escala lineal rígida apelotonaría todo
+  contra el eje. El sistema corta en el percentil 95 y dibuja los puntos
+  excedentes con trazo hueco y etiqueta de fuera de escala.
+* **Adaptabilidad móvil:** El SVG mantiene un ancho mínimo de `40rem`
+  dentro de un contenedor con desplazamiento horizontal (`overflow-x-auto`),
+  impidiendo que las etiquetas numéricas de los ejes se reduzcan a tamaños
+  ilegibles en pantallas de celular.
+* **Tabla de los 10 extremos:** Debajo del gráfico, lista accesible de los diez
+  productos de la esquina superior derecha (los de mayor capital dormido o
+  salida crítica), con su fecha de vencimiento más próxima.
 
 ---
 
@@ -390,9 +424,9 @@ y enseña el máximo como contexto.
 | Visión | **Gemini Flash** | Extracción de guías con cadena de modelos de respaldo ante 429/503 |
 | PDF | **PDFBox** | Apache-2.0: sin la pregunta de licencia que trae LGPL |
 | Seguridad | **Spring Security 6** · JWT HS256 · BCrypt | Sin estado en servidor: el contenedor puede reiniciarse sin perder sesiones |
-| Interfaz | **HTML + Tailwind (CDN) + JS sin framework** | Se sirve desde el mismo jar; no hay build de front. Node existe sólo para probarla: `vitest` carga el `index.html` y el `app.js` de verdad en jsdom |
-| Contrato de la API | **springdoc-openapi** | Sale de los controladores, así que no hay documentación que mantener aparte del código |
-| Despliegue | **Render** (backend) · **Supabase** (datos) | Capa gratuita, con heartbeat para que ninguno hiberne |
+| Interfaz | **HTML5 + Tailwind CSS + Vanilla JS** | Desacoplada en `frontend/` (Landing + SPA), sin dependencias runtime. CSS compilado por adelantado (`npm run css`), fuentes OFL locales y CSP estricta |
+| Contrato de la API | **springdoc-openapi** | OpenAPI 3.0 con Swagger UI en `/swagger-ui.html` generado directamente desde los controladores |
+| Despliegue | **Render** (Docker Web Service + Static Site) · **Supabase** (PostgreSQL 17) | Backend contenerizado y frontend estático con orígenes CORS parametrizados y heartbeat |
 
 La aplicación abre en **lo primero de hoy**: las prioridades de la tienda
 ordenadas por lo que cuesta dejarlas para mañana, cada una con el botón que
@@ -407,9 +441,9 @@ registradas, análisis y diagnóstico de rendimiento. `Ctrl+K` abre el buscador 
 Dos cosas que se despliegan por separado y hablan por CORS:
 
 ```
-backend/     la API. Spring Boot, el esquema en sql/, el Dockerfile.
-frontend/    index.html es la landing; app/ es la aplicación. Estáticos puros,
-             sin empaquetador: lo único que se compila es el CSS.
+backend/     la API. Spring Boot 4.1.2, el esquema en sql/01..18, y el Dockerfile propio.
+frontend/    index.html es la landing comercial; app/ es la SPA de gestión FEFO.
+             kardo.css compilado con Tailwind; pruebas en src/test/js/.
 docs/  tools/  DESIGN.md  PRODUCT.md     comunes a las dos.
 ```
 
@@ -474,13 +508,13 @@ miedo.
 ### Pruebas
 
 ```bash
-cd backend  && ./mvnw verify      # 252 unitarias + 182 de integración
-cd frontend && npm ci && npm test # 35 de la interfaz, en jsdom
+cd backend  && ./mvnw verify      # 254 pruebas (unitarias, integración y contrato SPA)
+cd frontend && npm ci && npm test # 54 pruebas de interfaz en Vitest (308 totales, 0 fallos)
 ```
 
 Node hace además una cosa que no es probar: **compilar el CSS**. Tras tocar
 `frontend/src/css/kardo.css` o `tailwind.config.js` hay que ejecutar
-`npm run css` y commitear `frontend/app/kardo.css`, porque el host estático
+`npm run css` y commitear `frontend/kardo.css`, porque el host estático
 publica los archivos tal cual y no construye nada. Se versiona a propósito, y el CI la reconstruye y
 falla si lo versionado no coincide —si no, una clase nueva en `app.js` no
 rompería nada: sólo saldría un elemento sin estilo—. Mientras se diseña,
