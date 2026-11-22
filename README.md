@@ -5,7 +5,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1.2-6DB33F?style=flat&logo=springboot)](https://spring.io/projects/spring-boot)
 [![PostgreSQL 17](https://img.shields.io/badge/Database-PostgreSQL_17_(3NF)-336791?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![Gemini Flash](https://img.shields.io/badge/AI-Gemini_Flash_Vision-4285F4?style=flat&logo=google)](https://ai.google.dev/)
-[![Tests](https://img.shields.io/badge/Tests-308%20passed%20(100%25)-success?style=flat&logo=junit5)](https://github.com/MrOdar/kardo)
+[![Tests](https://img.shields.io/badge/Tests-500%20passed%20(100%25)-success?style=flat&logo=junit5)](https://github.com/MrOdar/kardo)
 
 **Kardo evita que la mercadería se venza en el anaquel.**
 
@@ -489,7 +489,10 @@ sin esa regla, probar en el portátil escribiría en la base de producción
 En producción se configuran por variables de entorno: `DATABASE_URL`,
 `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `JWT_SECRET`, `GEMINI_API_KEY` y
 `CORS_ALLOWED_ORIGINS`, que tiene que incluir el origen donde esté publicado el
-front. En Render, el servicio de la API usa `backend/` como *Root Directory*: el
+front. `CLIENT_IP_HEADER` (por defecto `CF-Connecting-IP`) dice de qué cabecera
+sale la IP real del cliente para los frenos y la auditoría: Render va detrás de
+Cloudflare, y la primera entrada de `X-Forwarded-For` la escribe el propio
+cliente. Vacía, se usa la IP del socket. En Render, el servicio de la API usa `backend/` como *Root Directory*: el
 `Dockerfile` espera ese contexto.
 
 ### Base de datos
@@ -508,8 +511,8 @@ miedo.
 ### Pruebas
 
 ```bash
-cd backend  && ./mvnw verify      # 254 pruebas (unitarias, integración y contrato SPA)
-cd frontend && npm ci && npm test # 54 pruebas de interfaz en Vitest (308 totales, 0 fallos)
+cd backend  && ./mvnw verify      # 446 pruebas: 258 unitarias y 188 de integración y contrato SPA
+cd frontend && npm ci && npm test # 54 pruebas de interfaz en Vitest (500 totales, 0 fallos)
 ```
 
 Node hace además una cosa que no es probar: **compilar el CSS**. Tras tocar
