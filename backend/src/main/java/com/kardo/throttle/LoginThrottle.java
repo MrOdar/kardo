@@ -22,11 +22,11 @@ import org.springframework.stereotype.Component;
  * un barrido de correos desde una sola IP pasa sin tocar ningun limite; solo por
  * IP, basta repartir el ataque para volver a tener via libre.
  *
- * <p>La IP sale de {@code getRemoteAddr()}, que en Render es la real gracias a
- * {@code server.forward-headers-strategy=framework}. Aun asi, una cabecera
- * {@code X-Forwarded-For} falsificada podria esquivar el limite por IP: por eso
- * el limite por cuenta es el que de verdad protege a un usuario concreto, y no
- * un adorno.
+ * <p>La IP sale de {@code getRemoteAddr()}, que {@code ClientIpFilter} fija a
+ * partir de {@code CF-Connecting-IP}: la escribe Cloudflare y el cliente no la
+ * puede falsificar, a diferencia de la primera entrada de {@code X-Forwarded-For}.
+ * Aun asi, el limite por cuenta es el que de verdad protege a un usuario
+ * concreto: un atacante con muchas IP reales reparte el ataque.
  */
 @Component
 public class LoginThrottle {
